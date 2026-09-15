@@ -1,210 +1,88 @@
-# Workflows
+# Workflows and failure boundaries
 
-## 1. Basic asynchronous task
-
-```mermaid
-sequenceDiagram
-    participant O as Orchestrator
-    participant M as A2A-MQ Adapter
-    participant B as Broker
-    participant W as Worker
-    participant P as Task Projection
-
-    O->>M: SendMessage
-    M->>B: publish message.send
-    M-->>O: accepted / correlation
-    B->>W: deliver command
-    W->>P: persist SUBMITTED/WORKING
-    W->>B: publish task.status WORKING
-    W->>W: execute task
-    W->>P: persist COMPLETED + artifacts
-    W->>B: publish artifacts/status
-    W-->>B: ack command
-    B-->>M: events
-    M-->>O: correlated task updates
-```
-
-## 2. Worker offline at submission
+## Normal reference task (phases 2-3)
 
 ```mermaid
 sequenceDiagram
-    participant O as Orchestrator
-    participant B as JetStream
-    participant W as Worker
-    O->>B: durable command
-    Note over B: worker unavailable; command retained
-    W->>B: reconnect durable consumer
-    B->>W: deliver pending command
-    W->>B: ack after durable acceptance/outcome
+  participant O as Orchestrator
+  participant B as Dapr / JetStream
+  participant W as Worker replica
+  participant S as SQL store
+  participant R as Outbox relay
+  participant P as Observer
+  O->>B: publish immutable message.send
+  B-->>O: transport acceptance only
+  B->>W: deliver CloudEvent
+  W->>S: commit leased claim / fence
+  W->>S: atomic effect + Task + snapshots + completed inbox
+  W-->>B: SUCCESS
+  R->>S: read pending events
+  R->>B: publish same event ID
+  R->>S: mark sent after publish succeeds
+  B->>P: snapshot (possibly duplicate/out of order)
+  P->>P: atomic dedup + monotonic projection
 ```
 
-Expected property: no task loss merely because a worker was temporarily offline.
-
-## 3. Competing workers
+## Crash after claim
 
 ```mermaid
 sequenceDiagram
-    participant B as Broker
-    participant W1 as Worker replica 1
-    participant W2 as Worker replica 2
-    B->>W1: command X
-    Note over W1,W2: same durable consumer/group
-    W1->>B: ack X
-    Note over B,W2: W2 does not execute X
+  participant B as Broker
+  participant W1 as Replica A
+  participant S as Shared SQL
+  participant W2 as Replica B
+  B->>W1: command C
+  W1->>S: commit claim token A, fence 1
+  Note over W1: crash before outcome
+  B->>W2: redeliver C
+  W2->>S: claim C
+  S-->>W2: busy until lease expires
+  W2-->>B: RETRY, not SUCCESS
+  B->>W2: redeliver after expiry
+  W2->>S: reclaim token B, fence 2
+  W2->>S: commit reference effect and outbox once
+  Note over W1,S: token A can no longer commit
+  W2-->>B: SUCCESS
 ```
 
-The application still implements deduplication because redelivery can happen after crashes/timeouts.
+A committed claim is not an accepted durable workflow. A worker must never ACK an
+unfinished claim just because the message was seen before. Long tasks transition
+to the Dapr Workflow acceptance boundary only when phase 4 implements it.
 
-## 4. Crash and redelivery
+## Effect and relay crash matrix
 
-```mermaid
-sequenceDiagram
-    participant B as Broker
-    participant W1 as Worker A
-    participant D as Dedup/Workflow Store
-    participant W2 as Worker B
+| Crash point | Durable result | Recovery |
+|---|---|---|
+| Before claim commit | Nothing reserved | Redelivery can claim |
+| After claim commit | Lease only | Retry, then fenced takeover |
+| After effect SQL, before transaction commit | Effect/outcome rollback | Reclaim and execute local effect |
+| After outcome commit, before ACK | Completed inbox and outbox | Return existing outcome; no second effect |
+| After event publish, before sent marker | Event may be delivered twice | Republish same ID; observers deduplicate |
 
-    B->>W1: command X
-    W1->>D: claim X / durable workflow acceptance
-    W1--xW1: crash before broker ack
-    B->>W2: redeliver X
-    W2->>D: check X
-    D-->>W2: already accepted / resume outcome
-    W2->>B: ack safely
-```
+## Offline and multi-orchestrator behavior
 
-## 5. Input required
+Provision a retained stream first. Commands published before workers exist remain
+available within retention; worker replicas share one durable/group. Observer A and
+B each have their own durable/group and projection namespace. A shared group would
+load-balance observers rather than broadcast, so configuration tests reject that.
+A late observer can rebuild from retained full snapshots; retention still limits
+history. Database backups are needed after all retained snapshots are gone.
 
-```mermaid
-sequenceDiagram
-    participant O as Orchestrator/User
-    participant B as Broker
-    participant W as Durable Worker Workflow
+## Snapshot reordering
 
-    W->>B: task.status INPUT_REQUIRED
-    B-->>O: event
-    Note over W: workflow suspended durably
-    O->>B: continuation message with same task/context
-    B->>W: continuation
-    W->>B: task.status WORKING
-    W->>B: task.status COMPLETED
-```
+For task T, version 3 completed may arrive before versions 1 submitted and 2 working.
+Apply the complete version-3 Task, including artifacts. Later lower versions cannot
+replace it. Conflicting version 3 or a higher snapshot reopening T is rejected.
+This rule applies to full snapshots, not incremental artifact chunks.
 
-`AUTH_REQUIRED` follows the same pattern, with authorization material handled by secure references rather than plaintext secrets in task content.
+## Future workflows (not implemented in phases 0-3)
 
-## 6. Cancellation
+Input/auth-required pauses need a durable workflow and a continuation message with
+the same task/context. Cancellation is a request until the owner durably stops;
+completion already committed cannot be rewritten. Fan-out/fan-in stores child IDs
+and join state durably rather than relying on observer process memory. The standard
+A2A bridge converts these events to upstream responses/streams in phase 5.
 
-```mermaid
-sequenceDiagram
-    participant O as Orchestrator
-    participant B as Broker
-    participant W as Worker/Workflow
-    participant P as Projection
-
-    O->>B: task.cancel(taskId)
-    B->>W: cancellation request
-    W->>W: stop at safe cancellation point
-    W->>P: persist CANCELED
-    W->>B: task.status CANCELED
-    B-->>O: cancellation observed
-```
-
-Race rule: if completion becomes durable before cancellation is accepted, terminal `COMPLETED` wins. Terminal states are not rewritten by a later stale cancellation event.
-
-## 7. Multi-orchestrator fan-out
-
-```mermaid
-sequenceDiagram
-    participant W as Worker
-    participant B as Broker
-    participant O1 as Orchestrator A
-    participant O2 as Orchestrator B
-    participant A as Audit
-
-    W->>B: task.status event
-    B-->>O1: own subscription
-    B-->>O2: own subscription
-    B-->>A: restricted audit subscription
-```
-
-Each observer has an independent consumer identity, so one observer receiving an event does not consume it on behalf of the others.
-
-## 8. Orchestrator fan-out/fan-in
-
-```mermaid
-sequenceDiagram
-    participant O as Parent Orchestrator
-    participant B as Broker
-    participant A as Agent A
-    participant C as Agent C
-
-    O->>B: child task A
-    O->>B: child task C
-    B->>A: execute A
-    B->>C: execute C
-    A->>B: completed A
-    C->>B: completed C
-    B-->>O: event A
-    B-->>O: event C
-    O->>O: durable join/fan-in
-    O->>B: parent completion/result
-```
-
-The parent workflow stores child task IDs/reference relationships using A2A-compatible task/message metadata.
-
-## 9. Encrypted command
-
-```mermaid
-sequenceDiagram
-    participant O as Producer
-    participant K as KMS/Key Provider
-    participant B as Broker
-    participant W as Authorized Worker
-
-    O->>K: request/wrap content key
-    O->>O: encrypt A2A payload using AES-GCM
-    O->>B: publish routing metadata + ciphertext
-    Note over B: broker cannot read payload
-    B->>W: encrypted command
-    W->>K: unwrap content key
-    W->>W: authenticate/decrypt payload
-    W->>W: process normally
-```
-
-## 10. Poison message and DLQ
-
-```mermaid
-sequenceDiagram
-    participant B as Broker
-    participant W as Worker
-    participant D as DLQ
-    participant Op as Operator
-
-    B->>W: command
-    W-->>B: retryable failure
-    B->>W: redelivery (bounded)
-    W-->>B: deterministic permanent failure
-    W->>D: dead-letter envelope + failure metadata
-    W->>B: ack original
-    Op->>D: inspect
-    Op->>B: controlled replay with explicit message identity policy
-```
-
-## 11. Standard A2A bridge
-
-```mermaid
-sequenceDiagram
-    participant C as Standard A2A Client
-    participant H as A2A HTTP+JSON Bridge
-    participant B as MQ
-    participant W as MQ-backed Agent
-
-    C->>H: POST message:send
-    H->>B: message.send command
-    B->>W: command
-    W->>B: task events
-    B-->>H: correlated events/projection
-    H-->>C: canonical A2A response
-```
-
-For streaming, the bridge maintains the client stream while consuming correlated task events. If the bridge restarts, the client follows normal A2A reconnection/subscription semantics; task durability does not depend on the stream connection.
+Encrypted flow in phase 7: authorize recipient, wrap a fresh content key, AEAD-encrypt,
+publish, authenticate/decrypt at the authorized endpoint, then follow the same
+inbox/outbox rules. Encryption does not change delivery or idempotency semantics.

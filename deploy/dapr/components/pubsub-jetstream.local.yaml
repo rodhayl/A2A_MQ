@@ -1,27 +1,16 @@
-# Local-development component only.
-# Production deployments must add TLS/authentication, scopes, HA/replication,
-# secrets and role-specific consumer configuration.
+# Publisher-only illustration. Do not load this together with generated role components.
+# Local only: no authentication or TLS. Stream A2A_MQ must already exist.
 apiVersion: dapr.io/v1alpha1
 kind: Component
 metadata:
-  name: a2a-pubsub
+  name: bus
 spec:
   type: pubsub.jetstream
   version: v1
   metadata:
     - name: natsURL
-      value: "nats://localhost:4222"
+      value: "nats://127.0.0.1:4222"
     - name: name
-      value: "a2a-mq-local"
+      value: "a2a-mq-publisher"
     - name: streamName
       value: "A2A_MQ"
-    - name: ackPolicy
-      value: "explicit"
-    - name: ackWait
-      value: "30s"
-    - name: maxDeliver
-      value: "5"
-    - name: backOff
-      value: "1s, 5s, 30s, 2m"
-    - name: memoryStorage
-      value: "false"

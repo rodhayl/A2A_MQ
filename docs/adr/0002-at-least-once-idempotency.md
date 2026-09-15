@@ -1,30 +1,15 @@
-# ADR-0002: Guarantee at-least-once delivery and require idempotent processing
+# ADR 0002 - At-least-once delivery, explicit effect boundary
 
-- Status: Accepted
-- Date: 2026-09-15
+Status: accepted, corrected 2026-09-15.
 
-## Context
+Do not claim end-to-end exactly-once side effects. Deduplicate by tenant, logical
+consumer and immutable message ID; reject content reuse conflicts. A durable claim
+is a lease, not completion. Reclaim abandoned leases with fencing tokens.
 
-Durable brokers can redeliver messages when a worker crashes or acknowledgements are lost. External side effects create a classic gap between "effect happened" and "message was acknowledged". Marketing an end-to-end exactly-once guarantee would be incorrect unless every external system participates in the same atomic transaction, which is not realistic for general agents.
+Commit the local reference SQL effect, Task, completed inbox and outbox atomically.
+ACK after that transaction. Publish stored events with their original IDs and
+mark sent only after success. A publish/mark crash may duplicate an event.
 
-## Decision
-
-A2A-MQ defines its transport guarantee as **at least once**.
-
-Correctness is achieved through:
-
-- immutable logical message IDs;
-- durable deduplication records;
-- task state/version guards;
-- application idempotency keys for external side effects;
-- durable workflows where long-running coordination is needed;
-- bounded retry and DLQ policies.
-
-A retry by the producer for the same logical command reuses the same message ID.
-
-## Consequences
-
-- duplicate physical deliveries are expected and tested;
-- worker handlers must not assume one delivery equals one execution attempt;
-- applications integrating non-idempotent external APIs must use their idempotency features or a transactional/outbox-style design;
-- documentation must never claim generic end-to-end exactly-once execution.
+This protects the transactional reference fixture. External tools require a stable
+destination idempotency key or reconciliation. A local effect marker cannot prove
+that an external action happened exactly once. Tests must expose this distinction.

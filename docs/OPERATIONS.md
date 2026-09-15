@@ -1,148 +1,68 @@
-# Operations Guide
+# Operations and recovery
 
-## 1. Operational principles
+## Development versus production
 
-- broker persistence is not a substitute for application idempotency;
-- task queries use the projection store, not broker scans;
-- consumer identities must remain stable across restarts;
-- retention, dedup retention and key-retention windows must be designed together;
-- DLQ is an operational queue, not a trash can;
-- production deployments must have explicit resource bounds.
+`deploy/` is a loopback-only local fixture, not hardened deployment guidance. The
+SQLite backend is for a single host. A live PostgreSQL test is required before a
+shared multi-host deployment. No HA/RPO/RTO promise follows from a unit test.
+Dapr Workflow state and the application SQL state need separate backup planning.
 
-## 2. Core SLO indicators
+## Health and failure classification
 
-Track at minimum:
+Liveness answers whether the process runs. Readiness must check store access and
+the Dapr outbound API, not merely return HTTP 200. Readiness does not measure broker
+quorum health or backlog. Transient failures retry; permanent malformed commands
+are handed to a confirmed DLQ before ACK. If the DLQ is unavailable, do not ACK.
+Delivery exhaustion in JetStream is a stranded-message/alert condition unless a
+verified dead-letter path handles it; do not assume `maxDeliver` performs a move.
 
-- publish success/error rate;
-- publish-to-consume latency;
-- consumer lag/backlog;
-- in-flight command count;
-- processing duration;
-- retry/redelivery count;
-- duplicate suppression count;
-- DLQ depth/age;
-- task completion/failure/cancel rates;
-- projection conflict/stale-event count;
-- broker/storage availability;
-- decryption/auth failures when encrypted mode is enabled.
+## Required signals before production
 
-## 3. Alert candidates
+Measure accepted publishes, callback attempts, duplicate/conflict counts, busy and
+expired leases, old fencing tokens, pending/oldest outbox, outbox publish failures,
+projection version/lag, DLQ count/age, dependency readiness and storage capacity.
+Structured logs contain identifiers, route and reason codes, not prompts, tokens,
+raw payloads, exception response bodies or ciphertext keys. Metrics/exported traces
+are phase-8 work beyond initial trace-context propagation.
 
-- oldest command age above service threshold;
-- sustained DLQ growth;
-- zero active consumers for a critical route;
-- high redelivery ratio;
-- task failure spike;
-- projection write failures;
-- broker storage near capacity;
-- repeated authorization/decryption failures;
-- key version nearing retirement while retained messages still reference it.
+## Retention invariants
 
-## 4. Retention sizing
+Retain dedup/effect identities at least through the maximum replay/redelivery window.
+Retain decrypt capability through retained ciphertext lifetime when crypto is added.
+Do not delete completed inbox rows simply because broker ACKs succeeded. Keep task
+projections/backups beyond broker retention when queries require it. Initial SQL
+records are retained without automatic cleanup; plan quotas/cleanup before production.
+Snapshots are bounded but large history/artifacts must be externalized deliberately.
 
-For each route define:
+## Recovery procedure
 
-- expected publish rate;
-- mean/max payload size;
-- maximum acceptable worker outage;
-- replay/debug window;
-- maximum command expiry;
-- dedup record retention;
-- encryption key decrypt-retention.
+Given a command ID: locate its tenant/consumer inbox entry; distinguish busy lease
+from completed outcome; inspect pending outbox and projection version; then inspect
+consumer backlog and DLQ metadata. Never mark a processing claim done manually to
+clear a queue. A reclaimed lease must get a new token/fence. A stale worker fails
+its commit check. A terminal task is not reopened by replay.
 
-Invariant: do not retain replayable commands longer than the system retains enough idempotency/key material to process them safely.
+For outbox recovery, resend the stored envelope unchanged. A positive publish may
+have occurred even after a timeout. Reusing its ID makes this ambiguity safe for
+idempotent observers. Mark sent only after a confirmed response. Multiple relays
+may send duplicates; no exactly-once publisher claim is made.
 
-## 5. DLQ process
+For DLQ replay distinguish same-command retry (same immutable ID/body) from new work
+(new ID and explicit causation). Editing the body under the old ID is a conflict.
+Replay authorization, inspection CLI and automated cleanup are later release gates.
 
-Every DLQ item should include, outside sensitive payload content:
+## Deploy and drain
 
-- original message ID;
-- route;
-- operation;
-- task/context IDs when allowed;
-- failure class;
-- attempt count;
-- first/last failure timestamp;
-- trace ID;
-- original envelope or an encrypted/secured reference to it.
+Create streams before producers, preserve role-specific durable/group identities,
+and start observers independently from workers. Bound SQL busy timeout, callback
+concurrency, Dapr request timeout, ack wait and payload size coherently. Retry and
+lease timeouts must permit recovery before command retention expires.
 
-Replay must be explicit:
+Stop intake, let bounded in-flight transactions finish, stop the relay after its
+current publish, then exit without blanket ACKs. Pending outbox rows survive a
+restart. Rollback migrations are not implemented yet: initial schema creation is
+idempotent, but schema upgrades require a future explicit migration mechanism.
 
-- **same logical command replay** reuses original identity when testing redelivery semantics;
-- **new logical attempt** gets a new message ID and references the old message through `causationId`/operator metadata.
-
-The replay CLI must force the operator to choose which behavior is intended.
-
-## 6. Graceful shutdown
-
-Consumers should:
-
-1. stop accepting new deliveries;
-2. finish or safely checkpoint in-flight work up to a bounded timeout;
-3. leave uncompleted commands unacked for redelivery;
-4. flush telemetry;
-5. terminate.
-
-Never ack all in-flight messages during shutdown just to empty the client buffer.
-
-## 7. Deployment changes
-
-For rolling upgrades:
-
-- envelope changes must remain backward-compatible within major version;
-- consumers should be upgraded before producers begin using new optional fields that require support;
-- schema major-version changes require separate routes or an explicitly staged compatibility window;
-- task projection migrations must be backward/forward compatible during rolling deployment where possible.
-
-## 8. Broker migration
-
-Dapr keeps the application boundary portable, but broker semantics differ. Before switching backend:
-
-- run the complete integration/conformance suite;
-- verify competing-consumer behavior;
-- verify redelivery timing;
-- verify retention and DLQ behavior;
-- verify topic/ACL mapping;
-- benchmark payload limits and latency;
-- perform a staged cutover rather than assuming configuration equivalence.
-
-## 9. Backup and recovery
-
-Back up persistent task projection/workflow state according to backend guidance. Broker streams with business-critical pending commands must have an HA/backup strategy matching required RPO/RTO.
-
-Recovery drill must test:
-
-- state store restore;
-- broker restart/cluster failover;
-- workers resuming pending commands;
-- no unintended duplicate side effects;
-- encrypted historical messages still decrypt when required.
-
-## 10. Debug workflow
-
-Given a `taskId`:
-
-1. query task projection;
-2. obtain latest state version/event ID;
-3. search structured logs by task/message/correlation IDs;
-4. inspect traces;
-5. inspect relevant consumer backlog/redelivery statistics;
-6. inspect DLQ only if failure classification indicates it;
-7. avoid manually republishing payloads until idempotency implications are known.
-
-## 11. Capacity controls
-
-Configure:
-
-- max broker message size;
-- max inline A2A artifact size;
-- worker concurrency;
-- max in-flight messages;
-- workflow fan-out limits;
-- retry attempts/backoff;
-- task history limit;
-- task/list page size;
-- broker storage quotas;
-- log sampling/retention.
-
-Defaults should favor safety over maximum throughput.
+Before production test broker loss, DB restart/restore, disk full, lease takeover,
+Dapr consumer restarts, poisoned messages, unauthorized routes and backups. Record
+versions and observed behavior; keep unexecuted tests visible in validation.

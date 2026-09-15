@@ -1,0 +1,25 @@
+{
+  "envelopeVersion": "1.0",
+  "a2aVersion": "1.0",
+  "tenantId": "demo",
+  "messageId": "94c92358-0c69-4fb7-b5c9-e85a6cd815df",
+  "kind": "command",
+  "operation": "message.send",
+  "source": "planner",
+  "target": {
+    "skill": "echo"
+  },
+  "correlationId": "request-1",
+  "createdAt": "2026-09-15T16:00:00Z",
+  "payload": {
+    "message": {
+      "messageId": "client-1",
+      "role": "ROLE_USER",
+      "parts": [
+        {
+          "text": "hello"
+        }
+      ]
+    }
+  }
+}

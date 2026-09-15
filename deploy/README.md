@@ -1,28 +1,21 @@
-# Deployment Notes
+# Local deployment fixture
 
-This directory contains reference deployment configuration. It is not production-ready until the implementation phases add broker authentication/TLS, Dapr scopes, secret-store integration, HA settings and environment-specific state stores.
+This directory is for development only. No production TLS, identity mapping, key
+management or multi-node durability claim is made. Never use real secrets/tasks.
 
-## Local JetStream
+Phase 0 establishes the component contract. Phase 2 adds the executable compose
+fixture and role-specific generated components. The chosen Dapr runtime baseline
+is 1.18.2. Python code uses Dapr's HTTP API, not an unpinned SDK.
 
-Current Dapr documentation defines the JetStream component type as `pubsub.jetstream`. The component supports durable consumer configuration including `durableName`, `queueGroupName`, `ackWait`, `maxDeliver`, `backOff`, `maxAckPending`, replicas and storage options.
+Use one retained limits-policy stream covering `a2a.v1.demo.>` and provision it
+before publishing. A worker pool uses the same durable/group in all replicas.
+Observer A and B use different pairs, each subscribed to the single event route.
+Do not reuse one durable consumer across different subscription filters.
 
-Start a local NATS server with JetStream enabled, then create a stream covering the A2A subjects/topics used by the implementation. Exact subject names will be locked when Phase 2 transport code lands.
+The old global component is now a publisher-only illustration; it does not assert
+competing/fan-out configuration. ACK timing is bounded short-task completion plus
+SQL outbox persistence, not the duration of a future long-running agent workflow.
 
-The checked-in `pubsub-jetstream.local.yaml` intentionally does **not** hard-code a global `durableName`/`queueGroupName`. Competing worker pools and fan-out observers require different stable consumer identities. Those settings should be generated/scoped per application role once the Dapr subscription layout is implemented and integration-tested.
-
-## Production requirements
-
-Before using these manifests in production:
-
-- enable broker TLS/authentication;
-- use a secret store for credentials;
-- configure Dapr publish/subscribe scopes;
-- configure broker account/subject permissions where applicable;
-- use HA JetStream and persistent volumes appropriate to RPO/RTO;
-- configure production workflow/task state store;
-- configure OpenTelemetry export;
-- define retention/storage quotas;
-- define DLQ routing and operator permissions;
-- test failure/recovery scenarios from `docs/TEST_PLAN.md`.
-
-Reference: https://docs.dapr.io/reference/components-reference/supported-pubsub/setup-jetstream/
+Real exit tests require Docker with Dapr/JetStream images and, separately,
+PostgreSQL. Missing binaries/network must be reported as unavailable, never replaced
+with a mock result described as a live broker pass. See `docs/VALIDATION.md`.
