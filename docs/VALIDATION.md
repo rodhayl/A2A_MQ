@@ -20,3 +20,9 @@ is claimed.
 
 121 tests passed; 2 upstream SDK tests skipped because the optional SDK is absent.
 Repository checks passed. See [phase 1 evidence](validation/phase1.md).
+
+## Phase 2
+
+156 tests passed; 3 skipped (2 upstream SDK, 1 real Docker broker fixture).
+Generation/repository checks and real loopback HTTP/CLI tests passed. Broker
+integration is not claimed. See [phase 2 evidence](validation/phase2.md).

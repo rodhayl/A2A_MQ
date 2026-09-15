@@ -1,21 +1,60 @@
-# Local deployment fixture
+# Local deployment and live gates
 
-This directory is for development only. No production TLS, identity mapping, key
-management or multi-node durability claim is made. Never use real secrets/tasks.
+Development only. No production identity, TLS, KMS or HA claim. All published host
+ports bind loopback. Container listeners bind internally for sidecar access. Use
+only synthetic tasks. The Compose project is named `a2a-mq-local`.
 
-Phase 0 establishes the component contract. Phase 2 adds the executable compose
-fixture and role-specific generated components. The chosen Dapr runtime baseline
-is 1.18.2. Python code uses Dapr's HTTP API, not an unpinned SDK.
+## Start
 
-Use one retained limits-policy stream covering `a2a.v1.demo.>` and provision it
-before publishing. A worker pool uses the same durable/group in all replicas.
-Observer A and B use different pairs, each subscribed to the single event route.
-Do not reuse one durable consumer across different subscription filters.
+```sh
+python -m pip install -e '.[dev]'
+make up
+python -m a2a_mq --text 'hello agents' --save /tmp/a2a-command.json
+# On an ambiguous timeout, retry the same file; do not generate another ID:
+python -m a2a_mq --retry-file /tmp/a2a-command.json
+```
 
-The old global component is now a publisher-only illustration; it does not assert
-competing/fan-out configuration. ACK timing is bounded short-task completion plus
-SQL outbox persistence, not the duration of a future long-running agent workflow.
+`make up` runs the stdlib generator, then Docker Compose. Generated manifests are
+ignored by Git; their reviewed source is `generate.py`. Images: Dapr 1.18.2,
+NATS 2.14.6-alpine and NATS-box 0.19.0. Python uses the 3.13-slim image family;
+image digests/transitive dependencies are not yet locked for a production supply chain.
 
-Real exit tests require Docker with Dapr/JetStream images and, separately,
-PostgreSQL. Missing binaries/network must be reported as unavailable, never replaced
-with a mock result described as a live broker pass. See `docs/VALIDATION.md`.
+The initializer creates a file-backed limits-retention stream **before sidecars**.
+It does not rewrite an existing stream; intentional retention/config changes need
+an operator migration or disposable-volume reset. Retention is one day / 256 MiB /
+100,000 messages; full storage rejects new publishes instead of silently evicting
+old accepted work. Expiry still limits guarantees.
+
+Worker A/B share one logical app ID, consumer pair and a single-host SQLite volume.
+Observer A/B have distinct consumer pairs and volumes. Components include local
+publish/subscribe scopes. These are not a substitute for broker credentials or
+production authorization. The phase-2 checkpoint is deliberately a volatile demo;
+phase 3 installs transactional processing behind the same endpoints.
+
+## Inspect
+
+Producer Dapr: `http://127.0.0.1:3500`; app health: `:18000/health/ready`.
+Observer metadata: `:18001/internal/observations` and `:18002/internal/observations`.
+Worker health: ports 18011/18012. NATS monitor: port 8222. No payload logs are needed.
+
+## Real infrastructure gate
+
+```sh
+A2A_LIVE=1 python -m pytest -m live -v
+```
+
+This test **deletes this fixture's named volumes**, publishes before workers exist,
+starts two worker replicas and checks both observers receive the expected events.
+Use a disposable machine/project only. Phase 3 extends it with durable effect counts.
+A transport mock cannot establish these broker properties. This environment had no
+Docker/runtime binaries, so this live gate was not executed here.
+
+Dapr retries callbacks 20 times at 1-second intervals before its configured dead
+letter route. Permanent application errors are explicitly quarantined first.
+Broker ack wait is 60 seconds and maxDeliver 20; exhausted broker deliveries require
+operator inspection/advisories, not an assumption of automatic DLQ movement.
+The protected reference transaction is short; phase-3 leases must be shorter than
+the normal callback retry window. Long inference belongs in phase-4 workflows.
+
+`make down` preserves volumes. `docker compose -f deploy/compose.yaml down -v`
+destroys them. Database server and upstream SDK gates are separate from this fixture.

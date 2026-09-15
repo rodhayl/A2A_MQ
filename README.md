@@ -40,3 +40,11 @@ The first slice uses a deterministic echo worker: no paid model or API key is
 needed. Dapr Workflow/Agents integration, cancellation, continuation, authentication
 hardening and payload encryption remain explicit later gates. Unsupported
 features must fail closed rather than silently pretending to work.
+
+## Local transport demo
+
+With Docker Compose installed, `make up` generates and starts a retained stream,
+a producer sidecar, two worker replicas and two independent observers. Publish
+with `python -m a2a_mq --text 'hello' --save /tmp/a2a-command.json`; retry an
+ambiguous send with `--retry-file /tmp/a2a-command.json`. See deployment instructions
+before running the destructive, opt-in live test.
