@@ -15,3 +15,8 @@ upstream SDK, Dapr/JetStream and PostgreSQL require separate evidence when avail
 15 baseline/schema tests passed. Offline editable install and repository checks
 passed. See [phase 0 evidence](validation/phase0.md). No live infrastructure pass
 is claimed.
+
+## Phase 1
+
+121 tests passed; 2 upstream SDK tests skipped because the optional SDK is absent.
+Repository checks passed. See [phase 1 evidence](validation/phase1.md).
