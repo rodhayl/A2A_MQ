@@ -55,7 +55,9 @@ def token(value: str) -> str:
 
 def canonical(value: Any) -> str:
     try:
-        return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"), allow_nan=False)
+        text = json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"), allow_nan=False)
+        text.encode("utf-8", errors="strict")
+        return text
     except (TypeError, ValueError, RecursionError):
         raise PermanentError("INVALID_JSON") from None
 
@@ -71,11 +73,14 @@ def _pairs(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
 def _depth(value: Any, level: int = 0) -> None:
     require(level <= 32, "JSON_TOO_DEEP")
     if isinstance(value, dict):
-        for child in value.values():
+        for key, child in value.items():
+            key.encode("utf-8", errors="strict")
             _depth(child, level + 1)
     elif isinstance(value, list):
         for child in value:
             _depth(child, level + 1)
+    elif isinstance(value, str):
+        value.encode("utf-8", errors="strict")
     elif isinstance(value, float):
         require(math.isfinite(value), "INVALID_JSON")
 
@@ -87,7 +92,9 @@ def load_json(raw: bytes | str, limit: int = MAX_BYTES) -> Any:
         value = json.loads(data.decode("utf-8"), object_pairs_hook=_pairs)
         _depth(value)
         return value
-    except (UnicodeError, json.JSONDecodeError, RecursionError):
+    except PermanentError:
+        raise
+    except (UnicodeError, ValueError, RecursionError):
         raise PermanentError("INVALID_JSON") from None
 
 
