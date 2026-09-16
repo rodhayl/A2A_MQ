@@ -23,6 +23,10 @@ def echo_events(request: Envelope, owner: str = "worker-echo") -> list[Envelope]
         task: dict[str, Any] = {"id": task_id, "contextId": context, "status": {"state": "TASK_STATE_" + state}}
         if state == "COMPLETED":
             task["artifacts"] = [{"artifactId": "echo", "parts": [{"text": text}]}]
-        result.append(snapshot(request, task, sequence, owner,
-                               str(uuid5(NAMESPACE_URL, identity + f"/event/{sequence}"))))
+        event = snapshot(request, task, sequence, owner,
+                         str(uuid5(NAMESPACE_URL, identity + f"/event/{sequence}"))).as_dict()
+        # This model-free fixture uses request time, not execution time. Replays
+        # and fresh processes must emit identical bytes for each stable event ID.
+        event["createdAt"] = c["createdAt"]
+        result.append(Envelope.from_dict(event))
     return result
