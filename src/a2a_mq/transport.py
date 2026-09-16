@@ -15,6 +15,7 @@ from uuid import NAMESPACE_URL, uuid5
 import httpx
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
+from starlette.types import ASGIApp, Receive, Scope, Send
 
 from .domain import MAX_BYTES, Envelope, PermanentError, RetryableError, canonical, load_json, require, token
 
@@ -22,6 +23,22 @@ LOG = logging.getLogger("a2a_mq.transport")
 BODY_LIMIT = MAX_BYTES + 16384
 Handler = Callable[[Envelope], Awaitable[None]]
 Readiness = Callable[[], Awaitable[bool]]
+
+
+class _AppTokenMiddleware:
+    """Authenticate without changing request-body or cancellation semantics."""
+
+    def __init__(self, app: ASGIApp, app_token: str):
+        self.app = app
+        self.expected = app_token.encode()
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] == "http" and self.expected and scope["path"] != "/health/live":
+            values = [value for name, value in scope["headers"] if name.lower() == b"dapr-api-token"]
+            if len(values) != 1 or not hmac.compare_digest(values[0], self.expected):
+                await JSONResponse({"error": "UNAUTHORIZED"}, status_code=401)(scope, receive, send)
+                return
+        await self.app(scope, receive, send)
 
 
 def cloud_event(envelope: Envelope) -> dict[str, Any]:
@@ -41,7 +58,7 @@ class DaprPublisher:
         require(parsed.scheme in {"http", "https"} and bool(parsed.netloc)
                 and not parsed.username and not parsed.password and not parsed.query
                 and not parsed.fragment and parsed.path in {"", "/"}, "INVALID_DAPR_URL")
-        require(0 < timeout <= 60, "INVALID_TIMEOUT")
+        require(type(timeout) in {int, float} and 0 < timeout <= 60, "INVALID_TIMEOUT")
         self.url, self.component = url.rstrip("/"), token(component)
         self.timeout = timeout
         self.headers = {"dapr-api-token": api_token} if api_token else {}
@@ -52,20 +69,27 @@ class DaprPublisher:
         if self._owns_client:
             await self.client.aclose()
 
+    async def _status(self, method: str, path: str, headers: dict[str, str],
+                      content: bytes | None = None) -> int:
+        # Only HTTP status is part of the Dapr acceptance/health contract. Streaming
+        # avoids buffering irrelevant bodies; the outer deadline also bounds headers.
+        async with asyncio.timeout(self.timeout):
+            async with self.client.stream(method, self.url + path, content=content,
+                                          headers=headers, timeout=self.timeout,
+                                          follow_redirects=False) as response:
+                return response.status_code
+
     async def _post(self, topic: str, event: dict[str, Any]) -> None:
         headers = {**self.headers, "content-type": "application/cloudevents+json"}
         headers.update({k: event[k] for k in ("traceparent", "tracestate") if k in event})
         try:
-            response = await self.client.post(
-                f"{self.url}/v1.0/publish/{self.component}/{topic}",
-                content=canonical(event).encode(), headers=headers,
-                timeout=self.timeout, follow_redirects=False,
-            )
-        except httpx.RequestError:
+            status = await self._status("POST", f"/v1.0/publish/{self.component}/{topic}",
+                                        headers, canonical(event).encode())
+        except (httpx.RequestError, TimeoutError):
             raise RetryableError("PUBLISH_UNAVAILABLE") from None
-        if response.status_code in {408, 409, 429} or response.status_code >= 500:
+        if status in {408, 409, 429} or status >= 500:
             raise RetryableError("PUBLISH_RETRYABLE")
-        if not 200 <= response.status_code < 300:
+        if not 200 <= status < 300:
             raise PermanentError("PUBLISH_REJECTED")
 
     async def publish(self, envelope: Envelope) -> None:
@@ -86,36 +110,33 @@ class DaprPublisher:
 
     async def ready(self) -> bool:
         try:
-            response = await self.client.get(self.url + "/v1.0/healthz/outbound", headers=self.headers,
-                                             timeout=self.timeout, follow_redirects=False)
-            return 200 <= response.status_code < 300
-        except httpx.RequestError:
+            status = await self._status("GET", "/v1.0/healthz/outbound", self.headers)
+            return 200 <= status < 300
+        except (httpx.RequestError, TimeoutError):
             return False
 
 
 def subscriber(handler: Handler, bus: DaprPublisher, *, tenant: str, consumer: str,
                topic: str | None, app_token: str = "", concurrency: int = 4,
-               readiness: Readiness | None = None, lifespan: Any = None) -> FastAPI:
+               readiness: Readiness | None = None, lifespan: Any = None,
+               callback_timeout: float = 30.0) -> FastAPI:
     tenant, consumer = token(tenant), token(consumer)
-    require(1 <= concurrency <= 128, "INVALID_CONCURRENCY")
+    require(type(concurrency) is int and 1 <= concurrency <= 128, "INVALID_CONCURRENCY")
+    require(type(callback_timeout) in {int, float} and 0 < callback_timeout <= 300, "INVALID_TIMEOUT")
     if topic is not None:
         require(topic.startswith(f"a2a.v1.{tenant}.") and "/" not in topic, "INVALID_ROUTE")
     semaphore = asyncio.Semaphore(concurrency)
 
     @asynccontextmanager
     async def default_lifespan(app: FastAPI):
-        yield
-        await bus.close()
+        try:
+            yield
+        finally:
+            await bus.close()
 
     app = FastAPI(lifespan=lifespan or default_lifespan)
 
-    @app.middleware("http")
-    async def authenticate(request: Request, call_next):
-        if app_token and request.url.path != "/health/live":
-            supplied = request.headers.get("dapr-api-token", "")
-            if not hmac.compare_digest(supplied.encode(), app_token.encode()):
-                return JSONResponse({"error": "UNAUTHORIZED"}, status_code=401)
-        return await call_next(request)
+    app.add_middleware(_AppTokenMiddleware, app_token=app_token)
 
     @app.get("/dapr/subscribe")
     async def subscriptions():
@@ -131,7 +152,8 @@ def subscriber(handler: Handler, bus: DaprPublisher, *, tenant: str, consumer: s
     @app.get("/health/ready")
     async def ready():
         try:
-            ok = await bus.ready() and (readiness is None or await readiness())
+            async with asyncio.timeout(callback_timeout):
+                ok = await bus.ready() and (readiness is None or await readiness())
         except Exception:
             ok = False
         return JSONResponse({"status": "ready" if ok else "unavailable"}, status_code=200 if ok else 503)
@@ -142,7 +164,7 @@ def subscriber(handler: Handler, bus: DaprPublisher, *, tenant: str, consumer: s
         truncated = False
         identifiers: dict[str, Any] = {"consumer": consumer}
         try:
-            async with semaphore:
+            async with asyncio.timeout(callback_timeout), semaphore:
                 async for chunk in request.stream():
                     remaining = BODY_LIMIT - len(raw)
                     raw.extend(chunk[:remaining])
@@ -162,14 +184,20 @@ def subscriber(handler: Handler, bus: DaprPublisher, *, tenant: str, consumer: s
                 require(topic is not None and ce.get("pubsubname") == bus.component
                         and ce.get("topic") == topic == envelope.route and e["tenantId"] == tenant,
                         "UNAUTHORIZED_ROUTE")
-                require(ce.get("id") == e["messageId"], "IDENTIFIER_MISMATCH")
+                require(ce.get("id") == e["messageId"]
+                        and ce["source"] == "urn:a2a-mq:" + e["source"]
+                        and ce["type"] == "a2a-mq." + e["operation"], "IDENTIFIER_MISMATCH")
                 identifiers.update({k: e[k] for k in ("messageId", "taskId", "contextId", "correlationId") if k in e})
                 await handler(envelope)
             LOG.info(canonical({"event": "ack", **identifiers}))
             return {"status": "SUCCESS"}
+        except TimeoutError:
+            LOG.warning(canonical({"event": "retry", "reason": "CALLBACK_TIMEOUT", **identifiers}))
+            return {"status": "RETRY"}
         except PermanentError as exc:
             try:
-                await bus.quarantine(bytes(raw), tenant, consumer, exc.code, truncated)
+                async with asyncio.timeout(callback_timeout):
+                    await bus.quarantine(bytes(raw), tenant, consumer, exc.code, truncated)
             except Exception:
                 LOG.warning(canonical({"event": "retry", "reason": "DLQ_UNAVAILABLE", **identifiers}))
                 return {"status": "RETRY"}
