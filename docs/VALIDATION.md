@@ -1,5 +1,14 @@
 # Validation record
 
+## Current hardening scope
+
+The following phase results are historical. They are not acceptance evidence for
+the final hardening SHA and are not a certificate for the unrecovered full MVP.
+Read [current status](STATUS.md), the [hardening execution record](validation/hardening-20260916.md)
+and [independent review procedure](../TEST_MVP.md) for exact scope and blockers.
+
+## Historical environment
+
 Environment observed: Python 3.13.5; local SQLite; no Docker, Dapr runtime,
 NATS server or PostgreSQL server installed. Direct GitHub clone and package
 metadata download attempts failed in the execution container. The GitHub connector
