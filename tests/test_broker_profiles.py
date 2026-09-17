@@ -1,9 +1,16 @@
 import pytest
-from a2a_mq.broker_profiles import assert_portability_contract, jetstream_component, production_profiles, rabbitmq_component
+from a2a_mq.broker_profiles import (
+    assert_portability_contract,
+    jetstream_component,
+    platform_profiles,
+    production_profiles,
+    rabbitmq_component,
+)
 from a2a_mq.domain import PermanentError
 
 
-def values(profile): return {item["name"]: item for item in profile.component["spec"]["metadata"]}
+def values(profile):
+    return {item["name"]: item for item in profile.component["spec"]["metadata"]}
 
 
 def test_rabbitmq_profile_is_persistent_confirmed_tls_and_manual_ack():
@@ -34,9 +41,27 @@ def test_topology_competes_workers_and_fans_out_observers(broker):
     assert profiles[0].consumer == "demo-workers"
     assert {p.consumer for p in profiles[1:]} == {"demo-observer-a", "demo-observer-b"}
     assert all(len(p.app_ids) == 1 for p in profiles[1:])
-    for profile in profiles: assert_portability_contract(profile)
+    for profile in profiles:
+        assert_portability_contract(profile)
+
+
+@pytest.mark.parametrize("broker", ["rabbitmq", "jetstream"])
+def test_deployable_platform_uses_role_local_components_over_shared_topics(broker):
+    profiles = platform_profiles(broker=broker, tenant="demo")
+    assert set(profiles) == {"api", "worker", "dlq"}
+    assert profiles["api"].component_name == "bus-demo-api"
+    assert profiles["worker"].component_name == "bus-demo-worker"
+    assert profiles["worker"].consumer == "demo-workers"
+    assert profiles["dlq"].component_name == "bus-demo-dlq"
+    assert profiles["api"].app_ids == ("a2amq-api",)
+    assert profiles["worker"].app_ids == ("a2amq-worker",)
+    assert profiles["dlq"].app_ids == ("a2amq-dlq",)
+    for profile in profiles.values():
+        assert_portability_contract(profile)
 
 
 def test_unsupported_broker_fails_closed():
     with pytest.raises(PermanentError, match="UNSUPPORTED_BROKER"):
         production_profiles(broker="redis", tenant="demo")
+    with pytest.raises(PermanentError, match="UNSUPPORTED_BROKER"):
+        platform_profiles(broker="redis", tenant="demo")
