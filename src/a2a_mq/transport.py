@@ -119,12 +119,13 @@ class DaprPublisher:
 def subscriber(handler: Handler, bus: DaprPublisher, *, tenant: str, consumer: str,
                topic: str | None, app_token: str = "", concurrency: int = 4,
                readiness: Readiness | None = None, lifespan: Any = None,
-               callback_timeout: float = 30.0) -> FastAPI:
+               callback_timeout: float = 30.0, protector: Any = None) -> FastAPI:
     tenant, consumer = token(tenant), token(consumer)
     require(type(concurrency) is int and 1 <= concurrency <= 128, "INVALID_CONCURRENCY")
     require(type(callback_timeout) in {int, float} and 0 < callback_timeout <= 300, "INVALID_TIMEOUT")
     if topic is not None:
         require(topic.startswith(f"a2a.v1.{tenant}.") and "/" not in topic, "INVALID_ROUTE")
+    body_limit = MAX_BYTES * 2 + 16384 if protector is not None else BODY_LIMIT
     semaphore = asyncio.Semaphore(concurrency)
 
     @asynccontextmanager
@@ -166,20 +167,22 @@ def subscriber(handler: Handler, bus: DaprPublisher, *, tenant: str, consumer: s
         try:
             async with asyncio.timeout(callback_timeout), semaphore:
                 async for chunk in request.stream():
-                    remaining = BODY_LIMIT - len(raw)
+                    remaining = body_limit - len(raw)
                     raw.extend(chunk[:remaining])
                     if len(chunk) > remaining:
                         truncated = True
                         raise PermanentError("MESSAGE_TOO_LARGE")
                 mime = request.headers.get("content-type", "").split(";")[0].strip().lower()
                 require(mime in {"application/json", "application/cloudevents+json"}, "INVALID_CONTENT_TYPE")
-                ce = load_json(bytes(raw), BODY_LIMIT)
+                ce = load_json(bytes(raw), body_limit)
                 require(isinstance(ce, dict) and ce.get("specversion") == "1.0", "INVALID_CLOUDEVENT")
                 require(isinstance(ce.get("source"), str) and bool(ce["source"])
                         and isinstance(ce.get("type"), str) and bool(ce["type"]), "INVALID_CLOUDEVENT")
+                expected_mime = ("application/vnd.a2amq.sealed+json" if protector is not None else "application/json")
                 require(isinstance(ce.get("datacontenttype"), str)
-                        and ce["datacontenttype"].split(";")[0] == "application/json", "INVALID_CLOUDEVENT")
-                envelope = Envelope.from_dict(ce.get("data"))
+                        and ce["datacontenttype"].split(";")[0] == expected_mime, "INVALID_CLOUDEVENT")
+                envelope = (await protector.open(canonical(ce.get("data")).encode(), expected_route=topic)
+                            if protector is not None else Envelope.from_dict(ce.get("data")))
                 e = envelope.as_dict()
                 require(topic is not None and ce.get("pubsubname") == bus.component
                         and ce.get("topic") == topic == envelope.route and e["tenantId"] == tenant,
