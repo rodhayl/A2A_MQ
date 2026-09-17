@@ -90,7 +90,7 @@ def jetstream_component(*, component: str, consumer: str, app_ids: tuple[str, ..
 def production_profiles(*, broker: str, tenant: str,
                         workers: tuple[str, ...] = ("worker-1", "worker-2"),
                         observers: tuple[str, ...] = ("observer-a", "observer-b")) -> list[BrokerProfile]:
-    """Give replicas one consumer identity and independent observers distinct identities."""
+    """Legacy validation topology: one worker pool plus independent observers."""
     tenant = token(tenant)
     require(broker in {"rabbitmq", "jetstream"}, "UNSUPPORTED_BROKER")
     require(len(workers) >= 1 and len(observers) >= 1, "INVALID_TOPOLOGY")
@@ -100,6 +100,22 @@ def production_profiles(*, broker: str, tenant: str,
         token(app)
         result.append(factory(component=f"bus-{tenant}-{app}", consumer=f"{tenant}-{app}", app_ids=(app,)))
     return result
+
+
+def platform_profiles(*, broker: str, tenant: str, api_app: str = "a2amq-api",
+                      worker_app: str = "a2amq-worker", dlq_app: str = "a2amq-dlq") -> dict[str, BrokerProfile]:
+    """Role-local components over one broker/topic namespace for the deployable platform."""
+    tenant, api_app, worker_app, dlq_app = map(token, (tenant, api_app, worker_app, dlq_app))
+    require(broker in {"rabbitmq", "jetstream"}, "UNSUPPORTED_BROKER")
+    factory = rabbitmq_component if broker == "rabbitmq" else jetstream_component
+    return {
+        "api": factory(component=f"bus-{tenant}-api", consumer=f"{tenant}-api",
+                       app_ids=(api_app,)),
+        "worker": factory(component=f"bus-{tenant}-worker", consumer=f"{tenant}-workers",
+                          app_ids=(worker_app,)),
+        "dlq": factory(component=f"bus-{tenant}-dlq", consumer=f"{tenant}-dlq",
+                       app_ids=(dlq_app,)),
+    }
 
 
 def assert_portability_contract(profile: BrokerProfile) -> None:
