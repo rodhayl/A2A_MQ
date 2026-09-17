@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import hashlib
 
+from .schema_lifecycle import schema_transaction
+
 from .domain import Envelope, RetryableError, load_json, require
 from .protection import EnvelopeProtector, SEALED_LIMIT
 from .runtime import AsyncSQLite
@@ -14,7 +16,7 @@ SEALED_MIME = "application/vnd.a2amq.sealed+json"
 class SealedCache:
     def __init__(self, store):
         self.store = store
-        with store._transaction() as db:
+        with schema_transaction(store) as db:
             db.execute("CREATE TABLE IF NOT EXISTS a2amq_sealed ("
                        "tenant TEXT NOT NULL,consumer TEXT NOT NULL,event_id TEXT NOT NULL,"
                        "receiver TEXT NOT NULL,digest TEXT NOT NULL,sealed TEXT NOT NULL,"

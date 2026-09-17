@@ -11,6 +11,8 @@ import hashlib
 from typing import Any
 from uuid import NAMESPACE_URL, uuid5
 
+from .schema_lifecycle import schema_transaction
+
 from .domain import (MAX_BYTES, STATES, TERMINAL, Envelope, PermanentError, RetryableError,
                      can_transition, canonical, load_json, require, state_of, token)
 from .identity import Principal
@@ -63,7 +65,7 @@ class TaskLedger:
         require(type(max_active) is int and 1 <= max_active <= 1000000, "INVALID_QUOTA")
         require(type(max_records) is int and max_active <= max_records <= 10000000, "INVALID_QUOTA")
         self.max_active, self.max_records = max_active, max_records
-        with store._transaction() as db:
+        with schema_transaction(store) as db:
             for sql in DDL:
                 db.execute(sql)
 
@@ -101,7 +103,8 @@ class TaskLedger:
     def _snapshot(self, db, request: Envelope, step_id: str, state: str, *, artifacts=None, message=None):
         require(state in STATES, "INVALID_STATE")
         _key(step_id)
-        e = request.as_dict(); task_id = e["taskId"]
+        e = request.as_dict()
+        task_id = e["taskId"]
         semantics = {"state": state, "artifacts": artifacts, "message": message}
         previous = db.execute("SELECT digest,event_wire FROM a2amq_steps "
                               "WHERE tenant=? AND consumer=? AND task_id=? AND step_id=?",
@@ -222,13 +225,15 @@ class TaskLedger:
         _page(limit)
         clauses, params = ["j.tenant=?", "j.consumer=?"], list(self.keys)
         if "a2a:admin" not in principal.scopes:
-            clauses.append("j.subject=?"); params.append(principal.subject)
+            clauses.append("j.subject=?")
+            params.append(principal.subject)
         for column, value in (("j.task_id", after), ("t.context_id", context_id), ("t.state", state)):
             if value is not None:
                 _key(value)
                 if column == "t.state":
                     require(value in STATES, "INVALID_STATE")
-                clauses.append(column + (">?" if column == "j.task_id" else "=?")); params.append(value)
+                clauses.append(column + (">?" if column == "j.task_id" else "=?"))
+                params.append(value)
         with self.store._connection() as db:
             rows = db.execute("SELECT j.task_id,t.payload_json FROM a2amq_jobs j JOIN a2amq_tasks t "
                               "ON j.tenant=t.tenant AND j.consumer=t.consumer AND j.task_id=t.task_id WHERE "
@@ -300,7 +305,8 @@ class TaskLedger:
         params = [*self.keys, *kinds]
         extra = ""
         if after is not None:
-            extra = " AND action_id>?"; params.append(_key(after))
+            extra = " AND action_id>?"
+            params.append(_key(after))
         with self.store._connection() as db:
             rows = db.execute("SELECT * FROM a2amq_actions WHERE tenant=? AND consumer=? "
                               "AND delivered_at IS NULL AND kind IN (" + ",".join("?" for _ in kinds) + ")"

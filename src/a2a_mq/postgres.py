@@ -125,6 +125,14 @@ class PostgresStore(SQLiteStore):
             db.execute("SELECT pg_advisory_xact_lock(?, ?)", scope_lock(self.scope))
             yield db
 
+    @contextmanager
+    def schema_transaction(self):
+        # Optional module tables are shared across logical consumers. A scope
+        # lock alone cannot serialize concurrent CREATE TABLE catalog changes.
+        with self._connection() as db:
+            db.execute("SELECT pg_advisory_xact_lock(190247, 1)")
+            yield db
+
     def _initialize(self) -> None:
         with self._connection() as db:
             db.execute("SELECT pg_advisory_xact_lock(190247, 1)")
