@@ -16,7 +16,7 @@ from .task_api import TaskAPI
 
 def create_mcp(api: TaskAPI, verifier: JWTVerifier, *, resource_url: str,
                name: str = "A2A-MQ durable tasks"):
-    """Return an authenticated official MCPServer; the caller chooses the HTTP mount."""
+    """Return a configured official MCPServer; caller chooses the HTTP mount."""
     parsed = urlsplit(resource_url)
     require(isinstance(resource_url, str) and parsed.scheme == "https" and bool(parsed.hostname)
             and not parsed.username and not parsed.password and not parsed.query and not parsed.fragment
@@ -37,16 +37,24 @@ def create_mcp(api: TaskAPI, verifier: JWTVerifier, *, resource_url: str,
                 principal = verifier.verify(encoded)
             except PermanentError:
                 return None
-            return AccessToken(token=encoded, client_id=principal.subject, subject=principal.subject,
-                               scopes=sorted(principal.scopes), resource=resource_url,
-                               claims={"tenant": principal.tenant, "issuer": verifier.issuer})
+            return AccessToken(
+                token=encoded,
+                client_id=principal.subject,
+                subject=principal.subject,
+                scopes=sorted(principal.scopes),
+                resource=resource_url,
+                claims={"tenant": principal.tenant, "issuer": verifier.issuer},
+            )
 
     server = MCPServer(
         name,
         token_verifier=ExistingJWTVerifier(),
-        auth=AuthSettings(issuer_url=AnyHttpUrl(verifier.issuer),
-                          resource_server_url=AnyHttpUrl(resource_url),
-                          required_scopes=[], validate_token_resource=True),
+        auth=AuthSettings(
+            issuer_url=AnyHttpUrl(verifier.issuer),
+            resource_server_url=AnyHttpUrl(resource_url),
+            required_scopes=[],
+            validate_token_resource=True,
+        ),
     )
 
     def principal() -> Principal:
@@ -74,9 +82,10 @@ def create_mcp(api: TaskAPI, verifier: JWTVerifier, *, resource_url: str,
                          include_artifacts: bool = False) -> dict[str, Any]:
         return await result(api.list(principal(), page_size=page_size, page_token=page_token,
                                      context_id=context_id, status=status,
-                                     history_length=history_length, include_artifacts=include_artifacts))
+                                     history_length=history_length,
+                                     include_artifacts=include_artifacts))
 
-    @server.tool(description="Submit a bounded text task. message_id is the durable idempotency key.")
+    @server.tool(description="Submit a bounded text task. message_id is the caller's durable idempotency key.")
     async def send_text(text: str, message_id: str, context_id: str | None = None,
                         transform: str = "echo", delay_seconds: float = 0,
                         input_required: bool = False, approval_required: bool = False,
@@ -86,10 +95,13 @@ def create_mcp(api: TaskAPI, verifier: JWTVerifier, *, resource_url: str,
         message: dict[str, Any] = {"messageId": message_id, "role": "ROLE_USER", "parts": [{"text": text}]}
         if context_id is not None:
             message["contextId"] = context_id
-        request = {"message": message, "configuration": {"returnImmediately": return_immediately},
-                   "metadata": {"a2amq": {"transform": transform, "delaySeconds": delay_seconds,
-                                             "inputRequired": input_required,
-                                             "authRequired": approval_required}}}
+        request = {
+            "message": message,
+            "configuration": {"returnImmediately": return_immediately},
+            "metadata": {"a2amq": {"transform": transform, "delaySeconds": delay_seconds,
+                                      "inputRequired": input_required,
+                                      "authRequired": approval_required}},
+        }
         return await result(api.send(principal(), request))
 
     @server.tool(description="Continue a task that is waiting for user input.")
@@ -109,13 +121,14 @@ def create_mcp(api: TaskAPI, verifier: JWTVerifier, *, resource_url: str,
         require(type(approved) is bool, "INVALID_APPROVAL")
         return await result(api.approve(principal(), task_id, request_id, approved))
 
-    server.a2amq_principal = principal
     return server
 
 
 def streamable_http_app(api: TaskAPI, verifier: JWTVerifier, *, resource_url: str,
-                        name: str = "A2A-MQ durable tasks"):
-    """Create the authenticated bounded MCP Streamable HTTP ASGI application."""
+                        name: str = "A2A-MQ durable tasks", path: str = "/mcp"):
+    """Create the authenticated MCP Streamable HTTP ASGI application."""
+    require(isinstance(path, str) and path.startswith("/") and "//" not in path
+            and "?" not in path and "#" not in path, "INVALID_MCP_PATH")
     server = create_mcp(api, verifier, resource_url=resource_url, name=name)
     try:
         from mcp.server.transport_security import TransportSecuritySettings
@@ -123,8 +136,14 @@ def streamable_http_app(api: TaskAPI, verifier: JWTVerifier, *, resource_url: st
         raise PermanentError("MCP_EXTRA_REQUIRED") from None
     parsed = urlsplit(resource_url)
     origin = f"{parsed.scheme}://{parsed.netloc}"
-    security = TransportSecuritySettings(enable_dns_rebinding_protection=True,
-                                         allowed_hosts=[parsed.netloc], allowed_origins=[origin])
-    return server.streamable_http_app(transport_security=security,
-                                      max_request_body_size=MAX_BYTES,
-                                      session_idle_timeout=600, max_sessions=512)
+    security = TransportSecuritySettings(
+        enable_dns_rebinding_protection=True,
+        allowed_hosts=[parsed.netloc],
+        allowed_origins=[origin],
+    )
+    app = server.streamable_http_app(streamable_http_path=path,
+                                     transport_security=security,
+                                     max_request_body_size=MAX_BYTES,
+                                     session_idle_timeout=600, max_sessions=512)
+    app.state.a2amq_mcp_server = server
+    return app
