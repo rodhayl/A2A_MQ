@@ -8,6 +8,7 @@ from __future__ import annotations
 from contextlib import contextmanager
 from urllib.parse import urlsplit
 
+from .binding import assert_agent_card
 from .domain import PermanentError, RetryableError, canonical, require, state_of
 from .http_boundary import BoundedJSON, sanitize_sdk_logs
 from .identity import BearerIdentity, current_principal
@@ -52,6 +53,7 @@ def create_bridge(api, verifier, *, public_url: str):
             pb.HTTPAuthSecurityScheme(scheme="Bearer", bearer_format="JWT"))},
         security_requirements=[pb.SecurityRequirement(schemes={"bearer": pb.StringList(list=[])})],
     )
+    assert_agent_card(card, base_url)
 
     @contextmanager
     def mapped_errors():
