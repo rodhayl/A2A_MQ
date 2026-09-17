@@ -49,11 +49,65 @@ jobs:
       - name: Reject missing, empty, failed, errored or skipped JUnit
         if: always()
         run: python scripts/assert_junit_complete.py "$RUNNER_TEMP/a2amq-validation/results.xml"
+      - name: Build and install wheel outside source tree
+        run: |
+          mkdir -p "$RUNNER_TEMP/wheel" "$RUNNER_TEMP/installed"
+          python -m pip wheel --no-deps --no-build-isolation --wheel-dir "$RUNNER_TEMP/wheel" .
+          python -m pip install --no-deps --target "$RUNNER_TEMP/installed" "$RUNNER_TEMP"/wheel/a2a_mq-*.whl
+          cd "$RUNNER_TEMP"
+          PYTHONPATH="$RUNNER_TEMP/installed" python -I -c 'from importlib.resources import files; import a2a_mq.binding as b; assert b.load_binding()["protocolVersion"] == "1.0"; assert files("a2a_mq").joinpath("schema.json").is_file()'
       - name: Retain JUnit evidence
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: contracts-python-${{ matrix.python }}-${{ github.sha }}
           path: ${{ runner.temp }}/a2amq-validation/results.xml
+          if-no-files-found: error
+          retention-days: 14
+
+  postgres:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_PASSWORD: fixture-password
+          POSTGRES_DB: a2amq_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d a2amq_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      A2A_TEST_POSTGRES_DSN: host=127.0.0.1 port=5432 dbname=a2amq_test user=postgres password=fixture-password sslmode=disable
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: '3.13'
+          cache: pip
+          cache-dependency-path: pyproject.toml
+      - name: Install PostgreSQL gate dependencies
+        run: |
+          python -m pip install -e '.[dev,postgres]'
+          python -m pip check
+      - name: Real PostgreSQL transactional gate
+        run: |
+          mkdir -p "$RUNNER_TEMP/a2amq-postgres"
+          python -m pytest -p no:cacheprovider -q -W error -m postgres --junitxml="$RUNNER_TEMP/a2amq-postgres/results.xml"
+      - name: Reject missing, empty, failed, errored or skipped PostgreSQL evidence
+        if: always()
+        run: python scripts/assert_junit_complete.py "$RUNNER_TEMP/a2amq-postgres/results.xml"
+      - name: Retain PostgreSQL JUnit
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: postgres-${{ github.sha }}
+          path: ${{ runner.temp }}/a2amq-postgres/results.xml
           if-no-files-found: error
           retention-days: 14
