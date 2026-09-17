@@ -204,7 +204,7 @@ class SQLiteStore:
                 require(row["digest"] == digest and row["wire"] == envelope.wire,
                         "MESSAGE_ID_CONFLICT")
                 if row["status"] == "done":
-                    result = Envelope(row["result_wire"]) if row["result_wire"] is not None else None
+                    result = self._completed_result(db, row, e)
                     return Claim(self.scope, mid, digest, owner, row["fence"], "completed", result)
                 if row["lease_until"] is not None and row["lease_until"] > now:
                     return Claim(self.scope, mid, digest, owner, row["fence"], "busy")
@@ -325,13 +325,54 @@ class SQLiteStore:
                        (*self._keys, e["messageId"], event.digest, event.wire))
             return changed
 
-    def pending_outbox(self, *, limit: int = 100) -> list[OutboxItem]:
+    def _verified_outbox(self, row: sqlite3.Row) -> Envelope:
+        """A persisted row is evidence only when its full identity still agrees."""
+        try:
+            event = Envelope(row["wire"])
+            e = self._envelope(event, "task.snapshot")
+            require(row["event_id"] == e["messageId"] and row["digest"] == event.digest
+                    and row["wire"] == event.wire, "OUTBOX_ID_CONFLICT")
+            return event
+        except (PermanentError, TypeError, KeyError):
+            # Storage corruption is not a permanent defect in the incoming command.
+            raise RetryableError("STORAGE_INTEGRITY_ERROR") from None
+
+    def _completed_result(self, db: sqlite3.Connection, row: sqlite3.Row,
+                          request: dict[str, Any]) -> Envelope:
+        try:
+            require(row["result_wire"] is not None, "MISSING_RESULT")
+            result = Envelope(row["result_wire"])
+            e = self._envelope(result, "task.snapshot")
+            require(result.wire == row["result_wire"]
+                    and e["causationId"] == request["messageId"]
+                    and e["correlationId"] == request["correlationId"], "RESULT_COMMAND_MISMATCH")
+            for name in ("taskId", "contextId"):
+                supplied = request.get(name, request["payload"]["message"].get(name))
+                require(supplied is None or e[name] == supplied, "RESULT_COMMAND_MISMATCH")
+            outbox = db.execute("SELECT * FROM a2amq_outbox WHERE tenant=? AND consumer=? AND event_id=?",
+                                (*self._keys, e["messageId"])).fetchone()
+            require(outbox is not None, "MISSING_OUTBOX")
+            require(self._verified_outbox(outbox).wire == result.wire, "RESULT_OUTBOX_MISMATCH")
+            return result
+        except (PermanentError, TypeError, KeyError):
+            raise RetryableError("STORAGE_INTEGRITY_ERROR") from None
+
+    def pending_outbox(self, *, limit: int = 100, after: str | None = None) -> list[OutboxItem]:
+        """Read a bounded UUID-keyset page; failures can be revisited next sweep.
+
+        UUID order is not delivery order. Published rows remain as result evidence;
+        deleting them requires a coordinated retention policy, not manual cleanup.
+        """
         _page(limit)
+        if after is not None:
+            _key(after)
+        clause = " AND event_id>?" if after is not None else ""
+        params = (*self._keys, after, limit) if after is not None else (*self._keys, limit)
         with self._connection() as db:
-            rows = db.execute("SELECT wire,attempts FROM a2amq_outbox WHERE tenant=? AND consumer=? "
-                              "AND published_at IS NULL ORDER BY created_at,event_id LIMIT ?",
-                              (*self._keys, limit)).fetchall()
-        return [OutboxItem(self.scope, Envelope(r["wire"]), r["attempts"]) for r in rows]
+            rows = db.execute("SELECT * FROM a2amq_outbox WHERE tenant=? AND consumer=? "
+                              "AND published_at IS NULL" + clause + " ORDER BY event_id LIMIT ?",
+                              params).fetchall()
+        return [OutboxItem(self.scope, self._verified_outbox(r), r["attempts"]) for r in rows]
 
     def _outbox_row(self, db: sqlite3.Connection, item: OutboxItem) -> sqlite3.Row:
         require(isinstance(item, OutboxItem) and item.scope == self.scope, "OUTBOX_SCOPE_MISMATCH")
