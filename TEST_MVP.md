@@ -6,15 +6,17 @@ Review the supplied 40-character commit SHA, not the current tip of a moving bra
 Use a fresh disposable environment without model-provider credentials. Reviewers
 record failures and retain evidence; they do not edit, repair, or commit reviewed code.
 
-This source is the phase-2 implementation with hardening, **not the recovered full
-MVP**. `scripts/independent_mvp.py` defaults to `--scope full` and intentionally
-returns `INCOMPLETE` (exit 2) because the complete snapshot and full strict validator
-are missing. It never substitutes local tests for full acceptance.
+This source contains the hardened phase-2 baseline and incremental phase-3 SQLite,
+runtime and durable-service implementation, **not the recovered full MVP**.
+`scripts/independent_mvp.py` defaults to `--scope full` and intentionally returns
+`INCOMPLETE` (exit 2): the complete MVP and full strict validator are not available.
+It never substitutes local tests for full acceptance.
 
 `--scope local` explicitly tests only the present broker-independent source. It
 excludes the `live`, `postgres`, and `upstream` markers. A `LOCAL_PASS` keeps
 `mvpStatus=INCOMPLETE` and `productionCertified=false`. CI has a different declared
 scope: it installs the pinned official A2A SDK and selects the upstream tests too.
+The newer real HTTP scenario uses a local sidecar fixture, not a Dapr/broker runtime.
 
 ## Prepare a fresh checkout
 
@@ -43,7 +45,9 @@ sparse/index-masked worktrees are outside this procedure.
 
 The runtime flag and credential check are guardrails, not a network sandbox. Inspect
 fixtures and apply an external egress policy when independently proving zero model
-calls. The local HTTP tests need loopback networking and subprocess execution.
+calls. Local HTTP tests need loopback networking and subprocess execution. The
+service process fixture uses POSIX socket descriptor inheritance; use the Linux
+reference environment rather than silently skipping that test on another platform.
 
 ## Run the declared review scope
 
@@ -74,12 +78,17 @@ against a malicious runner replacing both evidence and hashes.
 The timeout is per validation subprocess. It is not process-tree containment or
 proof that hostile tests cannot escape. Run only in a disposable review environment.
 
+For a narrower developer reproduction of the new phase-3 implementation, see
+[the exact selected-suite command](docs/validation/durable-service-20260917.md).
+Its 184-test pass is not a substitute for this entire local review procedure.
+
 ## Other gates remain explicit
 
 Run `ruff check .`, `mypy`, and a clean wheel/sdist build with isolated installation,
 retaining output outside the checkout. These are not implicitly included in
 `LOCAL_PASS`. CI configures lint/types and dependency checks but a workflow file
-is not execution evidence.
+is not execution evidence. The recorded offline wheel smoke used preinstalled
+third-party dependencies and is narrower than this fresh installation gate.
 
 For the available official A2A SDK codec tests:
 
@@ -94,13 +103,14 @@ python scripts/assert_junit_complete.py "$REVIEW_ROOT/upstream.junit.xml"
 These codec tests are not an independent A2A bridge interoperability test. For the
 existing destructive legacy JetStream demo, follow `deploy/README.md` and the
 prerequisites in `tests/test_live.py`, use disposable resources, select `-m live`,
-retain JUnit externally, and reject missing/failed/skipped evidence.
+retain JUnit externally, and reject missing/failed/skipped evidence. That deployment
+still uses the volatile demo; it is not the new durable-service integration gate.
 
 Real PostgreSQL, RabbitMQ parity, Dapr Workflow, the A2A HTTP bridge, MCP, Vault/KMS,
 production identity/TLS, full-system chaos/E2E, and supply-chain/deployment acceptance
-cannot be certified from the current missing implementation. Their verdict remains
-`INCOMPLETE`, not `PASS`. Recover the checksum-verified full snapshot in a separate
-implementation task before introducing and executing those mandatory gates.
+remain `INCOMPLETE`, not `PASS`. Implement and independently validate these gates
+against a frozen source tree. Any recovered original snapshot must first pass its
+checksum and Git bundle verification before being reconciled with newer changes.
 
 ## Report
 

@@ -1,24 +1,34 @@
-# Source and acceptance status - 2026-09-16
+# Source and acceptance status - 2026-09-17
 
 ## Present source
 
 Branch: `implementation/production-hardening-20260916`.
 Base: `66c17153d7ec75b9ad85808ef141b9dba43a9d91` (phase 2).
-Version: **0.1.0**. `main` has not been merged or force-updated by this hardening.
-No release or certification is issued.
+Version: **0.1.0**. No main merge, force update, release or certification is issued.
 
-The source contains envelope validation, task-state helpers, Dapr HTTP publishing
-and subscription, the volatile echo demo and its disposable deployment generator.
-Hardening adds strict JUnit evidence, permanent JSON error normalization, stable
-reference event bytes, cooperative transport deadlines, pure-ASGI token checks,
-CloudEvent consistency, frozen-SHA review tooling and stricter CI.
+The source includes envelope validation, task-state helpers, Dapr HTTP publishing
+and callbacks, strict JUnit evidence, JSON/transport hardening, stable echo event
+bytes, and frozen-SHA review tooling. It now also includes consumer-scoped SQLite
+persistence, verified replay evidence, a bounded asynchronous database lane,
+durable echo workers, independent snapshot observers, an outbox relay and an
+authenticated internal query service. These are incremental implementations,
+not a checksum-verified recovery of the original later snapshot.
 
-The [hardening record](validation/hardening-20260916.md) distinguishes tested scopes.
-The [review procedure](../TEST_MVP.md) deliberately cannot return full-MVP acceptance.
-Architecture, whitepaper, requirements, workflow/security/operations plans and old
-phase records are design or historical material, not proof of current implementation.
+Phase 3a is commit `a2ffbf787150563652085de934a2d67b7ae13b28`; recovery checks are
+`9dcd38e0b0aee8936d9089490c2d51e4a18a1479`; runtime integration is
+`4e68deeb9d0c2c06722cd070dbd07a736533386a`; the service is
+`64694be6f69f0033cb20cd3a32d762d37b901c24`.
 
-## Recovery blocker
+[Durable service usage](DURABLE_SERVICE.md) documents the explicit new entry point.
+The old `demo:create_app` and `make up` fixture remain volatile and disposable.
+[New validation](validation/durable-service-20260917.md) reports **184 selected
+combined tests passed**, real SQLite/process/loopback HTTP scopes and an offline
+installed-wheel smoke. It is not the whole repository suite, hosted CI or a live
+Dapr/broker gate. [Independent review](../TEST_MVP.md) retains a distinct full-MVP
+`INCOMPLETE` verdict. Architecture/requirements and old phase records are design
+or historical material, not evidence that every target capability exists.
+
+## Original snapshot recovery
 
 The staged handoff at `e80096da84190a8af9aa044a4bd97b0123fca4ad` expected a bundle with
 SHA-256 `47a2c5418ec35d0d1c5fbcbb0fa4cd502b8479760b935a3b94ed01efe93965e9`,
@@ -28,46 +38,48 @@ No verified reconstruction of that tree was obtained.
 The committed `.bundle/part-01` blob `f347f90d3b4db2c80ae61d718b69c41af3dc9be8`
 has a literal `...` suffix. The alternate `.sync/base-719f.b64` blob
 `d22c45df80281ce9fc8fe6e29bfc16bedbba18e7` also has a literal ellipsis suffix.
-Encoded-tail inspection distinguished these stored bytes from tool display truncation.
-These payloads are not accepted as complete base64 archives. The other legacy parts
-have not established a complete checksum-verified recovery either.
+Encoded-tail inspection distinguished stored bytes from tool display truncation.
+The other legacy fragments have not established complete checksum-verified recovery.
 
-The normal source branch preserves the accessible baseline and tested changes. It
-is not a substitute for the lost later snapshot. Obtain intact original bytes, verify
-the expected checksum and `git bundle verify`, and compare the recovered final tree
-before replacing any source. Keep recovery payloads outside the product branch.
+Continue implementation against the accessible architecture and tested baseline.
+Any subsequently recovered snapshot must pass its checksum and `git bundle verify`,
+then be compared with current changes before integration. Keep recovery payloads
+outside the product branch and preserve the newer tested work.
 
 ## Staged patch disposition
 
+The following records the original September 16 replay assessment; the new local
+phase-3 implementation is narrower than those original full-MVP patches.
+
 | Block | Disposition |
 | --- | --- |
-| 02 | Standalone JUnit gate recovered and strengthened; CI adapted to the present source. Missing PostgreSQL/full-stack/runtime gates are not claimed. |
-| 03-04 | Full canonical agent E2E and its flush fix deferred: durable admission, bridge and workflow implementation absent. |
-| 05 | Full chaos matrix deferred for the same dependency gap. Transport timeout/cancellation/replay regressions added separately, not equivalent to full-stack chaos. |
-| 06-07 | Full security/config/coverage integration deferred: target modules and complete baseline absent. JSON and token-boundary changes are narrower. |
-| 08 | Isolated full-MVP wheel/migration smoke deferred: packaged persistence/resources not recovered. |
-| 09 | The proposed 0.3.1 completion claims were not applied. README and status describe the actual 0.1.0 source. |
-| 10 | A new limited frozen-SHA review tool and procedure implement evidence guards. The missing full validator is explicitly blocked, not reconstructed or certified. |
+| 02 | Standalone JUnit gate recovered and strengthened; CI adapted to the available source. Full-stack gates remain separate. |
+| 03-04 | Original canonical agent E2E/flush patch not replayed. New SQLite worker/relay/HTTP tests cover a narrower reference path; bridge and Workflow are still absent. |
+| 05 | Full chaos matrix not replayed. New process-crash and cancellation checks are not full-stack chaos. |
+| 06-07 | Full security/config/coverage integration not replayed. New mandatory app-token checks and fixed-scope queries are not production identity or tenant authorization. |
+| 08 | Original full-MVP wheel/migration smoke not replayed. A separate offline installation smoke now verifies this current reference package. |
+| 09 | Intended 0.3.1 completion claims remain unapplied; the package is experimental 0.1.0. |
+| 10 | Limited frozen-SHA review tooling exists. Full-MVP acceptance remains explicitly incomplete. |
 
-Deferred means the patch was not safely applicable as a complete feature on the
-available baseline; it is not a conclusion that the original change was invalid.
+## Remaining implementation and acceptance
 
-## Unverified and absent gates
+Phase 3 still needs a PostgreSQL adapter with real transactional parity tests and
+an explicit durable-service Dapr/broker deployment. The new service must pass live
+retention, competition, fan-out, retry/DLQ and sidecar-token tests. SQLite is local
+single-host storage; the reference SQL effect does not establish exactly-once
+external tool execution. Published outbox retention is coupled to replay evidence.
 
-No real PostgreSQL, NATS JetStream, RabbitMQ, Dapr Workflow, official A2A bridge
-client, MCP server or Vault service was exercised in this hardening closure.
-The full persistence/workflow/bridge/security/encryption/MCP implementation remains
-unrecovered. Docker and those services are absent locally; the pinned upstream SDK,
-Ruff and mypy are also unavailable locally. Container network DNS failed, preventing
-a fresh clone or clean network dependency resolution. The authorized GitHub connector
-was used to read and publish the source.
+Phases 4-10 retain Dapr Workflow/Agents, standard A2A bridge interoperability,
+production identity/TLS, optional encrypted envelopes/KMS, retention/quotas/HA,
+RabbitMQ parity and the formal binding decision. No PostgreSQL, actual NATS or
+RabbitMQ broker, Dapr Workflow, MCP or Vault/KMS service was exercised here.
 
-Hosted run `35153620064` at `c4449c94bf1bad5b9ea1ca2f6f4538999156d7bc` failed
-with no step summaries: Python 3.12 job failed, Python 3.13 was cancelled. That is
-not a code-test verdict, and the underlying runner failure was not established.
-Later CI configuration changes require their own successful hosted execution.
+Hosted run `35194462365` at `64694be6...` failed without step summaries for either
+Python job; the underlying cause is unestablished. This is not a successful hosted
+test gate. Subsequent commits require their own successful hosted execution.
+Python 3.12, Ruff/mypy, the full existing regression suite, fresh locked dependency
+resolution, full-MVP packaging/migrations, supply-chain and production acceptance
+remain unverified. The offline wheel experiment used preinstalled dependencies.
 
-Independent full acceptance, wheel/sdist installation, lint/types, dependency/SBOM
-and container audits, real infrastructure parity, production deployment and performance
-SLAs remain unverified. Local pass, hosted CI pass, full-MVP acceptance and production
-readiness are separate statements; none implies the next one.
+Local test success, hosted success, full-MVP acceptance and production readiness
+are separate statements; none implies the next one.
