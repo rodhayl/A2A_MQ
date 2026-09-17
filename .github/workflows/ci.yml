@@ -15,7 +15,6 @@ env:
   PYTHONPATH: src
 jobs:
   local:
-    # This job validates the present code, not the missing full-MVP stack.
     runs-on: ubuntu-latest
     timeout-minutes: 30
     strategy:
@@ -31,29 +30,26 @@ jobs:
           python-version: ${{ matrix.python }}
           cache: pip
           cache-dependency-path: pyproject.toml
-      - name: Install pinned direct dependencies and check consistency
+      - name: Install all broker-independent contract dependencies
         run: |
-          python -m pip install -e '.[dev,upstream,postgres]'
+          python -m pip install -e '.[dev,upstream,postgres,mcp]'
           python -m pip check
-      - name: Require the official A2A SDK before collecting its tests
-        run: python -c 'import a2a.types'
+      - name: Require pinned protocol SDKs before collecting tests
+        run: python -c 'import a2a.types; import dapr.ext.workflow; import mcp'
       - name: Repository contracts
         run: python tools/check.py
       - name: Lint
         run: ruff check .
       - name: Types
         run: mypy
-      - name: Present contracts including upstream SDK tests
-        id: tests
+      - name: Broker-independent contracts including SDK adapters
         run: |
           mkdir -p "$RUNNER_TEMP/a2amq-validation"
           python -m pytest -p no:cacheprovider -q -W error -m 'not live and not postgres' --junitxml="$RUNNER_TEMP/a2amq-validation/results.xml"
       - name: Reject missing, empty, failed, errored or skipped JUnit
-        id: junit
         if: always()
         run: python scripts/assert_junit_complete.py "$RUNNER_TEMP/a2amq-validation/results.xml"
-      - name: Retain only the JUnit evidence, never runtime secrets
-        id: evidence
+      - name: Retain JUnit evidence
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:

@@ -14,6 +14,7 @@ bridge = ["a2a-sdk[http-server]==1.1.2"]
 workflow = ["dapr==1.18.3", "dapr-ext-workflow==1.18.3"]
 postgres = ["psycopg[binary]==3.2.9", "psycopg-pool==3.2.6"]
 security = ["cryptography==46.0.4", "PyJWT==2.13.0"]
+mcp = ["mcp==2.2.0"]
 [tool.setuptools.packages.find]
 where = ["src"]
 [tool.setuptools.package-data]
@@ -22,7 +23,7 @@ a2a_mq = ["schema.json", "py.typed"]
 testpaths = ["tests"]
 pythonpath = ["src"]
 asyncio_mode = "auto"
-markers = ["live: requires a running Dapr/JetStream stack", "postgres: requires a PostgreSQL DSN", "upstream: requires the pinned upstream SDK"]
+markers = ["live: requires a running Dapr/broker stack", "postgres: requires a PostgreSQL DSN", "upstream: requires pinned protocol SDKs"]
 [tool.ruff]
 line-length = 110
 target-version = "py312"
