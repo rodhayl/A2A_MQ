@@ -18,6 +18,12 @@ from .storage import _key, _page
 from .workflow_options import options, text_parts
 
 DDL = (
+    "CREATE TABLE IF NOT EXISTS a2amq_retired (tenant TEXT NOT NULL,consumer TEXT NOT NULL,"
+    "task_id TEXT NOT NULL,subject TEXT NOT NULL,request_id TEXT NOT NULL,digest TEXT NOT NULL,"
+    "command_digest TEXT NOT NULL,retired_at DOUBLE PRECISION NOT NULL,"
+    "PRIMARY KEY(tenant,consumer,task_id),UNIQUE(tenant,consumer,subject,request_id))",
+    "CREATE TABLE IF NOT EXISTS a2amq_runtime_end (tenant TEXT NOT NULL,consumer TEXT NOT NULL,"
+    "task_id TEXT NOT NULL,finished_at DOUBLE PRECISION NOT NULL,PRIMARY KEY(tenant,consumer,task_id))",
     "CREATE TABLE IF NOT EXISTS a2amq_jobs (tenant TEXT NOT NULL,consumer TEXT NOT NULL,"
     "task_id TEXT NOT NULL,subject TEXT NOT NULL,request_id TEXT NOT NULL,digest TEXT NOT NULL,"
     "wire TEXT NOT NULL,created_at DOUBLE PRECISION NOT NULL,updated_at DOUBLE PRECISION NOT NULL,"
@@ -52,10 +58,11 @@ class Action:
 
 
 class TaskLedger:
-    def __init__(self, store, *, source: str = "workflow-worker", max_active: int = 1000):
+    def __init__(self, store, *, source: str = "workflow-worker", max_active: int = 1000, max_records: int = 100000):
         self.store, self.source = store, token(source)
         require(type(max_active) is int and 1 <= max_active <= 1000000, "INVALID_QUOTA")
-        self.max_active = max_active
+        require(type(max_records) is int and max_active <= max_records <= 10000000, "INVALID_QUOTA")
+        self.max_active, self.max_records = max_active, max_records
         with store._transaction() as db:
             for sql in DDL:
                 db.execute(sql)
@@ -104,6 +111,9 @@ class TaskLedger:
             return Envelope(previous["event_wire"]).as_dict()["payload"]
         current = db.execute("SELECT state,sequence,payload_json FROM a2amq_tasks "
                              "WHERE tenant=? AND consumer=? AND task_id=?", (*self.keys, task_id)).fetchone()
+        if db.execute("SELECT COUNT(*) FROM a2amq_steps WHERE tenant=? AND consumer=? AND task_id=?",
+                      (*self.keys, task_id)).fetchone()[0] >= 32:
+            raise PermanentError("TASK_STEP_LIMIT")
         if current:
             require(current["state"] not in TERMINAL, "TERMINAL_TASK_REWRITE")
             require(can_transition(current["state"], state), "INVALID_TASK_TRANSITION")
@@ -121,6 +131,14 @@ class TaskLedger:
         now = self.store._now()
         stamp = datetime.fromtimestamp(now, timezone.utc).isoformat().replace("+00:00", "Z")
         task["status"] = {"state": "TASK_STATE_" + state, "timestamp": stamp}
+        if state == "AUTH_REQUIRED":
+            task["status"]["message"] = {
+                "messageId": stable_id(task_id, step_id, "approval-instructions"),
+                "role": "ROLE_AGENT", "taskId": task_id, "contextId": e["contextId"],
+                "parts": [{"text": "Approval required. Submit authenticated POST "
+                           + f"/operations/tasks/{task_id}/approve with requestId and approved. "
+                           + "The caller requires a2a:approve permission for this task."}],
+            }
         if artifacts is not None:
             task["artifacts"] = artifacts
         out = Envelope.from_dict({"envelopeVersion": "1.0", "a2aVersion": "1.0", "tenantId": e["tenantId"],
@@ -159,6 +177,15 @@ class TaskLedger:
             if old:
                 require(old["digest"] == semantic, "MESSAGE_ID_CONFLICT")
                 return self._task(db, old["task_id"])
+            retired = db.execute("SELECT digest FROM a2amq_retired WHERE tenant=? AND consumer=? "
+                                 "AND subject=? AND request_id=?", (*self.keys, principal.subject, rid)).fetchone()
+            if retired:
+                require(retired["digest"] == semantic, "MESSAGE_ID_CONFLICT")
+                raise PermanentError("TASK_RETIRED")
+            total = sum(db.execute("SELECT COUNT(*) FROM " + name + " WHERE tenant=? AND consumer=?",
+                                   self.keys).fetchone()[0] for name in ("a2amq_jobs", "a2amq_retired"))
+            if total >= self.max_records:
+                raise RetryableError("ADMISSION_RECORD_QUOTA_EXCEEDED")
             count = db.execute("SELECT COUNT(*) FROM a2amq_jobs j JOIN a2amq_tasks t "
                                "ON j.tenant=t.tenant AND j.consumer=t.consumer AND j.task_id=t.task_id "
                                "WHERE j.tenant=? AND j.consumer=? AND t.state NOT IN ('COMPLETED','FAILED','CANCELED','REJECTED')",
@@ -222,10 +249,14 @@ class TaskLedger:
                                (*self.keys, aid)).fetchone()
             body = {"requestId": request_id, "kind": kind, "data": data}
             if prior is None:
+                queued = db.execute("SELECT action_id FROM a2amq_actions WHERE tenant=? AND consumer=? "
+                                    "AND task_id=? AND kind=? LIMIT 1", (*self.keys, task_id, kind)).fetchone()
                 state = state_of(task)
                 require(state not in TERMINAL, "TASK_NOT_CANCELABLE" if kind == "cancel" else "TASK_TERMINAL")
+                require(queued is None, "CONTROL_ALREADY_ACCEPTED")
                 if kind != "cancel":
                     require(state == ("INPUT_REQUIRED" if kind == "input" else "AUTH_REQUIRED"), "TASK_NOT_WAITING")
+
                 if kind == "input":
                     require(isinstance(data, dict) and data.get("taskId") == task_id
                             and data.get("contextId", task["contextId"]) == task["contextId"], "IDENTIFIER_MISMATCH")
@@ -247,9 +278,16 @@ class TaskLedger:
         require(e["tenantId"] == self.store.scope.tenant and envelope.route ==
                 f"a2a.v1.{self.store.scope.tenant}.command.agent.{self.source}", "UNAUTHORIZED_ROUTE")
         with self.store._transaction() as db:
+            retired = db.execute("SELECT command_digest FROM a2amq_retired "
+                                 "WHERE tenant=? AND consumer=? AND task_id=?",
+                                 (*self.keys, _key(e.get("taskId")))).fetchone()
+            if retired:
+                require(retired["command_digest"] == envelope.digest, "MESSAGE_ID_CONFLICT")
+                return False
             job = self._job(db, e.get("taskId"))
             require(job["wire"] == envelope.wire, "MESSAGE_ID_CONFLICT")
             self._action(db, job["task_id"], "start", e["messageId"], e)
+            return True
 
     def step(self, task_id, step_id, state, *, artifacts=None, message=None):
         with self.store._transaction() as db:
@@ -306,3 +344,14 @@ class TaskLedger:
                 "WHERE j.tenant=? AND j.consumer=? AND j.started=1 "
                 "AND t.state NOT IN ('COMPLETED','FAILED','CANCELED','REJECTED')" + extra +
                 " ORDER BY j.task_id LIMIT ?", (*values,limit))]
+
+    def unconfirmed(self, *, limit=50, after=None):
+        _page(limit)
+        extra = " AND j.task_id>?" if after is not None else ""
+        params = (*self.keys, _key(after)) if after is not None else self.keys
+        with self.store._connection() as db:
+            return [r[0] for r in db.execute(
+                "SELECT j.task_id FROM a2amq_jobs j WHERE j.tenant=? AND j.consumer=? AND j.started=1 "
+                "AND NOT EXISTS (SELECT 1 FROM a2amq_runtime_end e WHERE e.tenant=j.tenant "
+                "AND e.consumer=j.consumer AND e.task_id=j.task_id)" + extra +
+                " ORDER BY j.task_id LIMIT ?", (*params, limit))]

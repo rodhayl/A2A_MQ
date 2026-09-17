@@ -133,7 +133,8 @@ class DaprActions:
                    (*self.ledger.keys, task_id))
 
     def ensure_started(self, envelope: Envelope):
-        self.ledger.accept(envelope)
+        if not self.ledger.accept(envelope):
+            return
         try:
             with self.ledger.store._transaction() as db:
                 self._start(db, self.ledger._job(db, envelope.as_dict()["taskId"]))
@@ -168,16 +169,20 @@ class DaprActions:
             raise RetryableError("WORKFLOW_UNAVAILABLE") from None
 
     def reconcile(self, task_id):
-        # Runtime failure/termination is separate from an accepted schedule. Only
-        # terminal runtime failures can close an otherwise nonterminal SQL task.
         try:
             state = self.client.get_workflow_state(task_id, fetch_payloads=False)
-            if state is not None and state.runtime_status.name in {"FAILED", "TERMINATED"}:
+            if state is not None and state.runtime_status.name in {"COMPLETED", "FAILED", "TERMINATED"}:
                 with self.ledger.store._transaction() as db:
                     task = self.ledger._task(db, task_id)
                     if state_of(task) not in TERMINAL:
-                        return self.ledger._snapshot(db, Envelope(self.ledger._job(db, task_id)["wire"]),
+                        if state.runtime_status.name == "COMPLETED":
+                            raise RetryableError("WORKFLOW_RESULT_MISSING")
+                        task = self.ledger._snapshot(db, Envelope(self.ledger._job(db, task_id)["wire"]),
                                                      "runtime-failed", "FAILED")
+                    db.execute("INSERT INTO a2amq_runtime_end VALUES (?,?,?,?) "
+                               "ON CONFLICT(tenant,consumer,task_id) DO NOTHING",
+                               (*self.ledger.keys, task_id, self.ledger.store._now()))
+                    return task
         except (PermanentError, RetryableError):
             raise
         except Exception:
