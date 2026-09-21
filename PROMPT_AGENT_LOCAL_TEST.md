@@ -101,6 +101,7 @@ tests/test_local_resource_probe.py
 tests/test_local_stack_probe.py
 tests/test_local_lite.py
 tests/test_local_runtime.py
+tests/test_local_workflow.py
 tests/test_json_boundary_regressions.py
 tests/test_domain.py
 tests/test_reference_replay.py
@@ -243,16 +244,32 @@ Confirm the implementation still matches the intended local tier:
 - command and DLQ subscriptions have distinct durable identities;
 - inbound transient command failures have a bounded Dapr retry policy before DLQ;
 - Workflow-only features fail closed rather than creating a second scheduler;
-- distributed/Workflow profiles remain intact and separate;
+- the optional local Workflow tier is source-present and separate from the default;
+- it reuses official Dapr Workflow + SQLite actor state and does not introduce Redis/PostgreSQL/Docker;
 - local-lite does not claim independent offline worker-pool/observer semantics.
 
 Record any mismatch as a product defect.
 
+## Optional local Workflow tier
+
+The optional Workflow implementation is part of the source review and
+`tests/test_local_workflow.py`, but do not launch it automatically on this weak
+machine. Its Python extra is `.[local,local-workflow]`; its native profile requires
+pre-existing `daprd`, `nats-server`, `placement` and `scheduler`.
+
+Only when the owner explicitly asks to evaluate Workflow-local economics, prepare
+`a2amq-local-workflow` and run the same `scripts/local_stack_probe.py`. That
+profile has its own initial gate: exactly 5 processes, <=640 MiB RSS, <=8% of one
+CPU core idle, <=25 s readiness and <=64 MiB runtime state. A failure does not
+invalidate the cheaper local-lite tier; it means the optional Workflow tier needs
+redesign or should remain disabled on that host.
+
 ## Deferred gates
 
 On this low-resource task do not run the full Compose/Kubernetes acceptance stack,
-real PostgreSQL, Vault, RabbitMQ, Dapr Workflow/Placement/Scheduler or broad load
-benchmarks. Those remain separate gates and must be reported as unexecuted, not PASS.
+real PostgreSQL, Vault, RabbitMQ or broad load benchmarks. Native optional Workflow
+execution is also deferred unless explicitly requested as described above. These
+remain separate gates and must be reported as unexecuted, not PASS.
 
 ## Final deliverable
 
@@ -275,6 +292,7 @@ Finish with independent verdicts:
 - **CORE ECONOMICS:** PASS / FAIL
 - **LOCAL-LITE ECONOMICS:** PASS / FAIL / REDESIGN_REQUIRED / INCOMPLETE_NATIVE_PREREQ
 - **LIGHTWEIGHT CORRECTNESS:** PASS / FAIL / INCOMPLETE
+- **OPTIONAL LOCAL-WORKFLOW:** SOURCE_READY / FAIL / INCOMPLETE_NATIVE_PREREQ / NOT_RUN
 - **DISTRIBUTED/PRODUCTION ACCEPTANCE:** INCOMPLETE unless independently executed
 
 Do not push.

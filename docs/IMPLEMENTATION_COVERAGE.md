@@ -13,6 +13,7 @@ acceptance are separate. Historical test counts do not certify the current SHA.
 | Local-lite cancellation | existing owner-scoped TaskAPI/TaskLedger controls | Real A2A cancel race through sidecar |
 | Local-lite DLQ/replay | existing bounded archive/replay, dedicated Dapr DLQ component | Poison delivery + replay through real JetStream |
 | Local-lite MCP | optional official MCP SDK; submit/get/list/cancel only | Install `.[local,mcp]` and run native MCP HTTP client gate |
+| Local Workflow | `local_workflow.py`, `local_workflow_runtime.py`, official Dapr Workflow, SQLite actor state, native Placement/Scheduler | Five-process resource gate + real wait/timer/approval/restart smoke on target |
 | FR-001/009/010/037/040/050/052 | domain/schema/transport, stable routing/identity, A2A bridge | Whole-repository/current-SHA regression |
 | FR-002/011/012/020/022/024/026 distributed semantics | role-separated admissions, brokers, workers/observers and dual-broker harness | Real JetStream/RabbitMQ distributed runs; local-lite does not claim independent offline worker pools/observer fan-out |
 | FR-021/023/027 | SQLiteStore, PostgresStore, leases/fences/outbox/projection ordering | Current-SHA SQLite regression and real PostgreSQL gate |
@@ -38,8 +39,9 @@ work; that is a distributed-profile property.
 
 `inputRequired`, `authRequired`, delays/timers, continuation/approval and
 fan-out/fan-in are rejected with `WORKFLOW_FEATURE_UNAVAILABLE` in local-lite.
-They remain implemented in the Dapr Workflow tier rather than being reimplemented
-as another scheduler.
+They remain implemented through official Dapr Workflow. The optional local Workflow
+tier now exposes that implementation without PostgreSQL/Redis/Docker; its own native
+resource and restart gates remain pending.
 
 ## Infrastructure boundary
 

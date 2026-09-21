@@ -23,6 +23,7 @@ from .dlq_callback import create_dlq_callback
 from .domain import Envelope, PermanentError, TERMINAL, load_json, require, state_of, token
 from .maintenance import Operations
 from .operations_http import create_operations
+from .recovery import AdmissionRepair
 from .runtime import AsyncSQLite, OutboxRelay
 from .storage import SQLiteStore
 from .task_api import TaskAPI
@@ -331,6 +332,8 @@ def create_app(settings: LocalLiteSettings):
                                     name="a2amq-local-actions"),
                 asyncio.create_task(OutboxRelay(database, bus).run(stop, interval=settings.relay_interval),
                                     name="a2amq-local-outbox"),
+                asyncio.create_task(AdmissionRepair(ledger).run(database, stop),
+                                    name="a2amq-local-admission-repair"),
                 asyncio.create_task(replay.run(stop), name="a2amq-local-replay"),
             ]
             running["jobs"], running["value"] = jobs, True

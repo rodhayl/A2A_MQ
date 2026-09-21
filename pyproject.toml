@@ -18,9 +18,11 @@ mcp = ["mcp==2.2.0"]
 observability = ["opentelemetry-sdk==1.42.1", "opentelemetry-exporter-otlp-proto-http==1.42.1"]
 deployment = ["nats-py==2.11.0"]
 local = ["a2a-sdk[http-server]==1.1.2", "cryptography==46.0.4", "PyJWT==2.13.0", "nats-py==2.11.0"]
+local-workflow = ["dapr==1.18.3", "dapr-ext-workflow==1.18.3"]
 
 [project.scripts]
 a2amq-local = "a2a_mq.local_runtime:main"
+a2amq-local-workflow = "a2a_mq.local_workflow_runtime:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

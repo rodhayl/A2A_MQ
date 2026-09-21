@@ -37,9 +37,11 @@ separate single-host Actor/Workflow tier, so Redis is not a mandatory local choi
 7. API and immediate execution are collapsed into one process. Therefore local-lite
    does not claim independently-offline worker-pool or independent-observer
    semantics; those remain distributed-profile requirements.
-8. The optional local Workflow tier may add official Dapr Workflow with a local
-   SQLite actor state component where supported. Placement/Scheduler are explicit
-   incremental costs and must be measured before that tier becomes default.
+8. The optional local Workflow tier is implemented with official Dapr Workflow,
+   a local SQLite actor/Workflow state component, native Placement and native
+   Scheduler. API + Workflow share the Python process and sidecar. Its five-process
+   footprint is an explicit incremental cost and it never becomes default without
+   its own measured gate.
 9. The distributed/production profile remains role-separated and may use shared
    PostgreSQL, production state/broker backends, HA/security/observability.
 10. A tier advertises only capabilities it actually runs. Missing infrastructure
@@ -66,8 +68,12 @@ runtime with initial targets:
 - readiness <= 15 seconds;
 - immediate runtime state <= 32 MiB.
 
+The optional local Workflow tier has a separate initial budget: exactly 5 steady
+processes, total RSS <= 640 MiB, idle CPU <= 8% of one core, readiness <= 25 seconds
+and runtime state <= 64 MiB.
+
 These are initial product budgets, not production SLOs. Failure means redesign the
-local composition; it is not permission to silently increase machine requirements.
+tier; it is not permission to silently increase machine requirements.
 
 ## Consequences
 

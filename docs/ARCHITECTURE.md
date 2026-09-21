@@ -46,13 +46,19 @@ input/approval and fan-out/fan-in are explicitly rejected rather than implemente
 a second scheduler. API and immediate worker execution are intentionally collapsed,
 so independently-offline worker-pool semantics are not claimed by this tier.
 
-### Local Workflow - optional, not default
+### Local Workflow - implemented, optional, not default
 
-When durable waits/timers/approval/fan-out are genuinely required locally, add the
-official Dapr Workflow runtime and the minimum Actor/Workflow services. The repository
-generates an example Dapr `state.sqlite` actor store so Redis is not introduced
-merely for convenience. Placement and Scheduler remain explicit additional processes
-whose incremental footprint must be measured before this tier is accepted.
+`a2a_mq.local_workflow` and `a2amq-local-workflow` implement the higher local
+tier for durable waits/timers/approval/fan-out. API + Workflow remain in one Python
+process and one sidecar. The tier adds native Placement and Scheduler plus a separate
+Dapr `state.sqlite` actor/Workflow store, for a five-process steady-state target.
+
+It still uses no PostgreSQL, Redis, Docker/Kubernetes, Vault or external OTLP.
+The official Dapr Workflow runtime, existing `DaprActions`, controls, reconciliation,
+outbox and TaskLedger are reused; no second workflow engine is implemented.
+
+This tier has a separate, higher resource budget and never replaces local-lite by
+default. Its native target-machine gate remains required.
 
 ### Distributed / production
 
@@ -130,7 +136,7 @@ stays on a local filesystem. PostgreSQL is for distributed replicas and is not a
 local-product prerequisite.
 
 Dapr Workflow state is separate from the A2A-MQ inbox/task/outbox database. The
-optional local Workflow tier may use a supported Dapr SQLite Actor/Workflow state
+implemented local Workflow tier uses a scoped Dapr SQLite Actor/Workflow state
 component; the distributed profile may use production state infrastructure.
 
 ## Back-pressure and resource boundaries
@@ -147,5 +153,7 @@ Local-lite additionally bounds:
 - single-node JetStream with bounded memory/file/stream limits;
 - three steady-state product processes.
 
-`scripts/local_stack_probe.py` measures the actual steady topology. Raising machine
-requirements is not a substitute for a failed local resource gate.
+`scripts/local_stack_probe.py` measures either prepared local profile. Local-lite
+expects three processes; local-workflow expects five and is judged against its own
+higher budget. Raising machine requirements is not a substitute for a failed local
+resource gate.

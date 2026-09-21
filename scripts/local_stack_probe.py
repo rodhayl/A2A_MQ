@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Measure the real three-process local-lite runtime without Docker or extra services."""
+"""Measure a native local A2A-MQ tier without Docker or external databases."""
 from __future__ import annotations
 
 import argparse
@@ -10,8 +10,8 @@ import signal
 import subprocess
 import sys
 import time
+from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
-from urllib.error import URLError, HTTPError
 
 
 def _mib(value: int | float) -> float:
@@ -97,7 +97,7 @@ def _ready(url: str, deadline: float, process: subprocess.Popen) -> None:
         except (URLError, HTTPError, TimeoutError, ValueError, OSError):
             pass
         time.sleep(.1)
-    raise RuntimeError("local-lite readiness timeout")
+    raise RuntimeError("local runtime readiness timeout")
 
 
 def _terminate(process: subprocess.Popen, children: list[int]) -> None:
@@ -108,7 +108,6 @@ def _terminate(process: subprocess.Popen, children: list[int]) -> None:
         except subprocess.TimeoutExpired:
             process.kill()
             process.wait(timeout=5)
-    # Fallback only for PIDs captured as descendants of this run.
     for pid in children:
         if pid == process.pid or not Path(f"/proc/{pid}").exists():
             continue
@@ -126,23 +125,72 @@ def _terminate(process: subprocess.Popen, children: list[int]) -> None:
             pass
 
 
+def _profile_policy(profile: dict) -> dict:
+    mode = profile.get("mode", "local-lite")
+    if mode == "local-lite":
+        return {
+            "mode": mode,
+            "module": "a2a_mq.local_runtime",
+            "verdict": "LOCAL_LITE",
+            "expectedRoles": ("app", "daprd", "nats"),
+            "maxTotalRssMiB": 384.0,
+            "maxIdleCpuPercent": 5.0,
+            "maxStartupSeconds": 15.0,
+            "maxRuntimeStateMiB": 32.0,
+        }
+    if mode == "local-workflow":
+        return {
+            "mode": mode,
+            "module": "a2a_mq.local_workflow_runtime",
+            "verdict": "LOCAL_WORKFLOW",
+            "expectedRoles": ("app", "daprd", "nats", "placement", "scheduler"),
+            "maxTotalRssMiB": 640.0,
+            "maxIdleCpuPercent": 8.0,
+            "maxStartupSeconds": 25.0,
+            "maxRuntimeStateMiB": 64.0,
+        }
+    raise ValueError("unsupported local profile mode")
+
+
+def _roles(root_pid: int, commands: dict[int, str]) -> dict[str, list[int]]:
+    return {
+        "app": [pid for pid in commands if pid == root_pid],
+        "daprd": [pid for pid, cmd in commands.items() if "daprd" in cmd],
+        "nats": [pid for pid, cmd in commands.items() if "nats-server" in cmd],
+        "placement": [pid for pid, cmd in commands.items()
+                      if "placement" in cmd and "placement-host-address" not in cmd],
+        "scheduler": [pid for pid, cmd in commands.items()
+                      if "scheduler" in cmd and "scheduler-host-address" not in cmd],
+    }
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--profile", required=True, type=Path)
     parser.add_argument("--json", dest="json_path", required=True, type=Path)
     parser.add_argument("--log", required=True, type=Path)
-    parser.add_argument("--startup-timeout", type=float, default=20)
+    parser.add_argument("--startup-timeout", type=float)
     parser.add_argument("--idle-seconds", type=float, default=3)
-    parser.add_argument("--max-total-rss-mib", type=float, default=384)
-    parser.add_argument("--max-idle-cpu-percent", type=float, default=5)
-    parser.add_argument("--max-startup-seconds", type=float, default=15)
-    parser.add_argument("--max-runtime-state-mib", type=float, default=32)
+    parser.add_argument("--max-total-rss-mib", type=float)
+    parser.add_argument("--max-idle-cpu-percent", type=float)
+    parser.add_argument("--max-startup-seconds", type=float)
+    parser.add_argument("--max-runtime-state-mib", type=float)
     args = parser.parse_args()
 
     if not Path("/proc/self/status").exists():
         raise SystemExit("local stack probe currently requires Linux /proc")
     if not args.profile.is_dir():
         raise SystemExit("profile directory not found")
+    profile = json.loads((args.profile / "profile.json").read_text(encoding="utf-8"))
+    policy = _profile_policy(profile)
+    expected_roles = policy["expectedRoles"]
+    expected_count = len(expected_roles)
+    max_rss = args.max_total_rss_mib or policy["maxTotalRssMiB"]
+    max_cpu = args.max_idle_cpu_percent or policy["maxIdleCpuPercent"]
+    max_startup = args.max_startup_seconds or policy["maxStartupSeconds"]
+    max_state = args.max_runtime_state_mib or policy["maxRuntimeStateMiB"]
+    startup_timeout = args.startup_timeout or max_startup + 10
+
     args.json_path.parent.mkdir(parents=True, exist_ok=True)
     args.log.parent.mkdir(parents=True, exist_ok=True)
 
@@ -150,22 +198,17 @@ def main() -> int:
     children: list[int] = []
     with args.log.open("wb") as log:
         process = subprocess.Popen(
-            [sys.executable, "-m", "a2a_mq.local_runtime", "run", str(args.profile.resolve())],
+            [sys.executable, "-m", policy["module"], "run", str(args.profile.resolve())],
             stdout=log, stderr=subprocess.STDOUT, cwd=Path.cwd(),
         )
         try:
             try:
-                _ready("http://127.0.0.1:18000/health/ready",
-                       started + args.startup_timeout, process)
+                _ready("http://127.0.0.1:18000/health/ready", started + startup_timeout, process)
                 startup = time.monotonic() - started
                 children = _descendants(process.pid)
                 commands = {pid: _cmdline(pid) for pid in children}
-                # Exactly one Python app (this child), one daprd and one nats-server.
-                roles = {
-                    "app": [pid for pid, cmd in commands.items() if pid == process.pid],
-                    "daprd": [pid for pid, cmd in commands.items() if "daprd" in cmd],
-                    "nats": [pid for pid, cmd in commands.items() if "nats-server" in cmd],
-                }
+                roles = _roles(process.pid, commands)
+
                 before = {pid: _cpu_ticks(pid) for pid in children}
                 wall = time.monotonic()
                 time.sleep(args.idle_seconds)
@@ -177,31 +220,29 @@ def main() -> int:
                 rss = {pid: _rss(pid) for pid in children}
                 total_rss = sum(rss.values())
                 state_bytes = _tree_bytes(args.profile / "state") + _tree_bytes(args.profile / "nats")
-
-                role_rss = {}
-                for role, pids in roles.items():
-                    role_rss[role] = _mib(sum(rss.get(pid, 0) for pid in pids))
+                role_rss = {role: _mib(sum(rss.get(pid, 0) for pid in pids))
+                            for role, pids in roles.items()}
 
                 checks = {
-                    "exactProcessCount": len(children) == 3,
-                    "oneApp": len(roles["app"]) == 1,
-                    "oneDaprd": len(roles["daprd"]) == 1,
-                    "oneNats": len(roles["nats"]) == 1,
-                    "rss": _mib(total_rss) <= args.max_total_rss_mib,
-                    "idleCpu": cpu_percent <= args.max_idle_cpu_percent,
-                    "startup": startup <= args.max_startup_seconds,
-                    "state": _mib(state_bytes) <= args.max_runtime_state_mib,
+                    "exactProcessCount": len(children) == expected_count,
+                    **{f"one{role.title()}": len(roles[role]) == 1 for role in expected_roles},
+                    "rss": _mib(total_rss) <= max_rss,
+                    "idleCpu": cpu_percent <= max_cpu,
+                    "startup": startup <= max_startup,
+                    "state": _mib(state_bytes) <= max_state,
                 }
                 failures = [name for name, ok in checks.items() if not ok]
+                label = policy["verdict"]
                 result = {
-                    "verdict": "PASS_LOCAL_LITE" if not failures else "FAIL_LOCAL_LITE",
-                    "scope": "native local-lite: one Python A2A-MQ app + one daprd + one nats-server",
+                    "verdict": f"PASS_{label}" if not failures else f"FAIL_{label}",
+                    "scope": profile.get("mode", "local-lite"),
                     "thresholds": {
-                        "maxTotalRssMiB": args.max_total_rss_mib,
-                        "maxIdleCpuPercentOneCore": args.max_idle_cpu_percent,
-                        "maxStartupSeconds": args.max_startup_seconds,
-                        "maxRuntimeStateMiB": args.max_runtime_state_mib,
-                        "expectedProcesses": 3,
+                        "maxTotalRssMiB": max_rss,
+                        "maxIdleCpuPercentOneCore": max_cpu,
+                        "maxStartupSeconds": max_startup,
+                        "maxRuntimeStateMiB": max_state,
+                        "expectedProcesses": expected_count,
+                        "expectedRoles": list(expected_roles),
                     },
                     "observed": {
                         "processCount": len(children),
@@ -215,9 +256,10 @@ def main() -> int:
                     "failedChecks": failures,
                 }
             except Exception as exc:
+                label = policy["verdict"]
                 result = {
-                    "verdict": "FAIL_LOCAL_LITE",
-                    "scope": "native local-lite startup/readiness",
+                    "verdict": f"FAIL_{label}",
+                    "scope": profile.get("mode", "local-lite"),
                     "error": type(exc).__name__,
                     "message": str(exc)[:512],
                     "failedChecks": ["startup"],
@@ -229,7 +271,7 @@ def main() -> int:
 
     args.json_path.write_text(json.dumps(result, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     print(json.dumps(result, sort_keys=True))
-    return 0 if result["verdict"] == "PASS_LOCAL_LITE" else 3
+    return 0 if result["verdict"].startswith("PASS_") else 3
 
 
 if __name__ == "__main__":

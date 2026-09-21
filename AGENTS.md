@@ -29,7 +29,10 @@ Scheduler, multiple application roles or the Dapr Workflow Python runtime into t
 default local tier merely for convenience.
 
 Local-lite deliberately rejects Workflow-only waits/timers/approval/input/fan-out.
-Extend the optional Workflow tier rather than adding a second scheduler to local-lite.
+The optional `a2a_mq.local_workflow` / `a2amq-local-workflow` tier already
+reuses official Dapr Workflow with SQLite state plus Placement/Scheduler. Extend
+that tier rather than adding a second scheduler to local-lite. Do not make the
+five-process Workflow tier the default without separate resource evidence.
 
 Before broad local testing, create the isolated venv and run the core resource probe
 from PROMPT_AGENT_LOCAL_TEST.md. If it passes and native daprd/nats-server already

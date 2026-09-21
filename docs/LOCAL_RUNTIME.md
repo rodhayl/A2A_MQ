@@ -1,50 +1,17 @@
-# Lightweight local runtime
+# Lightweight local runtimes
 
-## Purpose
+## Default: Local MQ Lite
 
-The default local product is a small single-host bridge, not the distributed
-acceptance stack. Its steady-state process budget is:
+The default local product is intentionally small. Its steady-state process budget is:
 
 1. one Python A2A-MQ process;
-2. one native `daprd` sidecar;
-3. one native `nats-server` process with JetStream.
+2. one native `daprd`;
+3. one native `nats-server` with JetStream.
 
-Application state is one local SQLite database. There is no PostgreSQL, Redis,
-Docker/Compose, Kubernetes, Vault, OTLP collector, Placement service or Scheduler
-service in this tier.
+Application state is a local SQLite database. PostgreSQL, Redis, Docker/Compose,
+Kubernetes, Vault, OTLP, Placement and Scheduler are not default prerequisites.
 
-The existing distributed/Workflow implementation remains available for features
-that genuinely need those semantics.
-
-## What local-lite implements
-
-The profile in `a2a_mq.local_lite` reuses the existing durable implementation:
-
-- SQLite TaskLedger admissions, ownership and stable IDs;
-- official A2A JSON-RPC and HTTP+JSON bridge, Agent Card and streaming surface;
-- JWT owner/tenant authorization;
-- Dapr Pub/Sub transport over JetStream;
-- durable command publication and SQL outbox;
-- immediate deterministic `echo` / `upper` execution;
-- get/list/cancel;
-- DLQ archive and identity-preserving replay;
-- operational status/retention routes;
-- optional MCP with submit/get/list/cancel only.
-
-It deliberately rejects `inputRequired`, `authRequired`, non-zero
-`delaySeconds`, continuation messages and approval calls with
-`WORKFLOW_FEATURE_UNAVAILABLE`. Durable waits, timers, approval/input and
-fan-out/fan-in belong to the Workflow tier; local-lite does not recreate a second
-workflow engine.
-
-Local-lite also collapses API and worker into one process. It therefore provides
-durable restart/redelivery, but it does **not** claim the distributed profile's
-independently-offline worker-pool semantics or independent observer fan-out.
-
-## Python environment
-
-Create an isolated venv. The local extra intentionally does not install the Dapr
-Python SDK, Workflow SDK, PostgreSQL driver, Redis client or container tooling.
+Install in an isolated venv:
 
 ```bash
 python3 -m venv .venv
@@ -53,58 +20,86 @@ python -m pip install -e '.[local]'
 python -m pip check
 ```
 
-For optional MCP:
-
-```bash
-python -m pip install -e '.[local,mcp]'
-```
-
 The host must already provide executable `daprd` and `nats-server`. The launcher
-does not install or modify host software. It finds `daprd` on `PATH` or at the
-standard `~/.dapr/bin/daprd` path.
+never installs host software.
 
-## Prepare a private profile
-
-Use a directory already excluded from Git:
+Prepare and run:
 
 ```bash
 a2amq-local prepare .local-validation/local-lite
-```
-
-The preparer creates owner-private application/Dapr/NATS tokens, a local JWT signing
-key, bounded JetStream configuration, Dapr pub/sub components, SQLite state
-directories and a one-hour local client JWT. The public listener is fixed to
-`http://127.0.0.1:18000` (or `localhost:18000`) and is never bound to a non-loopback
-address by the built-in launcher.
-
-The generated active Dapr resources contain two JetStream pub/sub component
-views: one command publisher/subscriber and one read-only DLQ subscriber, with
-separate durable consumer identities. A scoped Dapr resiliency resource retries
-transient inbound command-delivery failures five times at 500 ms before the configured
-dead-letter topic. No Dapr state store is loaded by local-lite.
-
-An example `state.sqlite` actor state component is generated under `examples/`
-for a future/optional local Workflow tier. It is not in the active resources path.
-
-## Run
-
-```bash
 a2amq-local run .local-validation/local-lite
 ```
 
-The Python launcher itself becomes the ASGI application process, so it does not
-remain as a fourth supervisor process. It starts NATS, performs JetStream
-provisioning in a short-lived helper process, starts `daprd`, and then serves the
-A2A application in the current Python process. If `daprd` or NATS exits, the app
-shuts down rather than remaining falsely healthy.
+The launcher itself becomes the ASGI process, so it does not remain as a fourth
+supervisor. JetStream provisioning runs in a short-lived helper before steady state.
 
-The sidecar is loopback-only, uses an API token, disables metrics, and is started
-with Placement and Scheduler addresses explicitly empty because local-lite uses
-neither Actors nor Workflow.
+Local-lite reuses TaskLedger/TaskAPI, official A2A JSON-RPC and HTTP+JSON bindings,
+JWT authorization, Dapr Pub/Sub, JetStream, SQLite outbox, cancellation, DLQ/replay
+and operations. Immediate deterministic `echo` and `upper` tasks are supported.
+
+Workflow-only semantics are explicit boundaries: `inputRequired`,
+`authRequired`, non-zero delays/timers, continuation/approval and fan-out/fan-in
+are rejected with `WORKFLOW_FEATURE_UNAVAILABLE`. Local-lite does not implement a
+second scheduler.
+
+The active Dapr resources are two JetStream pub/sub views with distinct durable
+command and DLQ consumers plus a bounded inbound retry policy (5 x 500 ms) before
+dead-lettering. No Dapr state store is loaded in this tier.
+
+## Optional: Local Workflow
+
+When durable waits, timers, approval/input or fan-out/fan-in are actually required,
+the repository now provides an optional native Workflow tier. It deliberately keeps
+API + Workflow worker in the same Python process and the same sidecar.
+
+Steady-state target:
+
+1. one Python A2A-MQ process;
+2. one `daprd`;
+3. one `nats-server`;
+4. one Dapr `placement`;
+5. one Dapr `scheduler`.
+
+State remains local:
+
+- `state/a2amq.db`: A2A-MQ inbox/task/action/outbox SQLite;
+- `state/dapr-workflow.db`: Dapr `state.sqlite` actor/Workflow store;
+- `state/scheduler/`: single-node Scheduler persistence;
+- `nats/`: bounded JetStream files.
+
+There is still no PostgreSQL, Redis, Docker, Vault or OTLP requirement.
+
+Install the extra only in the venv when this tier is needed:
+
+```bash
+python -m pip install -e '.[local,local-workflow]'
+python -m pip check
+```
+
+The host must already provide native `daprd`, `nats-server`, `placement` and
+`scheduler`. No validation task is authorized to install them.
+
+Prepare and run:
+
+```bash
+a2amq-local-workflow prepare .local-validation/local-workflow
+a2amq-local-workflow run .local-validation/local-workflow
+```
+
+The Workflow app reuses the existing official Dapr Workflow registration,
+`DaprActions`, TaskLedger, A2A bridge, outbox, controls, reconciliation and
+DLQ/replay paths. It is not a new workflow engine.
+
+The native Placement/Scheduler commands follow the loopback/single-node shape used
+by Dapr 1.18 integration tests. The Workflow state component is `state.sqlite`
+with `actorStateStore: true` and is scoped to the same local app id.
+
+This tier is optional because its extra control-plane cost is real. It must not
+silently become the default simply because it is available.
 
 ## Resource gates
 
-First measure the pure Python+SQLite core:
+Measure the pure core first:
 
 ```bash
 python scripts/local_resource_probe.py \
@@ -112,8 +107,17 @@ python scripts/local_resource_probe.py \
   --json .local-validation/core-probe.json
 ```
 
-If that passes and the native `daprd` and `nats-server` binaries already exist,
-measure the actual three-process runtime:
+Initial core budget:
+
+- Python+SQLite RSS <= 192 MiB;
+- idle CPU <= 3% of one core;
+- imports <= 3 seconds;
+- 100-task SQLite smoke <= 8 seconds;
+- SQLite state <= 16 MiB;
+- >= 512 MiB host memory headroom;
+- no attributable swap growth.
+
+After the core passes, measure a prepared native profile with the same probe:
 
 ```bash
 python scripts/local_stack_probe.py \
@@ -122,29 +126,47 @@ python scripts/local_stack_probe.py \
   --log .local-validation/local-lite.log
 ```
 
-The initial local-lite budget is intentionally conservative and must be validated
-on the target machine:
+For local-lite the initial budget is:
 
-- exactly 3 steady-state product processes;
+- exactly 3 steady processes;
 - total RSS <= 384 MiB;
-- aggregate idle CPU <= 5% of one core;
-- ready in <= 15 seconds;
-- runtime SQLite + JetStream state <= 32 MiB immediately after startup.
+- idle CPU <= 5% of one core;
+- readiness <= 15 seconds;
+- runtime state <= 32 MiB.
 
-These are product budget gates, not production SLOs. Failing them means redesign
-the local composition; it is not permission to silently raise machine requirements.
+If the optional Workflow tier is explicitly being evaluated:
 
-## Optional local Workflow tier
+```bash
+python scripts/local_stack_probe.py \
+  --profile .local-validation/local-workflow \
+  --json .local-validation/local-workflow-resources.json \
+  --log .local-validation/local-workflow.log
+```
 
-Workflow is not part of local-lite. If the product later needs durable waits,
-timers, approval/input or fan-out/fan-in locally, validate a separate tier using
-Dapr Workflow. The repository prepares a SQLite actor-state example so Redis is not
-introduced merely for convenience. Placement and Scheduler remain explicit extra
-processes whose incremental RSS/CPU must be measured before that tier is accepted.
+Its separate initial budget is intentionally higher and never substitutes for the
+lite gate:
+
+- exactly 5 steady processes;
+- total RSS <= 640 MiB;
+- idle CPU <= 8% of one core;
+- readiness <= 25 seconds;
+- runtime state <= 64 MiB.
+
+These are product budgets, not production SLOs. A failed budget means redesign the
+tier rather than silently increasing host requirements.
+
+## Loopback and secrets
+
+Both built-in launchers bind the application to `127.0.0.1:18000`, Dapr APIs to
+loopback and NATS to `127.0.0.1:4222`. Generated profiles are owner-private and
+contain random application/Dapr/NATS tokens plus a temporary local JWT signing key.
+
+The local HTTP A2A endpoint is deliberately loopback-only. Production/distributed
+profiles retain HTTPS requirements.
 
 ## Distributed / production
 
-The existing role-separated profiles remain the place for shared PostgreSQL,
-multiple workers/observers, Dapr Workflow, HA broker/state infrastructure, Vault,
-OTLP and Kubernetes. Those capabilities and their acceptance gates are not removed
-or silently claimed by local-lite.
+The existing role-separated profile remains the place for independent API/workers,
+observers, shared PostgreSQL, production broker/state backends, HA, Vault,
+observability and Kubernetes. Those capabilities and their acceptance gates are
+preserved; neither local tier silently claims them.

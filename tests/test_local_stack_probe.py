@@ -23,3 +23,13 @@ def test_stack_probe_proc_helpers_and_tree_size(tmp_path):
     nested.mkdir()
     (nested / "b").write_bytes(b"y" * 50)
     assert probe._tree_bytes(tmp_path) == 150
+
+
+def test_stack_probe_has_distinct_lite_and_workflow_budgets():
+    probe = _module()
+    lite = probe._profile_policy({"mode": "local-lite"})
+    workflow = probe._profile_policy({"mode": "local-workflow"})
+    assert lite["expectedRoles"] == ("app", "daprd", "nats")
+    assert workflow["expectedRoles"] == ("app", "daprd", "nats", "placement", "scheduler")
+    assert workflow["maxTotalRssMiB"] > lite["maxTotalRssMiB"]
+    assert workflow["maxStartupSeconds"] > lite["maxStartupSeconds"]

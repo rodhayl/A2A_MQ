@@ -19,10 +19,17 @@ supports immediate deterministic echo/upper execution. Workflow-only waits, time
 approval/input and fan-out/fan-in are rejected explicitly and remain in the
 role-separated Workflow profile.
 
-The built-in local launcher binds only loopback, disables Dapr metrics, leaves
+The built-in local-lite launcher binds only loopback, disables Dapr metrics, leaves
 Placement/Scheduler unconfigured, uses bounded single-node JetStream storage and
 generates a separate durable DLQ consumer. A short-lived provisioning process may
 run at startup; steady state remains three processes.
+
+The optional local Workflow tier is also implemented as
+`a2a_mq.local_workflow:from_env` plus `a2amq-local-workflow`. It combines API +
+official Dapr Workflow in the same Python process/sidecar, adds native Placement and
+Scheduler, and uses a separate Dapr `state.sqlite` actor store. Its steady target is
+five processes and it still uses no PostgreSQL, Redis or Docker. Install it only
+when needed with `.[local,local-workflow]`; see `docs/LOCAL_RUNTIME.md`.
 
 ## Scope and entry points
 

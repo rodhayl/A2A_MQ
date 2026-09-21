@@ -173,13 +173,14 @@ spec:
 '''
 
 
-def _workflow_state_component(path: Path) -> str:
+def _workflow_state_component(path: Path, *, app_id: str = "a2amq-workflow") -> str:
+    token(app_id)
     return f'''apiVersion: dapr.io/v1alpha1
 kind: Component
 metadata:
   name: workflow-state
 scopes:
-  - a2amq-workflow
+  - {app_id}
 spec:
   type: state.sqlite
   version: v1
@@ -206,8 +207,10 @@ def _loopback_public_url(value: str) -> str:
 
 
 def prepare(root: Path, *, tenant: str = "demo", source: str = "local-worker",
-            public_url: str = "http://127.0.0.1:18000", mcp: bool = False) -> dict:
+            public_url: str = "http://127.0.0.1:18000", mcp: bool = False,
+            mode: str = "local-lite") -> dict:
     require(not root.exists(), "OUTPUT_ALREADY_EXISTS")
+    require(mode in {"local-lite", "local-workflow"}, "INVALID_LOCAL_PROFILE")
     tenant, source = token(tenant), token(source)
     public_url = _loopback_public_url(public_url)
     root.mkdir(parents=True, mode=0o700)
@@ -265,14 +268,24 @@ authorization {{ token: {json.dumps(nats_token)} }}
                                algorithm="RS256", headers={"kid": "local", "typ": "JWT"})
         _private_write(root / "client-mcp.jwt", token_mcp)
 
-    # Prepared but not started by local-lite. This removes Redis from the optional
-    # local Workflow tier while keeping Scheduler/Placement an explicit separate cost.
-    _private_write(root / "examples/workflow-state.yaml",
-                   _workflow_state_component((root / "state/dapr-workflow.db").resolve()))
+    workflow_state = _workflow_state_component(
+        (root / "state/dapr-workflow.db").resolve(),
+        app_id=APP_ID if mode == "local-workflow" else "a2amq-workflow",
+    )
+    if mode == "local-workflow":
+        _private_write(root / "components/workflow-state.yaml", workflow_state)
+        for name in ("scheduler", "scheduler-identity"):
+            (root / "state" / name).mkdir(mode=0o700)
+        process_budget = ["a2a-mq", "daprd", "nats-server", "placement", "scheduler"]
+    else:
+        # Documentation/example only; local-lite never loads an actor state component.
+        _private_write(root / "examples/workflow-state.yaml", workflow_state)
+        process_budget = ["a2a-mq", "daprd", "nats-server"]
 
-    config = {"tenant": tenant, "source": source, "publicUrl": public_url, "issuer": issuer,
+    config = {"mode": mode, "tenant": tenant, "source": source,
+              "publicUrl": public_url, "issuer": issuer,
               "mcp": mcp, "appId": APP_ID, "appPort": 18000, "daprHttpPort": 3500,
-              "daprGrpcPort": 50001, "processBudget": ["a2a-mq", "daprd", "nats-server"]}
+              "daprGrpcPort": 50001, "processBudget": process_budget}
     _json_write(root / "profile.json", config)
     return config
 
@@ -298,8 +311,8 @@ def _native_binary(name: str) -> str | None:
     found = shutil.which(name)
     if found:
         return found
-    if name == "daprd":
-        candidate = Path.home() / ".dapr" / "bin" / "daprd"
+    if name in {"daprd", "placement", "scheduler"}:
+        candidate = Path.home() / ".dapr" / "bin" / name
         if candidate.is_file() and os.access(candidate, os.X_OK):
             return str(candidate)
     return None

@@ -29,7 +29,21 @@ DLQ/replay and operations. Immediate `echo` / `upper` tasks are supported.
 
 Workflow-only semantics are explicit feature boundaries in this tier:
 `inputRequired`, `authRequired`, timers/delays, continuation/approval and
-fan-out/fan-in require the Workflow profile and are rejected rather than emulated.
+fan-out/fan-in require the optional Workflow tier and are rejected rather than emulated.
+
+When those features are actually needed locally, the implemented
+`a2amq-local-workflow` profile keeps API + Workflow in the same Python process and
+uses native `daprd` + NATS + Placement + Scheduler with a separate Dapr SQLite
+Workflow state store. It still requires no PostgreSQL, Redis or Docker:
+
+```bash
+python -m pip install -e '.[local,local-workflow]'
+a2amq-local-workflow prepare .local-validation/local-workflow
+a2amq-local-workflow run .local-validation/local-workflow
+```
+
+This optional tier has a separate five-process resource budget and does not replace
+the cheaper three-process local-lite default.
 
 See [lightweight local runtime](docs/LOCAL_RUNTIME.md) and
 [ADR 0011](docs/adr/0011-local-footprint-first.md).
