@@ -8,8 +8,10 @@ from a2a_mq.local_runtime import (
     APP_ID,
     _bus_component,
     _dlq_component,
+    _load_profile,
     _loopback_public_url,
     _plan,
+    _private_replace,
     _resiliency_resource,
     _workflow_state_component,
 )
@@ -88,3 +90,38 @@ def test_local_extra_excludes_distributed_and_workflow_runtime_dependencies():
     assert "postgres" not in lowered
     assert "redis" not in lowered
     assert "docker" not in lowered
+
+
+def test_local_profile_mode_is_fail_closed_before_runtime_start(tmp_path):
+    root = tmp_path / "profile"
+    root.mkdir(mode=0o700)
+    profile = {
+        "mode": "local-workflow",
+        "tenant": "demo",
+        "source": "local-worker",
+        "publicUrl": "http://127.0.0.1:18000",
+        "issuer": "https://local-a2amq.invalid",
+        "mcp": False,
+        "appId": APP_ID,
+        "appPort": 18000,
+        "daprHttpPort": 3500,
+        "daprGrpcPort": 50001,
+    }
+    (root / "profile.json").write_text(__import__("json").dumps(profile))
+    with pytest.raises(PermanentError, match="LOCAL_PROFILE_MODE_MISMATCH"):
+        _load_profile(root, "local-lite")
+    assert _load_profile(root, "local-workflow")["mode"] == "local-workflow"
+
+
+def test_local_profile_rejects_group_access_and_atomic_secret_refresh(tmp_path):
+    root = tmp_path / "profile"
+    root.mkdir(mode=0o770)
+    (root / "profile.json").write_text("{}")
+    with pytest.raises(PermanentError, match="UNSAFE_LOCAL_PROFILE"):
+        _load_profile(root, "local-lite")
+
+    secret = tmp_path / "token"
+    _private_replace(secret, "first")
+    _private_replace(secret, "second")
+    assert secret.read_text() == "second"
+    assert secret.stat().st_mode & 0o077 == 0

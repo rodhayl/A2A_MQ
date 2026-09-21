@@ -18,8 +18,10 @@ import time
 from .domain import require
 from .local_runtime import (
     APP_ID,
+    _load_profile,
     _native_binary,
     _read,
+    _refresh_client_tokens,
     _terminate,
     _wait_port,
     prepare as prepare_local,
@@ -110,9 +112,8 @@ def _environment(root: Path, profile: dict) -> dict[str, str]:
 
 
 def run(root: Path) -> int:
-    require(root.is_dir(), "PROFILE_NOT_FOUND")
-    profile = json.loads((root / "profile.json").read_text(encoding="utf-8"))
-    require(profile.get("mode") == "local-workflow", "WORKFLOW_PROFILE_REQUIRED")
+    profile = _load_profile(root, "local-workflow")
+    _refresh_client_tokens(root, profile)
 
     binaries = {name: _native_binary(name) for name in ("nats-server", "daprd", "placement", "scheduler")}
     missing = [name for name, value in binaries.items() if not value]

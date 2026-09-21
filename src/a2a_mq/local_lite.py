@@ -17,7 +17,7 @@ from starlette.responses import JSONResponse
 from starlette.routing import Mount, Route
 
 from .bridge import create_bridge
-from .configuration import read_file, verifier
+from .configuration import https_issuer, read_file, verifier
 from .deadletters import DeadLetters, ReplayService
 from .dlq_callback import create_dlq_callback
 from .domain import Envelope, PermanentError, TERMINAL, load_json, require, state_of, token
@@ -111,8 +111,7 @@ class LocalLiteSettings:
             token(value)
         _loopback_url(self.public_url)
         _loopback_url(self.dapr_http)
-        require(isinstance(self.issuer, str) and self.issuer.startswith("https://") and len(self.issuer) <= 2048,
-                "HTTPS_ISSUER_REQUIRED")
+        https_issuer(self.issuer)
         require(type(self.mcp_enabled) is bool, "INVALID_CONFIGURATION")
         require(type(self.concurrency) is int and 1 <= self.concurrency <= 16, "INVALID_CONCURRENCY")
         require(type(self.database_capacity) is int and 1 <= self.database_capacity <= 32,

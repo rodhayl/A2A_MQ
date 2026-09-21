@@ -41,6 +41,77 @@ def _json_write(path: Path, value, *, private: bool = False) -> None:
             stream.write(raw)
 
 
+def _private_replace(path: Path, value: str) -> None:
+    """Atomically refresh an owner-private generated credential."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(path.name + "." + secrets.token_hex(8) + ".tmp")
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as stream:
+            stream.write(value)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(tmp, path)
+        os.chmod(path, 0o600)
+    finally:
+        try:
+            tmp.unlink()
+        except FileNotFoundError:
+            pass
+
+
+def _refresh_client_tokens(root: Path, profile: dict) -> None:
+    """Issue short-lived client tokens on every start so persistent profiles do not expire."""
+    try:
+        import jwt
+        from cryptography.hazmat.primitives.serialization import load_pem_private_key
+        from cryptography.hazmat.primitives.asymmetric.rsa import RSAPrivateKey
+    except ImportError:
+        raise RuntimeError("local runtime extra is required: pip install -e '.[local]'") from None
+
+    key = load_pem_private_key((root / "jwt-private.pem").read_bytes(), password=None)
+    require(isinstance(key, RSAPrivateKey), "INVALID_LOCAL_IDENTITY_KEY")
+    now = datetime.now(timezone.utc)
+    claims = {
+        "iss": profile["issuer"], "sub": "local-owner", "tenant": token(profile["tenant"]),
+        "scope": "a2a:send a2a:read a2a:cancel a2a:operate a2a:replay a2a:approve",
+        "iat": int(now.timestamp()), "nbf": int(now.timestamp()),
+        "exp": int((now + timedelta(hours=1)).timestamp()),
+    }
+    public_url = _loopback_public_url(profile["publicUrl"])
+    encoded = jwt.encode({**claims, "aud": public_url}, key, algorithm="RS256",
+                         headers={"kid": "local", "typ": "JWT"})
+    _private_replace(root / "client.jwt", encoded)
+    if profile.get("mcp"):
+        encoded_mcp = jwt.encode({**claims, "aud": public_url + "/mcp"}, key, algorithm="RS256",
+                                headers={"kid": "local", "typ": "JWT"})
+        _private_replace(root / "client-mcp.jwt", encoded_mcp)
+
+
+def _load_profile(root: Path, expected_mode: str) -> dict:
+    require(root.is_dir() and not root.is_symlink(), "PROFILE_NOT_FOUND")
+    info = root.stat()
+    require(info.st_mode & 0o077 == 0, "UNSAFE_LOCAL_PROFILE")
+    raw = (root / "profile.json").read_text(encoding="utf-8")
+    require(len(raw.encode("utf-8")) <= 16384, "INVALID_LOCAL_PROFILE")
+    try:
+        profile = json.loads(raw)
+    except (TypeError, ValueError):
+        require(False, "INVALID_LOCAL_PROFILE")
+    require(isinstance(profile, dict) and profile.get("mode") == expected_mode,
+            "LOCAL_PROFILE_MODE_MISMATCH")
+    require(profile.get("appId") == APP_ID and profile.get("appPort") == 18000
+            and profile.get("daprHttpPort") == 3500 and profile.get("daprGrpcPort") == 50001,
+            "INVALID_LOCAL_PROFILE")
+    token(profile.get("tenant"))
+    token(profile.get("source"))
+    _loopback_public_url(profile.get("publicUrl"))
+    require(isinstance(profile.get("issuer"), str) and profile["issuer"] == "https://local-a2amq.invalid",
+            "INVALID_LOCAL_PROFILE")
+    require(type(profile.get("mcp")) is bool, "INVALID_LOCAL_PROFILE")
+    return profile
+
+
 def _plan(tenant: str, source: str) -> dict:
     tenant, source = token(tenant), token(source)
     return {"stream": {"name": "A2A_MQ", "subjects": [f"a2a.v1.{tenant}.>"],
@@ -331,14 +402,17 @@ def _terminate(process: subprocess.Popen | None) -> None:
 
 def run(root: Path) -> int:
     """Run exactly three product processes: this Python app, daprd and nats-server."""
-    require(root.is_dir(), "PROFILE_NOT_FOUND")
+    profile = _load_profile(root, "local-lite")
+    # Profiles are durable, while access tokens are deliberately short-lived.
+    # Refresh generated client credentials before checking runtime prerequisites.
+    _refresh_client_tokens(root, profile)
+
     nats_server = _native_binary("nats-server")
     daprd = _native_binary("daprd")
     if not nats_server or not daprd:
         missing = [name for name, value in (("nats-server", nats_server), ("daprd", daprd)) if not value]
         raise RuntimeError("missing native prerequisite(s): " + ", ".join(missing))
 
-    profile = json.loads((root / "profile.json").read_text(encoding="utf-8"))
     env = os.environ.copy()
     env.update({
         "APP_API_TOKEN": _read(root / "app-api-token"),

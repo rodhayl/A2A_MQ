@@ -1,6 +1,8 @@
+import pytest
+
 from a2a_mq.domain import Envelope, PermanentError, state_of
 from a2a_mq.identity import Principal
-from a2a_mq.local_lite import LocalLiteActions, LocalLiteTaskAPI
+from a2a_mq.local_lite import LocalLiteActions, LocalLiteSettings, LocalLiteTaskAPI
 from a2a_mq.storage import SQLiteStore
 from a2a_mq.tasks import TaskLedger
 
@@ -61,3 +63,22 @@ def test_local_lite_rejects_workflow_only_options():
             assert exc.code == "WORKFLOW_FEATURE_UNAVAILABLE"
         else:
             raise AssertionError("workflow-only option accepted")
+
+
+def test_local_lite_issuer_uses_strict_https_validation(tmp_path):
+    base = dict(
+        sqlite_path=str(tmp_path / "db"),
+        app_token_file=str(tmp_path / "app"),
+        dapr_token_file=str(tmp_path / "dapr"),
+        jwt_keys_file=str(tmp_path / "keys"),
+        public_url="http://127.0.0.1:18000",
+    )
+    assert LocalLiteSettings(**base, issuer="https://local-a2amq.invalid").issuer
+    for issuer in (
+        "http://local-a2amq.invalid",
+        "https://user:pass@local-a2amq.invalid",
+        "https://local-a2amq.invalid?key=value",
+        "https://local-a2amq.invalid#fragment",
+    ):
+        with pytest.raises(PermanentError):
+            LocalLiteSettings(**base, issuer=issuer)
