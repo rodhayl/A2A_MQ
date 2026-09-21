@@ -1,39 +1,52 @@
-# Requirement coverage after integrated implementation
+# Requirement coverage after lightweight-local implementation
 
-Implementation presence, local evidence and native infrastructure acceptance are
-separate columns. Requirement IDs and phase numbering are preserved. No historical
-snapshot was reconstructed; these are incremental implementations on the remote
-base and do not inherit that snapshot's old acceptance claims.
+Implementation presence, local evidence and distributed/native infrastructure
+acceptance are separate. Historical test counts do not certify the current SHA.
 
-| Requirements / phase | Implemented source | Remaining acceptance |
+| Scope | Implemented source | Evidence still required |
 | --- | --- | --- |
-| FR-001/009/010/037/040/050/052; phases 1-2 | domain/schema/transport, stable routing/identity, metadata and Dapr boundary | Existing whole-repository and native protocol regression |
-| FR-002/011/012/020/022/024/026; phases 2/9 | durable SQL admissions, admission repair, broker provisioner, role components/queues, native dual-broker harness | Actual JetStream and RabbitMQ runs; do not infer parity from Dapr abstraction |
-| FR-021/023/027; phase 3 | SQLiteStore, pooled PostgresStore, leases/fences/outbox, projection ordering | Full historical regression and shared PostgreSQL live gate |
-| FR-003/007/008; phase 4 | TaskLedger, official Dapr Workflow registration/actions/reconcile, input/auth/cancel, timer, fan-out/fan-in | Native scheduling/restart/race gates |
-| FR-004/005/006/013/014; phase 5 | TaskAPI plus official SDK Agent Card, send/get/list/cancel/subscribe and SSE/artifact conversion | Official SDK clients/native streaming; formal independent conformance |
-| FR-030/031/032/038; phase 6 | pinned RS256 principal/owner scopes, per-call MCP verification, role-specific secret/config, Dapr scopes, TLS production profiles | Deployed workload/broker policies, certificate/credential rotation, cross-tenant native negative tests |
-| FR-033/034/035/036; phase 7 | library AEAD and key wrap, Vault Transit, authenticated routing header, saved ciphertext, explicit read windows | Real Vault gate and encrypted live deployment/rotation acceptance |
-| FR-025/044; phase 8 | bounded DLQ archive, operator API, strict original-identity replay, separate RabbitMQ parking route | Real broker DLQ and ciphertext replay; reviewed archive retention operations |
-| FR-041/042/043; phase 8 | OTel counters/histograms/spans/backlog, metadata-only SDK handlers, liveness/readiness/drain | Export destination, capacity/failover tests and operational alert tuning |
-| NFR-008; phase 8 | bounded admission/control/SQL lanes, task/projection quotas and terminal-only retirement, retained identity tombstones | Capacity sizing, archive/export strategy and retention windows |
-| Phase 8 recovery | WAL-aware SQLite backup, hash-verified private restores, native pg_dump/pg_restore wrappers, Dapr history purge guard | Real PostgreSQL restore and coherent whole-system DR/HA drills |
-| FR-051; phase 9 | same roles and native acceptance suite for JetStream/RabbitMQ, explicit provisioned backend settings | Both native suites must pass; configuration alone is not portability proof |
-| Phase 10 | ADR 0010: official native HTTP bindings; experimental private MQ profile, no new standardization claim | Independent review, relevant upstream conformance/compatibility decisions |
-| MCP integration | official MCP SDK adapter and six authorized tools sharing TaskAPI | Actual MCP HTTP client/server gate |
+| Local economics / NFR-013 | `scripts/local_resource_probe.py`, `scripts/local_stack_probe.py`, ADR 0011 | Execute both probes on the target low-resource machine |
+| Local-lite A2A bridge | `local_lite.py`, official `bridge.py`, JWT identity, SQLite TaskLedger/TaskAPI | Native A2A client + real daprd/JetStream smoke on target |
+| Local-lite transport | direct native launcher, one Dapr sidecar, bounded single-node JetStream, separate command/DLQ durables | Restart/redelivery and resource evidence with real native binaries |
+| Local-lite state | SQLite jobs/tasks/actions/outbox/runtime-end, retention identities | Target-machine restart and backup/restore smoke |
+| Local-lite execution | immediate deterministic echo/upper executor using existing durable actions | Race/restart/cancel regression plus real transport execution |
+| Local-lite cancellation | existing owner-scoped TaskAPI/TaskLedger controls | Real A2A cancel race through sidecar |
+| Local-lite DLQ/replay | existing bounded archive/replay, dedicated Dapr DLQ component | Poison delivery + replay through real JetStream |
+| Local-lite MCP | optional official MCP SDK; submit/get/list/cancel only | Install `.[local,mcp]` and run native MCP HTTP client gate |
+| FR-001/009/010/037/040/050/052 | domain/schema/transport, stable routing/identity, A2A bridge | Whole-repository/current-SHA regression |
+| FR-002/011/012/020/022/024/026 distributed semantics | role-separated admissions, brokers, workers/observers and dual-broker harness | Real JetStream/RabbitMQ distributed runs; local-lite does not claim independent offline worker pools/observer fan-out |
+| FR-021/023/027 | SQLiteStore, PostgresStore, leases/fences/outbox/projection ordering | Current-SHA SQLite regression and real PostgreSQL gate |
+| FR-003/007/008 Workflow tier | Dapr Workflow registration/actions/reconcile, input/auth/cancel/timers/fan-out | Native Workflow restart/race gate; intentionally outside local-lite |
+| FR-004/005/006/013/014 | TaskAPI + official A2A SDK Agent Card/send/get/list/cancel/subscribe | Official SDK client/native streaming gate |
+| FR-030/031/032/038 | JWT principal/owner scopes, Dapr scopes, TLS production profiles | Deployed workload/broker policy and cross-tenant negative tests |
+| FR-033/034/035/036 | AEAD/key wrap/Vault Transit transport protection | Real Vault/encrypted deployment gate; not a local-lite prerequisite |
+| FR-025/044 | bounded DLQ archive/operator/replay | Real broker poison/replay evidence |
+| FR-041/042/043 | metrics/logging/readiness in distributed profile; lightweight health in local-lite | Operational tuning and native resource evidence |
+| NFR-008 | bounded queues/concurrency/records/retirement | Capacity sizing and retention windows |
+| Recovery | SQLite backup/restore, PostgreSQL wrappers, Dapr history purge guard | Real DR gates per deployment tier |
+| FR-051 | JetStream/RabbitMQ distributed portability | Both native suites must pass; local-lite defaults to JetStream |
+| MCP distributed | official MCP SDK and six Workflow-capable tools | Native MCP gate |
+| Protocol binding | ADR 0010 / binding manifest | Independent conformance review |
 
-## Deliberate boundaries, not silent substitutes
+## Local-lite feature boundary
 
-The reference activities perform text transformations. General arbitrary external
-exactly-once effects, a new LLM framework, global ordering, broker federation, a
-handwritten crypto primitive and a replacement Workflow engine remain non-goals.
-Full Task snapshots are canonical internally; arbitrary inbound delta reassembly
-is not silently claimed. Optional push notifications are explicitly unsupported.
-Production control planes, HA data services and credential issuance are managed
-infrastructure prerequisites, not emulated by the local development profile.
+Local-lite deliberately collapses API and immediate execution into one Python
+process. This reduces process/memory cost and keeps SQLite as the only application
+database. It supports durable persistence and restart/redelivery but does not claim
+that a separate worker can remain offline while the API independently accepts new
+work; that is a distributed-profile property.
 
-NFR-006 latency values are unmeasured targets. The benchmark reports observations
-when executed; no numerical SLA is claimed by implementation or unit-test counts.
-Transitive hash-locking, vulnerability/container/SBOM auditing, full repository
-lint/types and native deployed acceptance remain release gates. These are not
-converted into passing statuses because their tooling/services are unavailable.
+`inputRequired`, `authRequired`, delays/timers, continuation/approval and
+fan-out/fan-in are rejected with `WORKFLOW_FEATURE_UNAVAILABLE` in local-lite.
+They remain implemented in the Dapr Workflow tier rather than being reimplemented
+as another scheduler.
+
+## Infrastructure boundary
+
+The full Compose/Kubernetes topology remains useful for distributed acceptance and
+production-like testing. PostgreSQL, Redis, Docker/Kubernetes, Vault, OTLP,
+Placement and Scheduler are not default local requirements.
+
+Generated configuration, mocks, source inspection or unavailable prerequisites do
+not count as native acceptance. Resource viability must be measured on the actual
+target hardware before the local product is declared viable.

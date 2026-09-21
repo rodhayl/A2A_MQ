@@ -1,71 +1,81 @@
-# ADR 0011: local footprint is a product gate, not an afterthought
+# ADR 0011: local footprint is a product gate
 
 ## Status
 
-Accepted for the next local-product iteration.
+Accepted and implemented in source. Native resource/interop evidence on the target
+machine is still required.
 
 ## Context
 
-The integrated implementation can render a full disposable stack with PostgreSQL,
-a Workflow state backend, a broker, multiple Dapr-enabled roles, gateway and
-observability pieces. That stack is useful for distributed acceptance, but it is
-not an appropriate default for a resource-constrained machine whose primary job is
-to act as a local A2A bridge.
+The repository has a full distributed acceptance topology with PostgreSQL, Workflow
+state, brokers, Dapr control services, multiple roles, gateway and observability.
+That topology is useful for distributed testing but is not an acceptable default for
+a low-resource machine whose primary purpose is a local A2A bridge.
 
-The current role-based `a2a_mq.application` also assumes a colocated Dapr sidecar
-for readiness and publication. Therefore the current integrated profile must not be
-described as a proven lightweight local runtime merely because SQLite is available.
-
-Current Dapr documentation supports self-hosted native execution without Docker.
-Dapr's SQLite state component supports Actors and Workflow, so PostgreSQL/Redis are
-not inherently required to exercise a single-host Workflow design. Workflow still
-uses Actors/reminders and therefore carries Placement/Scheduler/runtime overhead.
-That overhead must be measured rather than hidden inside a convenience stack.
+Dapr can run self-hosted without Docker. Placement is unnecessary for applications
+that do not use Actors, and Scheduler can be omitted when the local tier does not use
+Workflow/Jobs/reminders. Dapr also provides a SQLite state component suitable for a
+separate single-host Actor/Workflow tier, so Redis is not a mandatory local choice.
 
 ## Decision
 
 1. Resource viability is the first local-product acceptance gate.
-2. The full Compose/Kubernetes topology is an infrastructure acceptance profile,
-   not the default local runtime.
-3. PostgreSQL, Redis, Vault, an OTLP collector and container orchestration are not
+2. The full Compose/Kubernetes topology is an infrastructure/distributed acceptance
+   profile, not the default local runtime.
+3. PostgreSQL, Redis, Vault, external OTLP and container orchestration are not
    prerequisites for the default local bridge.
-4. Preserve Dapr + broker portability as the distributed architecture, but develop
-   and measure lighter local tiers before adding more infrastructure.
-5. The target tiers are:
+4. The default local implementation is `a2a_mq.local_lite`:
+   - one Python application process;
+   - one native `daprd`;
+   - one native single-node `nats-server`/JetStream;
+   - SQLite application state.
+5. The launcher does not retain a separate supervisor process. It becomes the ASGI
+   process after starting NATS and daprd. Broker provisioning is short-lived.
+6. Local-lite uses Dapr Pub/Sub but does not use Dapr Workflow, Actors, Placement or
+   Scheduler. It supports immediate deterministic tasks and rejects Workflow-only
+   waits/timers/approval/input/fan-out.
+7. API and immediate execution are collapsed into one process. Therefore local-lite
+   does not claim independently-offline worker-pool or independent-observer
+   semantics; those remain distributed-profile requirements.
+8. The optional local Workflow tier may add official Dapr Workflow with a local
+   SQLite actor state component where supported. Placement/Scheduler are explicit
+   incremental costs and must be measured before that tier becomes default.
+9. The distributed/production profile remains role-separated and may use shared
+   PostgreSQL, production state/broker backends, HA/security/observability.
+10. A tier advertises only capabilities it actually runs. Missing infrastructure
+    never becomes a passing gate.
 
-   - **Core probe**: Python + SQLite only. It validates that our own code is cheap.
-     It is diagnostic and does not claim MQ/Dapr parity.
-   - **Local MQ Lite target**: one application process, SQLite application state,
-     one native Dapr sidecar and one native single-node JetStream broker. Advanced
-     Workflow features may be disabled unless the next tier is selected.
-   - **Local Workflow target**: Local MQ Lite plus the minimum self-hosted
-     Dapr actor/workflow services, using a local SQLite Dapr state store when
-     compatible. Measure Placement/Scheduler separately. No PostgreSQL/Redis/Docker
-     merely for convenience.
-   - **Distributed/production**: role-separated services, shared PostgreSQL,
-     production broker/state backends, HA/security/observability infrastructure.
+## Resource gates
 
-6. A tier may advertise only the features it actually runs. A lightweight tier
-   does not fake Workflow, broker parity, HA or production security.
-7. If the core probe fails the initial resource budget, stop feature validation
-   and treat local economics as a product blocker. If the core passes but the
-   current integrated topology is too heavy, redesign the local composition rather
-   than raising the host requirements silently.
+The pure core probe uses conservative initial targets:
 
-## Initial measurement budget
+- Python+SQLite RSS <= 192 MiB;
+- idle CPU <= 3% of one core;
+- imports <= 3 seconds;
+- 100-task SQLite smoke <= 8 seconds;
+- SQLite state <= 16 MiB;
+- >= 512 MiB host memory headroom;
+- no attributable swap growth.
 
-The repository's probe uses intentionally conservative starting targets, not
-production SLOs: 192 MiB maximum observed RSS for the Python core process, 3% of
-one CPU core while idle, 3 seconds for core imports, 8 seconds for a 100-task
-SQLite smoke, 16 MiB state footprint and 512 MiB host memory headroom before the
-probe starts. The owner may tighten these after first measurements.
+After that passes, `scripts/local_stack_probe.py` measures the actual local-lite
+runtime with initial targets:
 
-These thresholds apply to the core probe only. Each additional local tier must
-report its incremental RSS/CPU/process/disk cost independently.
+- exactly 3 steady-state processes;
+- total RSS <= 384 MiB;
+- aggregate idle CPU <= 5% of one core;
+- readiness <= 15 seconds;
+- immediate runtime state <= 32 MiB.
+
+These are initial product budgets, not production SLOs. Failure means redesign the
+local composition; it is not permission to silently increase machine requirements.
 
 ## Consequences
 
-The current full local deployment remains valuable for acceptance, but it no longer
-defines product viability. The next implementation decision should be based on
-measured local footprint and should remove unnecessary daemon/process boundaries
-from the default local composition before optimizing throughput or adding features.
+Local deployment now has an implementation independent of the heavy acceptance
+stack. The existing distributed/Workflow code is preserved rather than deleted.
+
+The lightweight tier intentionally has fewer capabilities than the Workflow tier.
+That feature boundary is a product trade-off for low idle cost, not a test shortcut.
+
+Real target-machine execution is still required before claiming the local product is
+economically viable.

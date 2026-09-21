@@ -1,33 +1,34 @@
-# /goal - Prove local viability first, then validate A2A-MQ without overloading the host
+# /goal - Validate the implemented lightweight local A2A-MQ on a low-resource host
 
-This is a self-contained task for a NEW agent conversation in `rodhayl/A2A_MQ`,
-branch `implementation/production-hardening-20260916`.
+Work in a NEW agent conversation in `rodhayl/A2A_MQ`, branch
+`implementation/production-hardening-20260916`.
 
-The first product question is **not whether every feature works**. It is whether our
-local bridge design is economically viable on this low-resource machine. A technically
-correct bridge that needs a heavy container stack or consumes too much idle RAM/CPU
-fails the local-product goal.
+The local product is now implemented. Do not redesign it before measuring it.
+The first gate is economic viability, then lightweight correctness. The target
+steady state is exactly one Python A2A-MQ process + one native `daprd` + one native
+`nats-server`, with SQLite application state.
 
-## Non-negotiable host boundaries
+## Hard host boundaries
 
-- Use an existing Python 3.12/3.13 and a fresh project-local venv without
-  `--system-site-packages`. Never use sudo, OS package managers, global/user pip,
-  `--break-system-packages`, system services, cron or shell-profile changes.
-- Keep venv, caches, SQLite fixtures and raw evidence under ignored
-  `.local-validation/`. Preserve pre-existing worktree changes and environments.
-- Do not install or invoke Docker, Compose, Podman, Kubernetes, Dapr, NATS,
-  RabbitMQ, PostgreSQL, Redis, Vault or telemetry collectors in this task.
-- Start with only `requirements/local-validation.txt`, binary wheels only.
-- Run one command/test file at a time. No xdist, coverage, parallel agents or load
-  tests. Keep numerical-library thread counts at one.
-- Never turn a missing dependency/service or skipped infrastructure gate into PASS.
-- Do not push or merge. Focused local commits for proven fixes are allowed.
+- Use an existing Python 3.12/3.13 in a fresh project-local venv without
+  `--system-site-packages`.
+- Never use sudo, OS package managers, global/user pip, `--break-system-packages`,
+  Docker/Compose/Podman/Kubernetes, system services, cron or shell-profile changes.
+- Keep venv, caches, SQLite/NATS state and raw evidence under ignored
+  `.local-validation/`.
+- Start with only `requirements/local-validation.txt`.
+- Do not install `daprd`, `nats-server`, PostgreSQL, Redis, Vault, RabbitMQ or
+  telemetry services. If native `daprd` or `nats-server` is absent, record the
+  native local-lite gate as INCOMPLETE and continue broker-free validation.
+- Run one test command/file at a time. No xdist, coverage, load tests or parallel
+  tool agents.
+- Never convert missing prerequisites, skips, xfails, empty selections or timeouts
+  into PASS.
+- Do not push or merge. Focused local commits for proven defects are allowed.
 
-## Phase 0 - FIRST TEST: local economic viability
+## Phase 0 - FIRST: pure-core economic gate
 
-Do this before the bug hunt and before broad tests.
-
-Create the private venv/run directory:
+Create the private run and venv before broad source analysis:
 
 ```bash
 set -euo pipefail
@@ -37,7 +38,7 @@ cd "$REPO"
 test ! -L "$REPO/.local-validation"
 mkdir -p "$REPO/.local-validation"
 STATE="$(mktemp -d "$REPO/.local-validation/run.XXXXXXXX")"
-mkdir -p "$STATE/tmp" "$STATE/cache" "$STATE/evidence" "$STATE/probe"
+mkdir -p "$STATE/tmp" "$STATE/cache" "$STATE/evidence" "$STATE/core-probe"
 EVIDENCE="$STATE/evidence"
 export TMPDIR="$STATE/tmp" TMP="$STATE/tmp" TEMP="$STATE/tmp"
 export XDG_CACHE_HOME="$STATE/cache" PIP_CACHE_DIR="$STATE/cache/pip"
@@ -50,106 +51,75 @@ export OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1
 export NUMEXPR_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1
 unset PYTHONHOME PYTHONPATH PYTHONUSERBASE PYTEST_ADDOPTS PYTEST_PLUGINS
 unset PIP_TARGET PIP_PREFIX PIP_USER PIP_BREAK_SYSTEM_PACKAGES
+unset OPENAI_API_KEY ANTHROPIC_API_KEY GEMINI_API_KEY GOOGLE_API_KEY AZURE_OPENAI_API_KEY
+
 PY_BASE="$(command -v python3.13 || command -v python3.12 || command -v python3)"
 "$PY_BASE" -c 'import sys; assert sys.version_info[:2] in {(3,12),(3,13)}, sys.version'
 "$PY_BASE" -m venv "$STATE/venv"
 PY="$STATE/venv/bin/python"
-"$PY" -m pip install --no-cache-dir --only-binary=:all:   -r "$REPO/requirements/local-validation.txt"   > "$EVIDENCE/install.log" 2>&1
-"$PY" -m pip check > "$EVIDENCE/pip-check.log" 2>&1
+"$PY" -m pip install --no-cache-dir --only-binary=:all:   -r "$REPO/requirements/local-validation.txt"   > "$EVIDENCE/install-minimal.log" 2>&1
+"$PY" -m pip check > "$EVIDENCE/pip-check-minimal.log" 2>&1
+git rev-parse HEAD > "$EVIDENCE/start-sha.txt"
+git status --short > "$EVIDENCE/start-status.txt"
 ```
 
-Now run the repository's stdlib/core probe:
+Run the pure Python+SQLite probe:
 
 ```bash
 set +e
-"$PY" "$REPO/scripts/local_resource_probe.py"   --state-dir "$STATE/probe"   --json "$EVIDENCE/resource-viability.json"   > "$EVIDENCE/resource-viability.log" 2>&1
-PROBE_RC=$?
+"$PY" "$REPO/scripts/local_resource_probe.py"   --state-dir "$STATE/core-probe"   --json "$EVIDENCE/core-resources.json"   > "$EVIDENCE/core-resources.log" 2>&1
+CORE_RC=$?
 set -e
-cat "$EVIDENCE/resource-viability.json"
+cat "$EVIDENCE/core-resources.json"
 ```
 
-The initial core budget is:
+Initial core budget:
 
-- maximum observed Python RSS: **192 MiB**;
-- idle CPU: **<=3% of one core**;
-- imports: **<=3 s**;
-- 100-task SQLite smoke: **<=8 s**;
-- SQLite DB/WAL/SHM: **<=16 MiB**;
-- at least **512 MiB available host RAM** before the probe;
-- no swap growth attributable to the probe.
+- observed Python RSS <= 192 MiB;
+- idle CPU <= 3% of one core;
+- imports <= 3 seconds;
+- 100-task SQLite smoke <= 8 seconds;
+- SQLite DB/WAL/SHM <= 16 MiB;
+- >= 512 MiB host memory headroom before the probe;
+- no attributable swap growth.
 
-These are product-budget assumptions for the first measurement, not production SLOs.
+If verdict is `FAIL_CORE_LIGHT` or `INCOMPLETE_HOST_HEADROOM`, STOP expensive
+execution. Report **LOCAL ECONOMICS = FAIL**. Do not raise thresholds or machine
+requirements to obtain a pass.
 
-**Stop here** if the probe returns `FAIL_CORE_LIGHT` or
-`INCOMPLETE_HOST_HEADROOM`. Do not compensate by increasing host requirements.
-Write `LOCAL_VALIDATION_REPORT.md` with the measurements and classify local
-economics as a blocker.
+## Phase 1 - focused broker-free correctness
 
-If it passes, perform a topology-cost review before running functional tests:
+Only after the core gate passes, read ADR 0011, `docs/LOCAL_RUNTIME.md`,
+`ARCHITECTURE.md`, `local_lite.py`, `local_runtime.py`, TaskLedger/TaskAPI,
+transport, bridge, DLQ/replay and the new tests.
 
-1. Read ADR 0011, `application.py`, `deployment.py`, `configuration.py`,
-   `ARCHITECTURE.md` and `IMPLEMENTED_STACK.md`.
-2. List every process/service required by the current integrated local profile.
-3. Separate **product-required** components from **acceptance/production-only**
-   components.
-4. Explicitly evaluate PostgreSQL, Redis, Docker, multiple Dapr sidecars, Placement,
-   Scheduler, Vault and OTLP. Do not assume they belong in the default local product.
-5. Record one of:
-   - `LOCAL_CORE_VIABLE`: core budget passes;
-   - `LOCAL_TOPOLOGY_NEEDS_REDESIGN`: core is light but current integrated topology
-     is unnecessarily heavy for a local bridge;
-   - `LOCAL_PRODUCT_VIABLE_AS_IMPLEMENTED`: only if the actually required local
-     topology is already lightweight and supported by evidence.
-
-Do **not** award `LOCAL_PRODUCT_VIABLE_AS_IMPLEMENTED` merely because the core probe
-passes. The current implementation still assumes Dapr in the integrated application;
-that is a known architectural question to verify, not a hidden pass.
-
-## Phase 1 - deliberate architecture and bug review
-
-Only after Phase 0 passes, review the implementation as one system. Start with
-`AGENTS.md`, ADR 0011, `README.md`, `ARCHITECTURE.md`, `REQUIREMENTS.md`,
-`IMPLEMENTED_STACK.md`, `IMPLEMENTATION_COVERAGE.md`, `pyproject.toml`,
-`application.py`, `configuration.py`, `deployment.py` and the storage/runtime
-modules.
-
-First challenge unnecessary infrastructure and process boundaries. For the default
-local bridge, prefer the smallest architecture that preserves the advertised local
-semantics. The full Compose/Kubernetes topology is an acceptance/distributed profile,
-not the target local footprint.
-
-Then hunt concrete correctness issues: tenant/consumer/owner isolation, immutable
-IDs, leases/fences, outbox ambiguity, cancellation, terminal guards, startup cleanup,
-replay resurrection, DLQ integrity, secret leakage and false readiness. Capture
-specific file/line findings in `$EVIDENCE/bug-hunt.md`.
-
-## Phase 2 - sequential broker-free regression
-
-Run `"$PY" tools/check.py` and save the result. Inspect imports/fixtures before
-executing each test. Execute one eligible file at a time, starting with:
+Run `"$PY" tools/check.py` first. Then execute these one at a time, inspecting
+imports/fixtures before each:
 
 ```text
 tests/test_local_resource_probe.py
+tests/test_local_stack_probe.py
+tests/test_local_lite.py
+tests/test_local_runtime.py
 tests/test_json_boundary_regressions.py
 tests/test_domain.py
 tests/test_reference_replay.py
 tests/test_storage.py
 tests/test_storage_recovery.py
+tests/test_task_ledger.py
+tests/test_task_api.py
 tests/test_transport.py
 tests/test_transport_lifecycle.py
 tests/test_runtime.py
-tests/test_service.py
-tests/test_junit_evidence.py
-tests/test_task_ledger.py
-tests/test_task_api.py
 tests/test_operations_new.py
 tests/test_projection_retention_new.py
 ```
 
-Use this bounded pattern:
+Use the existing strict JUnit checker for each eligible file. Keep infrastructure
+markers excluded in this broker-free phase:
 
 ```bash
-TEST=tests/test_local_resource_probe.py
+TEST=tests/test_local_lite.py
 STEM="$(basename "$TEST" .py)"
 set +e
 timeout --signal=TERM --kill-after=15s 300s   "$PY" -m pytest -p pytest_asyncio.plugin -p no:cacheprovider   -o addopts= -q -W error --maxfail=1   -m 'not live and not postgres and not upstream and not mcp and not vault'   --basetemp="$STATE/tmp/$STEM" --junitxml="$EVIDENCE/$STEM.xml" "$TEST"   > "$EVIDENCE/$STEM.log" 2>&1
@@ -160,52 +130,151 @@ printf '%s\n' "$RC" > "$EVIDENCE/$STEM.exit-code"
 test "$RC" -eq 0
 ```
 
-An unexpected skip, xfail, timeout, empty report or collection failure is not PASS.
-Do not keep retrying expensive failures without diagnosis.
+For every real defect: preserve the minimal failure, add a regression test, fix the
+root cause, rerun focused/affected lightweight tests, and create a focused local
+commit. Do not refactor unrelated distributed code.
 
-## Phase 3 - design recommendation after measurements
+## Phase 2 - real local-lite economic gate
 
-Based on Phase 0 and source review, recommend the smallest local tier that preserves
-real value. Evaluate these candidates, without launching them on this host:
+Proceed only if Phase 0 passes and Phase 1 has no unresolved local-lite defect.
 
-1. **Core diagnostic**: Python + SQLite only. Useful baseline, not MQ parity.
-2. **Local MQ Lite target**: one app process + SQLite + one native Dapr sidecar +
-   one native single-node JetStream. No Docker/PostgreSQL/Redis/Vault/OTLP by default.
-   Workflow-only features may be disabled unless their tier is enabled.
-3. **Local Workflow target**: Local MQ Lite plus only the minimum Dapr
-   Placement/Scheduler services and a Dapr SQLite Workflow state store where
-   supported. Measure each daemon incrementally in a separately authorized run.
-4. **Distributed/production**: existing role-separated Dapr, shared PostgreSQL,
-   production broker/state, HA/security/observability infrastructure.
+First detect existing native prerequisites without installing them:
 
-Do not rewrite architecture speculatively. If the current implementation lacks the
-chosen lightweight composition, identify the minimum code changes and tests needed.
-The owner will decide whether to authorize that implementation.
+```bash
+DAPR_BIN="$(command -v daprd || true)"
+if [ -z "$DAPR_BIN" ] && [ -x "$HOME/.dapr/bin/daprd" ]; then
+  DAPR_BIN="$HOME/.dapr/bin/daprd"
+fi
+NATS_BIN="$(command -v nats-server || true)"
+printf 'daprd=%s\nnats-server=%s\n' "$DAPR_BIN" "$NATS_BIN"   > "$EVIDENCE/native-prerequisites.txt"
+```
 
-## Phase 4 - fixes and report
+If either is absent, set **LOCAL ECONOMICS = INCOMPLETE_NATIVE_PREREQ** for the
+real stack. Do not install it. Continue only source/broker-free analysis.
 
-For every reproducible defect: preserve the failing case, add a regression test,
-make the smallest root-cause fix, rerun the focused and affected lightweight tests,
-and commit locally. Keep resource/design issues separate from correctness bugs.
+If both exist, record venv disk usage, then install only the product's local Python
+extra in the same venv:
 
-Write a concise sanitized `LOCAL_VALIDATION_REPORT.md` containing:
+```bash
+du -sb "$STATE/venv" > "$EVIDENCE/venv-before-local.txt" || true
+"$PY" -m pip install --no-cache-dir --only-binary=:all: -e '.[local]'   > "$EVIDENCE/install-local.log" 2>&1
+"$PY" -m pip check > "$EVIDENCE/pip-check-local.log" 2>&1
+du -sb "$STATE/venv" > "$EVIDENCE/venv-after-local.txt" || true
+```
 
-- starting/final SHA and clean/dirty status;
-- exact venv path and interpreter;
-- the full Phase-0 resource JSON and viability classification;
-- current mandatory process topology and estimated unnecessary components;
-- recommended local tier and why;
-- exact test commands/counts;
-- confirmed fixes/local commit SHAs;
-- deferred infrastructure gates and reasons;
-- remaining product blockers.
+Prepare one private profile:
 
-Raw evidence remains under `$EVIDENCE`. Do not push.
+```bash
+PROFILE="$STATE/local-lite"
+"$PY" -m a2a_mq.local_runtime prepare "$PROFILE"   > "$EVIDENCE/local-prepare.json"
+```
 
-Finish with two independent verdicts:
+Now measure the **actual** steady three-process product:
 
-- **LOCAL ECONOMICS:** PASS / FAIL / REDESIGN_REQUIRED
+```bash
+set +e
+"$PY" "$REPO/scripts/local_stack_probe.py"   --profile "$PROFILE"   --json "$EVIDENCE/local-stack-resources.json"   --log "$EVIDENCE/local-stack.log"
+STACK_RC=$?
+set -e
+cat "$EVIDENCE/local-stack-resources.json"
+```
+
+Initial stack budget:
+
+- exactly 3 steady product processes;
+- total RSS <= 384 MiB;
+- aggregate idle CPU <= 5% of one core;
+- readiness <= 15 seconds;
+- runtime SQLite + JetStream state <= 32 MiB immediately after startup.
+
+If it fails, classify **LOCAL ECONOMICS = REDESIGN_REQUIRED**. Do not start the
+heavy distributed stack and do not raise the resource budget merely to pass.
+
+## Phase 3 - real lightweight A2A smoke
+
+Only after the real stack resource gate passes, start the same local profile for a
+short functional smoke:
+
+```bash
+"$PY" -m a2a_mq.local_runtime run "$PROFILE"   > "$EVIDENCE/local-runtime.log" 2>&1 &
+LOCAL_PID=$!
+cleanup_local() {
+  kill -TERM "$LOCAL_PID" 2>/dev/null || true
+  wait "$LOCAL_PID" 2>/dev/null || true
+}
+trap cleanup_local EXIT
+
+"$PY" - <<'PY'
+import time, urllib.request
+deadline = time.monotonic() + 20
+while time.monotonic() < deadline:
+    try:
+        with urllib.request.urlopen("http://127.0.0.1:18000/health/ready", timeout=.5) as r:
+            if r.status == 200:
+                break
+    except Exception:
+        time.sleep(.1)
+else:
+    raise SystemExit("local-lite did not become ready")
+PY
+
+"$PY" scripts/a2a_interop.py   --url http://127.0.0.1:18000   --token-file "$PROFILE/client.jwt"   --allow-loopback-http   > "$EVIDENCE/a2a-interop.json"
+
+cleanup_local
+trap - EXIT
+```
+
+This smoke must exercise both official bindings via the existing script. Verify
+that the runtime process and its two children are gone afterward. A connection
+failure is FAIL, not an authorization/negative-test pass.
+
+Do not enable MCP unless separately needed. If MCP is tested, install only
+`.[mcp]` inside the venv and validate the reduced local-lite tool surface:
+submit/get/list/cancel; continuation/approval are intentionally absent.
+
+## Phase 4 - architecture review after measurements
+
+Confirm the implementation still matches the intended local tier:
+
+- local steady state is app + daprd + nats-server only;
+- SQLite is the only application database;
+- no PostgreSQL/Redis/Docker/Vault/OTLP/Placement/Scheduler dependency was added;
+- Dapr is used as the Pub/Sub abstraction rather than direct broker calls in domain/runtime;
+- command and DLQ subscriptions have distinct durable identities;
+- inbound transient command failures have a bounded Dapr retry policy before DLQ;
+- Workflow-only features fail closed rather than creating a second scheduler;
+- distributed/Workflow profiles remain intact and separate;
+- local-lite does not claim independent offline worker-pool/observer semantics.
+
+Record any mismatch as a product defect.
+
+## Deferred gates
+
+On this low-resource task do not run the full Compose/Kubernetes acceptance stack,
+real PostgreSQL, Vault, RabbitMQ, Dapr Workflow/Placement/Scheduler or broad load
+benchmarks. Those remain separate gates and must be reported as unexecuted, not PASS.
+
+## Final deliverable
+
+Write `LOCAL_VALIDATION_REPORT.md` with:
+
+- starting/final SHA and worktree status;
+- exact venv/interpreter;
+- core resource JSON;
+- venv disk delta for the local product extra;
+- native prerequisite versions/availability;
+- local-stack resource JSON if executed;
+- exact lightweight test/JUnit counts;
+- official A2A smoke result if executed;
+- confirmed fixes and local commit SHAs;
+- deferred gates/reasons;
+- remaining local-product blockers.
+
+Finish with independent verdicts:
+
+- **CORE ECONOMICS:** PASS / FAIL
+- **LOCAL-LITE ECONOMICS:** PASS / FAIL / REDESIGN_REQUIRED / INCOMPLETE_NATIVE_PREREQ
 - **LIGHTWEIGHT CORRECTNESS:** PASS / FAIL / INCOMPLETE
+- **DISTRIBUTED/PRODUCTION ACCEPTANCE:** INCOMPLETE unless independently executed
 
-Full distributed/production acceptance remains separately INCOMPLETE unless it was
-executed elsewhere with its real prerequisites.
+Do not push.

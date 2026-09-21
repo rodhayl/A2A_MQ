@@ -1,115 +1,151 @@
-# Architecture - revision 3
+# Architecture - revision 4
 
 ## Product principle: local footprint first
 
-A2A-MQ has two different deployment concerns and they must not be conflated.
+A2A-MQ has two deployment concerns that are intentionally separate.
 
-The **local bridge** must be cheap enough to leave running beside models and agent
-tools on a resource-constrained machine. The **distributed profile** may use the
-heavier services required for shared durability, HA and independent scaling.
+The **local bridge** must be cheap enough to remain beside local models and agent
+tools on a resource-constrained host. The **distributed profile** pays for shared
+durability, independent scaling, Workflow semantics and production infrastructure.
 
-Resource viability is therefore a product gate. See ADR 0011 and
-`scripts/local_resource_probe.py`. The complete Docker/Compose/Kubernetes stack is
+Resource viability is a product gate. The full Docker/Compose/Kubernetes stack is
 an acceptance/distributed topology, not the default local runtime.
 
-### Target deployment tiers
+## Deployment tiers
 
-**Core diagnostic** is Python + SQLite only. It proves our own code is lightweight,
-but does not claim Dapr/MQ parity.
+### Core diagnostic
 
-**Local MQ Lite target** is one application process, SQLite application state, one
-native Dapr sidecar and one native single-node JetStream broker. Docker, PostgreSQL,
-Redis, Vault and an external telemetry collector are not default prerequisites.
-Workflow-only capabilities may be disabled in this tier.
+Python + SQLite only. `scripts/local_resource_probe.py` measures our own persistence
+and domain cost before any broker/sidecar is started. It is diagnostic and does not
+claim MQ parity.
 
-**Local Workflow target** adds only the minimum Dapr Actor/Workflow services needed
-for durable Workflow semantics. Prefer a local Dapr SQLite state store where the
-supported Dapr component contract permits it. Placement/Scheduler cost must be
-measured independently before this tier becomes the default.
+### Local MQ Lite - implemented
 
-**Distributed/production** retains role separation, shared PostgreSQL, production
-broker/state stores, HA, workload security and operational infrastructure.
+`a2a_mq.local_lite` implements the default local tier:
 
-The current integrated `a2a_mq.application` still assumes a colocated Dapr sidecar
-and exposes separate roles. It is not yet evidence that the Local MQ Lite target has
-been achieved. That gap is explicit rather than hidden behind a full local stack.
+```text
+one Python A2A-MQ process
+          |
+        daprd
+          |
+  NATS JetStream
 
-## Boundaries and ownership
+application state: SQLite
+```
+
+The `a2amq-local` launcher makes the Python launcher itself become the ASGI process,
+so there is no fourth steady-state supervisor. NATS is provisioned by a short-lived
+helper and then the steady process budget is exactly three.
+
+This tier uses no PostgreSQL, Redis, Docker/Kubernetes, Vault, external OTLP,
+Placement or Scheduler. It reuses the durable ledger, A2A bridge, Dapr Pub/Sub,
+outbox, cancellation and DLQ/replay implementation.
+
+It supports immediate deterministic tasks. Workflow-only waits, timers,
+input/approval and fan-out/fan-in are explicitly rejected rather than implemented by
+a second scheduler. API and immediate worker execution are intentionally collapsed,
+so independently-offline worker-pool semantics are not claimed by this tier.
+
+### Local Workflow - optional, not default
+
+When durable waits/timers/approval/fan-out are genuinely required locally, add the
+official Dapr Workflow runtime and the minimum Actor/Workflow services. The repository
+generates an example Dapr `state.sqlite` actor store so Redis is not introduced
+merely for convenience. Placement and Scheduler remain explicit additional processes
+whose incremental footprint must be measured before this tier is accepted.
+
+### Distributed / production
+
+The role-separated `a2a_mq.application` profile retains API, Workflow workers,
+observers and operator roles; shared PostgreSQL; production broker/state backends;
+HA, transport protection and observability integrations.
+
+## Distributed boundaries and ownership
 
 ```mermaid
 flowchart LR
   O[Orchestrators] --> P[Dapr publisher]
-  P --> B[(JetStream)]
+  P --> B[(Broker)]
   B --> W[Worker pool]
-  W --> S[(SQL inbox / effect / task / outbox)]
+  W --> S[(SQL inbox / task / outbox)]
   S --> R[Outbox relay]
   R --> B
   B --> A[Observer A]
   B --> C[Observer B]
-  A --> PA[(Projection A)]
-  C --> PC[(Projection B)]
 ```
 
-Dapr provides the Pub/Sub API. JetStream provides retained delivery. Our SQL
-transaction provides the application consistency boundary. These are different
-promises: neither a broker ACK nor a Dapr sidecar proves a business effect occurred.
-Dapr Workflow is used by the Workflow tier/distributed profile; the lightweight
-local tier must not silently pay for it when those semantics are disabled.
+Dapr provides the Pub/Sub API. The broker provides retained delivery. SQL provides
+the application consistency boundary. A broker ACK or Dapr callback does not by
+itself prove a business effect occurred.
 
-The worker pool is one logical task authority. Replicas share its database and
-consumer namespace. A claim contains a lease and fencing token; recovery may
-reclaim an abandoned claim, but a stale worker cannot commit through the old token.
-A task's owner/source and context cannot change silently.
+Distributed worker replicas share a database and logical consumer. Claims use
+leases/fencing; stale workers cannot commit through an old fence. Task owner/source
+and context cannot silently change.
 
 ## Transaction and ACK boundary
 
-1. Validate size, schema, route and configured policy.
-2. Atomically claim `(tenant, logical_consumer, message_id)` and store a content hash.
-3. Commit the reference SQL effect, canonical task and outgoing events together.
-4. Mark the inbox completed in that same transaction.
-5. Return transport success. A separate relay publishes the persisted outbox.
+1. Validate size, schema, route and policy.
+2. Atomically claim the namespaced immutable message identity.
+3. Commit task/effect/outgoing event state transactionally.
+4. Persist completion and outbox state.
+5. ACK transport only after durable admission/effect boundaries are satisfied.
+6. Relay persisted outbox records separately.
 
-A crash after claim is recovered after lease expiry. A crash during commit rolls
-back. A relay crash after publish but before marking sent may duplicate the event;
-projection consumers deduplicate it. No distributed SQL/broker transaction is
-claimed.
+A crash after publication but before marking may duplicate an event; consumers
+deduplicate. No SQL/broker distributed transaction is claimed.
+
+## Local-lite execution boundary
+
+Local-lite still routes admitted commands through real Dapr Pub/Sub/JetStream. A
+Dapr callback records a durable start action in the existing TaskLedger. The local
+executor handles only immediate deterministic work and writes ordinary TaskLedger
+steps/outbox events. It records terminal runtime completion for the same retention
+and recovery gates used elsewhere.
+
+This executor is not a Workflow substitute. Requests requiring durable waits or
+Workflow controls fail closed with `WORKFLOW_FEATURE_UNAVAILABLE`.
 
 ## Projection design
 
-The implementation uses complete `task.snapshot` events carrying canonical A2A
-Task objects. `sequence` orders full snapshots per task, not broker deliveries.
-A higher snapshot may skip versions; an older snapshot cannot erase a newer result.
-Same-version conflicting content, changed owner/context and terminal rewrites are
-rejected.
+Complete `task.snapshot` events carry canonical A2A Task objects. `sequence`
+orders snapshots per task. Higher snapshots may skip versions; older snapshots may
+not erase newer state. Same-version conflicts, owner/context changes and terminal
+rewrites are rejected.
 
-## Topology
+## Topic topology
 
-`a2a.v1.<tenant>.command.agent.<agent>` and
-`a2a.v1.<tenant>.command.skill.<skill>` are competing routes.
-`a2a.v1.<tenant>.event.task` is the snapshot fan-out route.
-`a2a.v1.<tenant>.dlq` is an operator route. No topic is created per task.
+`a2a.v1.<tenant>.command.agent.<agent>` and skill routes are command routes.
+`a2a.v1.<tenant>.event.task` carries task snapshots.
+`a2a.v1.<tenant>.dlq` is the operator/dead-letter route.
 
-Each Dapr component is scoped to an application role in distributed mode. Replicas
-share a durable consumer/group; independent observers do not. The local tier should
-collapse unnecessary process boundaries while preserving advertised semantics.
+Local-lite uses two Dapr views of the same JetStream stream: a command component and
+a read-only DLQ component with a distinct durable consumer. This avoids sharing one
+durable identity across different subscription filters without adding another
+process.
 
 ## State backends
 
-SQLite is the preferred single-host local backend with WAL, busy timeout and full
-sync. It must stay on a local filesystem. PostgreSQL is the shared transactional
-backend for distributed deployments; it is not a prerequisite for proving local
-bridge value.
+SQLite is the preferred single-host application backend with WAL and full sync. It
+stays on a local filesystem. PostgreSQL is for distributed replicas and is not a
+local-product prerequisite.
 
-Dapr Workflow state is separate from the A2A-MQ inbox/task/outbox database. For a
-single-host Workflow tier, a Dapr state component that supports Actors and Workflow
-may be used locally; this must be measured and validated independently.
+Dapr Workflow state is separate from the A2A-MQ inbox/task/outbox database. The
+optional local Workflow tier may use a supported Dapr SQLite Actor/Workflow state
+component; the distributed profile may use production state infrastructure.
 
-## Queries, back-pressure and recovery
+## Back-pressure and resource boundaries
 
-Queries are tenant scoped and bounded. Observers are eventually consistent; an empty
-projection does not prove publication failed. Clients retain command identity and
-retry the same envelope.
+Requests, message depth, handler concurrency, database work queues, publication,
+record counts and page sizes are bounded.
 
-Bound request bytes, nesting, handler concurrency, publish timeout and page size.
-The local tier must additionally bound process count and idle resource usage. Raising
-machine requirements is not a substitute for a failed local resource gate.
+Local-lite additionally bounds:
+
+- one application worker;
+- concurrency default 2;
+- SQLite database queue default 4;
+- 128 active / 10,000 retained task defaults;
+- single-node JetStream with bounded memory/file/stream limits;
+- three steady-state product processes.
+
+`scripts/local_stack_probe.py` measures the actual steady topology. Raising machine
+requirements is not a substitute for a failed local resource gate.

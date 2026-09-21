@@ -6,31 +6,44 @@ Run python tools/check.py and pytest; run ruff/mypy when installed. Never descri
 skipped infrastructure tests as passing. Commit a tested phase separately.
 
 Do not add a broker, workflow engine, crypto primitive or model dependency to the
-core. Never ACK an unfinished claim or execute arbitrary external side effects
-under the reference fixture's exactly-once assumptions. Preserve tenant/consumer
-namespacing, immutable message IDs, fencing, transactional outbox and terminal guards.
+core. Never ACK an unfinished claim or execute arbitrary external side effects under
+reference-fixture exactly-once assumptions. Preserve tenant/consumer namespacing,
+immutable message IDs, fencing, transactional outbox and terminal guards.
 Keep spec/envelope.schema.json and packaged src/a2a_mq/schema.json byte-identical.
-The package is not a certified A2A binding or production service.
 
 ## Local-product priority
 
 For the owner's resource-constrained server, local economics is a correctness gate.
-Before broad testing, create the isolated venv and run the resource viability probe
-defined in PROMPT_AGENT_LOCAL_TEST.md. If the Python+SQLite core exceeds its budget,
-stop expensive validation and report the resource blocker. If the core passes,
-review the mandatory process topology before starting any additional component.
+Follow ADR 0011 and docs/LOCAL_RUNTIME.md.
 
-Treat the full Docker/PostgreSQL/Redis/multi-role deployment as an acceptance fixture,
-not the default local product. Follow ADR 0011. Do not make PostgreSQL, Redis, Vault,
-OTLP collectors, Docker or Kubernetes prerequisites for the default local bridge.
-A future local Dapr/broker tier must be measured incrementally and should prefer
-native single-host components and SQLite where supported.
+The default local product is already implemented as `a2a_mq.local_lite` plus the
+`a2amq-local` launcher. Its intended steady state is exactly:
 
-## Low-resource local validation
+- one Python A2A-MQ process;
+- one native daprd;
+- one native nats-server;
+- SQLite application state.
 
-Use an isolated project-local venv and requirements/local-validation.txt, with one
-inspected test file at a time. Keep generated state in ignored .local-validation/.
-Do not install host packages, start containers/services, install every optional
-extra, or launch a full-stack/load test on this machine. These limits override the
-general test-command examples for this local task; full infrastructure gates remain
-intact and unexecuted, not implicitly passed.
+Do not reintroduce PostgreSQL, Redis, Docker/Kubernetes, Vault, OTLP, Placement,
+Scheduler, multiple application roles or the Dapr Workflow Python runtime into the
+default local tier merely for convenience.
+
+Local-lite deliberately rejects Workflow-only waits/timers/approval/input/fan-out.
+Extend the optional Workflow tier rather than adding a second scheduler to local-lite.
+
+Before broad local testing, create the isolated venv and run the core resource probe
+from PROMPT_AGENT_LOCAL_TEST.md. If it passes and native daprd/nats-server already
+exist, run the real three-process local stack probe. Do not install host binaries or
+services as part of validation.
+
+## Low-resource validation
+
+Use an isolated project-local venv. Keep generated state under ignored
+`.local-validation/`. Start with `requirements/local-validation.txt`; only after
+the core resource gate passes may the agent install the project's `.[local]` extra
+inside that same venv for real local-lite measurement.
+
+Run one inspected test file at a time. Do not run Docker/full distributed stacks,
+parallel load tests or host package installation on this machine. Native
+PostgreSQL/Vault/Workflow/RabbitMQ/full-stack gates remain separate and unexecuted,
+not implicitly passed.

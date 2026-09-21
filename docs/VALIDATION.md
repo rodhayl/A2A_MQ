@@ -2,6 +2,26 @@
 
 ## Current scope
 
+## Current source status
+
+The current branch now contains the lightweight local implementation described in
+ADR 0011: `a2a_mq.local_lite`, `a2amq-local`, the pure-core resource probe and
+the real three-process local-stack resource probe.
+
+No native target-machine result is recorded here yet. Source presence is not a
+resource or interoperability pass. The current local gates require fresh execution
+of:
+
+1. `scripts/local_resource_probe.py`;
+2. lightweight sequential regression;
+3. when native `daprd` and `nats-server` already exist,
+   `scripts/local_stack_probe.py`;
+4. focused official A2A/Dapr/JetStream smoke for local-lite.
+
+The local-lite tier intentionally excludes Workflow-only waits/timers/approval and
+does not claim independently-offline worker pools. Distributed Workflow/PostgreSQL/
+Vault/RabbitMQ/full-stack gates remain separate.
+
 The latest phase-3 continuation is recorded in
 [durable-service validation](validation/durable-service-20260917.md), with source
 commits, 184 selected tests, real HTTP/process scope and an offline wheel smoke.

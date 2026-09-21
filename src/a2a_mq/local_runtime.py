@@ -17,7 +17,6 @@ import time
 from urllib.parse import urlsplit
 
 from .domain import require, token
-from .provision import jetstream
 
 APP_ID = "a2amq-local"
 
@@ -151,6 +150,29 @@ spec:
 '''
 
 
+def _resiliency_resource() -> str:
+    """Retry transient app-delivery failures before the configured dead-letter topic."""
+    return f'''apiVersion: dapr.io/v1alpha1
+kind: Resiliency
+metadata:
+  name: local-pubsub-retry
+scopes:
+  - {APP_ID}
+spec:
+  policies:
+    retries:
+      localPubsubRetry:
+        policy: constant
+        duration: 500ms
+        maxRetries: 5
+  targets:
+    components:
+      bus:
+        inbound:
+          retry: localPubsubRetry
+'''
+
+
 def _workflow_state_component(path: Path) -> str:
     return f'''apiVersion: dapr.io/v1alpha1
 kind: Component
@@ -163,21 +185,21 @@ spec:
   version: v1
   metadata:
     - name: connectionString
-      value: {path}
+      value: {json.dumps(str(path))}
     - name: actorStateStore
       value: "true"
 '''
 
 
 def _loopback_public_url(value: str) -> str:
+    """Validate the URL actually served by the built-in native launcher."""
     try:
         parsed = urlsplit(value)
-        require(parsed.scheme in {"http", "https"}
-                and parsed.hostname in {"127.0.0.1", "localhost", "::1"}
+        require(parsed.scheme == "http"
+                and parsed.hostname in {"127.0.0.1", "localhost"}
+                and parsed.port == 18000
                 and parsed.path in {"", "/"} and not parsed.username and not parsed.password
                 and not parsed.query and not parsed.fragment, "LOCAL_LOOPBACK_URL_REQUIRED")
-        if parsed.port is not None:
-            require(1 <= parsed.port <= 65535, "LOCAL_LOOPBACK_URL_REQUIRED")
     except (TypeError, ValueError):
         require(False, "LOCAL_LOOPBACK_URL_REQUIRED")
     return value.rstrip("/")
@@ -212,6 +234,7 @@ authorization {{ token: {json.dumps(nats_token)} }}
 ''')
     _private_write(root / "components/bus.yaml", _bus_component(tenant, source, nats_token))
     _private_write(root / "components/bus-dlq.yaml", _dlq_component(tenant, nats_token))
+    _private_write(root / "components/resiliency.yaml", _resiliency_resource())
     plan = _plan(tenant, source)
     _json_write(root / "broker-plan.json", plan)
 
@@ -294,6 +317,7 @@ def _terminate(process: subprocess.Popen | None) -> None:
 
 
 def run(root: Path) -> int:
+    """Run exactly three product processes: this Python app, daprd and nats-server."""
     require(root.is_dir(), "PROFILE_NOT_FOUND")
     nats_server = _native_binary("nats-server")
     daprd = _native_binary("daprd")
@@ -322,18 +346,22 @@ def run(root: Path) -> int:
         "PYTHONNOUSERSITE": "1",
     })
 
-    nats = app = sidecar = None
+    # The current process becomes the ASGI application. Only NATS and daprd are
+    # child processes, so the steady-state product process count is exactly three.
+    os.environ.update(env)
+    nats = sidecar = None
     try:
         nats = subprocess.Popen([nats_server, "-c", str(root / "nats.conf")], cwd=root, env=env)
         _wait_port("127.0.0.1", 4222, nats)
-        asyncio.run(jetstream("nats://127.0.0.1:4222", str(root / "nats-token"),
-                              json.loads((root / "broker-plan.json").read_text()), development=True))
-
-        app = subprocess.Popen([sys.executable, "-m", "uvicorn", "a2a_mq.local_lite:from_env",
-                                "--factory", "--host", "127.0.0.1", "--port", "18000",
-                                "--workers", "1", "--log-level", "warning"],
-                               cwd=Path.cwd(), env=env)
-        _wait_port("127.0.0.1", 18000, app)
+        # Provisioning is deliberately short-lived so nats-py and its client state
+        # are not retained in the steady-state A2A application process.
+        subprocess.run([
+            sys.executable, "-m", "a2a_mq.provision",
+            "--nats-url", "nats://127.0.0.1:4222",
+            "--password-file", str(root / "nats-token"),
+            "--plan", str(root / "broker-plan.json"),
+            "--development",
+        ], cwd=root, env=env, check=True, stdout=subprocess.DEVNULL)
 
         sidecar_command = [
             daprd, "--mode", "standalone", "--app-id", APP_ID, "--app-port", "18000",
@@ -346,23 +374,38 @@ def run(root: Path) -> int:
         ]
         sidecar = subprocess.Popen(sidecar_command, cwd=root, env=env)
         _wait_port("127.0.0.1", 3500, sidecar)
-        print(json.dumps({"status": "running", "profile": "local-lite",
-                          "processes": {"app": app.pid, "daprd": sidecar.pid, "nats": nats.pid},
-                          "url": profile["publicUrl"]}, sort_keys=True), flush=True)
 
-        while True:
-            for name, process in (("app", app), ("daprd", sidecar), ("nats", nats)):
-                code = process.poll()
-                if code is not None:
-                    if code != 0:
-                        print(json.dumps({"status": "failed", "process": name, "exitCode": code}),
-                              file=sys.stderr, flush=True)
-                        return code
-                    return 0
-            time.sleep(.5)
+        import uvicorn
+        print(json.dumps({"status": "starting", "profile": "local-lite",
+                          "processes": {"app": os.getpid(), "daprd": sidecar.pid, "nats": nats.pid},
+                          "url": profile["publicUrl"]}, sort_keys=True), flush=True)
+        config = uvicorn.Config("a2a_mq.local_lite:from_env", factory=True,
+                                host="127.0.0.1", port=18000, workers=1, log_level="warning")
+        server = uvicorn.Server(config)
+
+        async def serve() -> int:
+            task = asyncio.create_task(server.serve(), name="a2amq-local-asgi")
+            try:
+                while not task.done():
+                    for name, process in (("daprd", sidecar), ("nats", nats)):
+                        code = process.poll()
+                        if code is not None:
+                            print(json.dumps({"status": "failed", "process": name, "exitCode": code}),
+                                  file=sys.stderr, flush=True)
+                            server.should_exit = True
+                            await task
+                            return code or 1
+                    await asyncio.sleep(.25)
+                await task
+                return 0
+            finally:
+                if not task.done():
+                    server.should_exit = True
+                    await task
+
+        return asyncio.run(serve())
     finally:
         _terminate(sidecar)
-        _terminate(app)
         _terminate(nats)
 
 

@@ -1,77 +1,113 @@
 # A2A-MQ
 
-Experimental durable A2A task messaging over **Dapr Pub/Sub + Dapr Workflow**,
-with SQLite and PostgreSQL adapters, native A2A HTTP interfaces, optional MCP,
-JWT authorization, optional Vault-backed transport encryption, and operations.
+Experimental durable A2A task messaging with a **lightweight local bridge** and a
+separate distributed/Workflow profile.
 
-## Implemented entry point
+The local product is deliberately small: **one Python A2A-MQ process + one native
+`daprd` + one native `nats-server`**, with SQLite application state. PostgreSQL,
+Redis, Docker, Kubernetes, Vault, OTLP, Placement and Scheduler are not default local
+prerequisites.
 
-Use **`a2a_mq.application:from_env`** for the integrated application. Its roles are
-`api`, `workflow`, `observer` and `operator`. The API uses the official A2A SDK for
-JSON-RPC, HTTP+JSON, Agent Cards and streaming. Dapr owns durable orchestration;
-this project does not implement a second broker or workflow engine.
+## Lightweight local bridge
 
-Existing `production.py` / `production_env.py` profiles are preserved; the new
-application profile is explicit and opt-in. The older `service:from_env`,
-`demo:create_app` and `make up` remain separate
-historical/reference entry points. They do not start the integrated stack.
+Use `a2a_mq.local_lite:from_env` or the `a2amq-local` launcher.
 
-See [installation and operation](docs/IMPLEMENTED_STACK.md),
-[requirement coverage](docs/IMPLEMENTATION_COVERAGE.md),
-[binding decision](docs/adr/0010-native-bindings-and-operations.md) and
-[execution evidence](docs/validation/integrated-implementation-20260917.md).
-Older status and phase records describe their historical commits, not this source.
-
-## Start a fresh disposable stack
-
-```sh
+```bash
 python3 -m venv .venv
 . .venv/bin/activate
-python -m pip install -e '.[dev,bridge,workflow,postgres,security,mcp,observability,deployment]'
-python -m pip check
-ROOT="$(mktemp -d /tmp/a2amq.XXXXXXXX)"
-python -m a2a_mq.deployment compose --broker jetstream \
-  --source "$PWD" --output "$ROOT/stack"
-docker compose -f "$ROOT/stack/compose.yaml" up --build -d
+python -m pip install -e '.[local]'
+a2amq-local prepare .local-validation/local-lite
+a2amq-local run .local-validation/local-lite
 ```
 
-Select `--broker rabbitmq` in a different fresh directory for the other backend.
-The profiles bind host ports to loopback and generate fresh local credentials and
-TLS material. They are **disposable development profiles**, not production HA.
-Keep their private directory; never commit it or include it in an evidence ZIP.
-The external API is `https://localhost:18443` with the generated trust certificate.
-The guide explains authentication, lifecycle, infrastructure prerequisites and
-safe cleanup. Docker and network access to pinned packages/images are required.
+The host must already contain native `daprd` and `nats-server`; the launcher does
+not install or modify host software and does not use containers.
+
+Local-lite reuses the existing durable TaskLedger, TaskAPI, official A2A HTTP
+bindings, JWT authorization, Dapr Pub/Sub, JetStream, SQLite outbox, cancellation,
+DLQ/replay and operations. Immediate `echo` / `upper` tasks are supported.
+
+Workflow-only semantics are explicit feature boundaries in this tier:
+`inputRequired`, `authRequired`, timers/delays, continuation/approval and
+fan-out/fan-in require the Workflow profile and are rejected rather than emulated.
+
+See [lightweight local runtime](docs/LOCAL_RUNTIME.md) and
+[ADR 0011](docs/adr/0011-local-footprint-first.md).
+
+## Measure viability before broad testing
+
+Local economics is a product gate.
+
+```bash
+python scripts/local_resource_probe.py \
+  --state-dir .local-validation/core-probe \
+  --json .local-validation/core-probe.json
+```
+
+After the core passes, and only when `daprd` and `nats-server` already exist:
+
+```bash
+python scripts/local_stack_probe.py \
+  --profile .local-validation/local-lite \
+  --json .local-validation/local-lite-resources.json \
+  --log .local-validation/local-lite.log
+```
+
+The second probe measures the actual three steady-state processes. A failed resource
+budget is a local-product redesign signal, not a reason to silently increase machine
+requirements.
+
+## Distributed / Workflow profile
+
+Use `a2a_mq.application:from_env` for the role-separated implementation:
+`api`, `workflow`, `observer` and `operator`.
+
+That profile retains official Dapr Workflow, shared SQLite/PostgreSQL adapters,
+multiple workers/observers, optional MCP, Vault-backed payload protection,
+observability and production deployment support. The complete Compose/Kubernetes
+topologies are acceptance/distributed profiles, not the default local runtime.
+
+The disposable full-stack generator remains available for infrastructure testing:
+
+```bash
+python -m a2a_mq.deployment compose --broker jetstream \
+  --source "$PWD" --output /path/to/fresh/stack
+```
+
+RabbitMQ remains the second distributed broker backend. Running those profiles may
+require PostgreSQL, Workflow state, Dapr control services, containers and other
+production-like dependencies; none of those are evidence about local-lite economics.
 
 ## Correctness boundaries
 
-Each SQL key includes tenant and logical consumer. Stable message IDs, hashes,
-leases/fences, atomic outcomes/outbox and monotonic snapshots protect retries.
-Observers keep compact retirement identities so old deliveries cannot recreate
-removed tasks. Replay retains the original identity and content; it is not a way
-to manufacture new business intent. An encrypted route rejects plaintext replay.
+Each SQL key includes tenant and logical consumer. Stable message IDs, content
+hashes, fencing, transactional task/outbox updates and monotonic snapshots protect
+retries and stale writers. DLQ replay preserves original identity/content.
 
-Task pauses, continuation, approval, cancellation, timers and fan-out/fan-in use
-Dapr Workflow. The supplied activities are model-free text transformations.
-Arbitrary external effects require destination idempotency/reconciliation; there
-is no general exactly-once promise. Payload encryption protects transport, not
-SQL or workflow history at rest.
+Local-lite collapses API and immediate worker execution into one process. It provides
+durable restart/redelivery, but does **not** claim independently-offline worker-pool
+or independent-observer semantics. Those remain distributed-profile gates.
 
-## Acceptance is separate from implementation
+Arbitrary external tool effects still require destination idempotency or explicit
+reconciliation. No generic exactly-once claim is made.
 
-```sh
-python -m a2a_mq.acceptance --mode local --root "$PWD" \
-  --output "$(mktemp -d /tmp/a2amq-review.XXXXXXXX)/local"
-```
+## Validation status
 
-Additional explicit modes are `sdk`, `postgres`, `vault`, and `full`. Full mode
-requires configured real PostgreSQL/Vault and opt-in disposable tests on **both**
-brokers, plus dependency/lint/type checks. Missing prerequisites or skipped tests
-cannot produce `FULL_PASS`. Read the guide before enabling containers.
+Implementation and evidence are separate. Historical validation records remain under
+`docs/validation/`; they do not automatically certify the current SHA.
 
-This continuation executed **170 new local tests**, not the complete historical
-repository suite. Native A2A/MCP/Dapr clients, real PostgreSQL/Vault/broker tests,
-container builds and production deployment still require execution in a suitable
-environment. Direct dependencies are pinned; transitive hash locking and supply-
-chain audits remain release work. No full-MVP, production or upstream binding
-certification is claimed. Package version remains **0.1.0**.
+The local-lite source, launcher and resource probes now exist, but the real native
+three-process resource/interop gate must be run on the target machine. Real
+PostgreSQL, Vault, Dapr Workflow, JetStream/RabbitMQ parity and production deployment
+remain separate gates.
+
+Missing prerequisites, skipped tests or generated manifests are never converted into
+a production or conformance pass. Package version remains **0.1.0**.
+
+See:
+
+- [local runtime](docs/LOCAL_RUNTIME.md)
+- [integrated stack](docs/IMPLEMENTED_STACK.md)
+- [requirement coverage](docs/IMPLEMENTATION_COVERAGE.md)
+- [validation record](docs/VALIDATION.md)
+- [A2A binding decision](docs/adr/0010-native-bindings-and-operations.md)

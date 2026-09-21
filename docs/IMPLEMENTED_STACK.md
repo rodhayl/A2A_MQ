@@ -1,5 +1,29 @@
 # Integrated application: installation, deployment and operations
 
+## Lightweight local product
+
+The default local product is now implemented separately as
+`a2a_mq.local_lite:from_env` plus the `a2amq-local` launcher. Its steady-state
+runtime is one Python application process, one native `daprd`, one native
+`nats-server`, and SQLite files. It does not require Docker, PostgreSQL, Redis,
+Placement, Scheduler, Vault or OTLP.
+
+Install in an isolated venv with `python -m pip install -e '.[local]'`. The host
+must already provide `daprd` and `nats-server`; the launcher never installs host
+software. See `docs/LOCAL_RUNTIME.md` for the exact prepare/run and resource-gate
+workflow.
+
+Local-lite reuses TaskLedger/TaskAPI, official A2A bindings, JWT authorization,
+Dapr Pub/Sub, JetStream, outbox, cancellation, DLQ/replay and operations. It
+supports immediate deterministic echo/upper execution. Workflow-only waits, timers,
+approval/input and fan-out/fan-in are rejected explicitly and remain in the
+role-separated Workflow profile.
+
+The built-in local launcher binds only loopback, disables Dapr metrics, leaves
+Placement/Scheduler unconfigured, uses bounded single-node JetStream storage and
+generates a separate durable DLQ consumer. A short-lived provisioning process may
+run at startup; steady state remains three processes.
+
 ## Scope and entry points
 
 `a2a_mq.application:from_env` assembles the existing SQL, Workflow, A2A and security
@@ -16,7 +40,7 @@ The configured workflow target is an agent route. The existing transport/domain
 still support agent or skill routes. The integrated workflow is a model-free
 reference implementation, not an arbitrary user-code or LLM execution service.
 
-## Dependencies and local Compose
+## Distributed acceptance dependencies and Compose
 
 Use Python 3.12 or 3.13 and install the direct pins:
 
@@ -40,9 +64,9 @@ JetStream bootstrap creates a limits-retention stream and verifies existing
 configuration rather than overwriting a conflict. Consumers/role scopes are distinct.
 RabbitMQ's archive queue dead-letters to a separate parking queue, not back to itself.
 
-The local profile includes PostgreSQL, Redis workflow state, broker, provisioner,
-Dapr placement/scheduler, API, two workflow workers, two observers, operator and
-HTTPS gateway. External address: `https://localhost:18443`. Trust
+The **distributed disposable acceptance profile** includes PostgreSQL, Redis workflow state, broker,
+provisioner, Dapr placement/scheduler, API, two workflow workers, two observers,
+operator and HTTPS gateway. It is intentionally not the lightweight local product. External address: `https://localhost:18443`. Trust
 `$ROOT/stack/secrets/tls.crt`. Host application ports are loopback-only; internal
 broker/database traffic in this disposable profile is not a production TLS claim.
 
