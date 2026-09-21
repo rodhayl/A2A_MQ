@@ -102,9 +102,12 @@ silently become the default simply because it is available.
 
 ## Resource gates
 
-Measure the pure core first:
+Measure the pure core first in a fresh venv containing only
+`requirements/core-probe.txt` (currently the schema-validation runtime dependency).
+Do not install the A2A/HTTP/local extras before this first measurement:
 
 ```bash
+python -m pip install --only-binary=:all: -r requirements/core-probe.txt
 python scripts/local_resource_probe.py \
   --state-dir .local-validation/core-probe \
   --json .local-validation/core-probe.json

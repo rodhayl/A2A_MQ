@@ -16,7 +16,8 @@ steady state is exactly one Python A2A-MQ process + one native `daprd` + one nat
   Docker/Compose/Podman/Kubernetes, system services, cron or shell-profile changes.
 - Keep venv, caches, SQLite/NATS state and raw evidence under ignored
   `.local-validation/`.
-- Start with only `requirements/local-validation.txt`.
+- Start with only `requirements/core-probe.txt`. Install the broader
+  `requirements/local-validation.txt` only after the pure-core resource gate passes.
 - Do not install `daprd`, `nats-server`, PostgreSQL, Redis, Vault, RabbitMQ or
   telemetry services. If native `daprd` or `nats-server` is absent, record the
   native local-lite gate as INCOMPLETE and continue broker-free validation.
@@ -57,8 +58,10 @@ PY_BASE="$(command -v python3.13 || command -v python3.12 || command -v python3)
 "$PY_BASE" -c 'import sys; assert sys.version_info[:2] in {(3,12),(3,13)}, sys.version'
 "$PY_BASE" -m venv "$STATE/venv"
 PY="$STATE/venv/bin/python"
-"$PY" -m pip install --no-cache-dir --only-binary=:all:   -r "$REPO/requirements/local-validation.txt"   > "$EVIDENCE/install-minimal.log" 2>&1
-"$PY" -m pip check > "$EVIDENCE/pip-check-minimal.log" 2>&1
+"$PY" -m pip install --no-cache-dir --only-binary=:all: \
+  -r "$REPO/requirements/core-probe.txt" \
+  > "$EVIDENCE/install-core.log" 2>&1
+"$PY" -m pip check > "$EVIDENCE/pip-check-core.log" 2>&1
 git rev-parse HEAD > "$EVIDENCE/start-sha.txt"
 git status --short > "$EVIDENCE/start-status.txt"
 ```
@@ -89,7 +92,17 @@ requirements to obtain a pass.
 
 ## Phase 1 - focused broker-free correctness
 
-Only after the core gate passes, read ADR 0011, `docs/LOCAL_RUNTIME.md`,
+Only after the core gate passes, extend the same venv with the still-small
+broker-free validation set:
+
+```bash
+"$PY" -m pip install --no-cache-dir --only-binary=:all: \
+  -r "$REPO/requirements/local-validation.txt" \
+  > "$EVIDENCE/install-validation.log" 2>&1
+"$PY" -m pip check > "$EVIDENCE/pip-check-validation.log" 2>&1
+```
+
+Then read ADR 0011, `docs/LOCAL_RUNTIME.md`,
 `ARCHITECTURE.md`, `local_lite.py`, `local_runtime.py`, TaskLedger/TaskAPI,
 transport, bridge, DLQ/replay and the new tests.
 
