@@ -329,6 +329,16 @@ class TaskLedger:
                 db.execute("UPDATE a2amq_jobs SET started=1 WHERE tenant=? AND consumer=? AND task_id=?",
                            (*self.keys, action.task_id))
 
+    def finish(self, task_id: str) -> None:
+        """Record terminal runtime completion idempotently for retention/recovery gates."""
+        task_id = _key(task_id)
+        with self.store._transaction() as db:
+            task = self._task(db, task_id)
+            require(state_of(task) in TERMINAL, "TASK_NOT_TERMINAL")
+            db.execute("INSERT INTO a2amq_runtime_end VALUES (?,?,?,?) "
+                       "ON CONFLICT(tenant,consumer,task_id) DO NOTHING",
+                       (*self.keys, task_id, self.store._now()))
+
     def verify_control(self, task_id, kind, body):
         require(isinstance(body,dict) and set(body) == {"requestId","kind","data"}
                 and body["kind"] == kind, "INVALID_CONTROL")

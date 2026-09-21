@@ -14,11 +14,17 @@ from .http_boundary import BoundedJSON, sanitize_sdk_logs
 from .identity import BearerIdentity, current_principal
 
 
-def create_bridge(api, verifier, *, public_url: str):
+def create_bridge(api, verifier, *, public_url: str, profile: str = "workflow",
+                  allow_insecure_loopback: bool = False):
     parsed = urlsplit(public_url)
-    require(parsed.scheme == "https" and bool(parsed.hostname) and not parsed.username
-            and not parsed.password and not parsed.query and not parsed.fragment,
+    secure = parsed.scheme == "https"
+    loopback = (allow_insecure_loopback and parsed.scheme == "http"
+                and parsed.hostname in {"127.0.0.1", "localhost", "::1"})
+    require((secure or loopback) and bool(parsed.hostname) and not parsed.username
+            and not parsed.password and not parsed.query and not parsed.fragment
+            and parsed.path in {"", "/"},
             "PUBLIC_HTTPS_URL_REQUIRED")
+    require(profile in {"workflow", "local-lite"}, "INVALID_RUNTIME_PROFILE")
     base_url = public_url.rstrip("/")
     try:
         from google.protobuf.json_format import MessageToDict, ParseDict
@@ -37,9 +43,18 @@ def create_bridge(api, verifier, *, public_url: str):
         raise PermanentError("BRIDGE_EXTRA_REQUIRED") from None
 
     tenant = api.ledger.store.scope.tenant
+    local_lite = profile == "local-lite"
+    description = ("Lightweight durable immediate text tasks over Dapr Pub/Sub. "
+                   "Workflow waits/timers/approval are disabled in this profile."
+                   if local_lite else
+                   "Durable text tasks over Dapr Pub/Sub and Dapr Workflow. Experimental, not certified.")
+    skill_description = ("Echo or uppercase immediate text without durable workflow waits."
+                         if local_lite else
+                         "Echo or uppercase text with optional input and approval pauses.")
+    skill_tags = ["text", "local-lite"] if local_lite else ["text", "workflow"]
     card = pb.AgentCard(
         name="A2A-MQ durable reference", version="0.1.0",
-        description="Durable text tasks over Dapr Pub/Sub and Dapr Workflow. Experimental, not certified.",
+        description=description,
         supported_interfaces=[
             pb.AgentInterface(url=base_url + "/rpc", protocol_binding="JSONRPC", protocol_version="1.0"),
             pb.AgentInterface(url=base_url, protocol_binding="HTTP+JSON", protocol_version="1.0"),
@@ -47,8 +62,8 @@ def create_bridge(api, verifier, *, public_url: str):
         capabilities=pb.AgentCapabilities(streaming=True, push_notifications=False, extended_agent_card=True),
         default_input_modes=["text/plain"], default_output_modes=["text/plain"],
         skills=[pb.AgentSkill(id="durable-text", name="Durable text transformation",
-                description="Echo or uppercase text with optional input and approval pauses.",
-                tags=["text", "workflow"], input_modes=["text/plain"], output_modes=["text/plain"])],
+                description=skill_description, tags=skill_tags,
+                input_modes=["text/plain"], output_modes=["text/plain"])],
         security_schemes={"bearer": pb.SecurityScheme(http_auth_security_scheme=
             pb.HTTPAuthSecurityScheme(scheme="Bearer", bearer_format="JWT"))},
         security_requirements=[pb.SecurityRequirement(schemes={"bearer": pb.StringList(list=[])})],

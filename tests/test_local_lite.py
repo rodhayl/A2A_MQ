@@ -1,0 +1,63 @@
+from a2a_mq.domain import Envelope, PermanentError, state_of
+from a2a_mq.identity import Principal
+from a2a_mq.local_lite import LocalLiteActions, LocalLiteTaskAPI
+from a2a_mq.storage import SQLiteStore
+from a2a_mq.tasks import TaskLedger
+
+
+def principal():
+    return Principal("owner", "demo", frozenset({"a2a:send", "a2a:read", "a2a:cancel"}))
+
+
+def request(message_id="request-1", **a2amq):
+    value = {"message": {"messageId": message_id, "role": "ROLE_USER", "parts": [{"text": "hello"}]},
+             "configuration": {"returnImmediately": True}}
+    if a2amq:
+        value["metadata"] = {"a2amq": a2amq}
+    return value
+
+
+def test_local_lite_executes_existing_ledger_without_workflow(tmp_path):
+    store = SQLiteStore(tmp_path / "local.db", tenant="demo", consumer="local")
+    ledger = TaskLedger(store, source="local-worker")
+    task = ledger.submit(principal(), request(transform="upper"))
+    publish = ledger.pending(("publish",))[0]
+    command = Envelope(publish.body)
+    ledger.delivered(publish)
+    assert ledger.accept(command) is True
+    start = next(a for a in ledger.pending(("start",)) if a.task_id == task["id"])
+    LocalLiteActions(ledger).dispatch(start)
+    completed = ledger.get(principal(), task["id"])
+    assert state_of(completed) == "COMPLETED"
+    assert completed["artifacts"][0]["parts"][0]["text"] == "HELLO"
+    with store._connection() as db:
+        assert db.execute("SELECT COUNT(*) FROM a2amq_runtime_end WHERE task_id=?", (task["id"],)).fetchone()[0] == 1
+
+
+def test_local_lite_cancel_before_start_is_terminal_and_idempotent(tmp_path):
+    store = SQLiteStore(tmp_path / "local.db", tenant="demo", consumer="local")
+    ledger = TaskLedger(store, source="local-worker")
+    task = ledger.submit(principal(), request())
+    publish = ledger.pending(("publish",))[0]
+    command = Envelope(publish.body)
+    ledger.delivered(publish)
+    ledger.control(principal(), task["id"], "cancel", "cancel-1")
+    cancel = ledger.pending(("cancel",))[0]
+    actions = LocalLiteActions(ledger)
+    actions.dispatch(cancel)
+    assert state_of(ledger.get(principal(), task["id"])) == "CANCELED"
+    assert ledger.accept(command) is True
+    start = next(a for a in ledger.pending(("start",)) if a.task_id == task["id"])
+    actions.dispatch(start)
+    assert state_of(ledger.get(principal(), task["id"])) == "CANCELED"
+
+
+def test_local_lite_rejects_workflow_only_options():
+    LocalLiteTaskAPI._validate_local_request(request(transform="echo"))
+    for item in (request(inputRequired=True), request(authRequired=True), request(delaySeconds=1)):
+        try:
+            LocalLiteTaskAPI._validate_local_request(item)
+        except PermanentError as exc:
+            assert exc.code == "WORKFLOW_FEATURE_UNAVAILABLE"
+        else:
+            raise AssertionError("workflow-only option accepted")

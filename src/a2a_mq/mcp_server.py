@@ -61,6 +61,20 @@ class MCPTools:
                 "authRequired": approval_required, "delaySeconds": delay_seconds}}})
 
     @safe_tool
+    async def submit_task_lite(self, request_id: str, text: str, context_id: str | None = None,
+                               transform: str = "echo") -> dict:
+        """Submit an immediate local-lite text task without Workflow-only options."""
+        principal = self.caller()
+        _key(request_id)
+        require(isinstance(text, str), "TEXT_REQUIRED")
+        message = {"messageId": request_id, "role": "ROLE_USER", "parts": [{"text": text}]}
+        if context_id is not None:
+            message["contextId"] = _key(context_id)
+        return await self.api.send(principal, {"message": message,
+            "configuration": {"returnImmediately": True},
+            "metadata": {"a2amq": {"transform": transform}}})
+
+    @safe_tool
     async def get_task(self, task_id: str, history_length: int = 0) -> dict:
         """Read an owned task. Terminal output is durable; a missing task is not a failed publish."""
         return await self.api.get(self.caller(), _key(task_id), history_length=history_length)
@@ -96,18 +110,23 @@ class MCPTools:
         return await self.api.approve(self.caller(), _key(task_id), _key(request_id), approved)
 
 
-def create_mcp(api, verifier, *, resource_url: str):
+def create_mcp(api, verifier, *, resource_url: str, profile: str = "workflow",
+               allow_insecure_loopback: bool = False):
     """Return (official SDK server, authenticated Streamable HTTP app).
 
     Mount the app at '/', and enter server.session_manager.run() from the host
     lifespan. Modern requests are sessionless; legacy sessions are disabled too.
     """
     url = urlsplit(resource_url)
-    require(url.scheme == "https" and bool(url.hostname) and url.path == "/mcp"
+    secure = url.scheme == "https"
+    loopback = (allow_insecure_loopback and url.scheme == "http"
+                and url.hostname in {"127.0.0.1", "localhost", "::1"})
+    require((secure or loopback) and bool(url.hostname) and url.path == "/mcp"
             and not url.username and not url.password and not url.query and not url.fragment,
             "MCP_HTTPS_RESOURCE_REQUIRED")
     require(verifier.audience == resource_url and urlsplit(verifier.issuer).scheme == "https",
             "MCP_RESOURCE_AUDIENCE_REQUIRED")
+    require(profile in {"workflow", "local-lite"}, "INVALID_RUNTIME_PROFILE")
     try:
         from pydantic import AnyHttpUrl
         from mcp.server import MCPServer
@@ -137,11 +156,24 @@ def create_mcp(api, verifier, *, resource_url: str):
     server = MCPServer("A2A-MQ durable tasks", token_verifier=Verifier(),
         auth=AuthSettings(issuer_url=AnyHttpUrl(verifier.issuer),
                           resource_server_url=AnyHttpUrl(resource_url), required_scopes=[]))
-    for name in ("submit_task", "get_task", "list_tasks", "continue_task", "cancel_task", "approve_task"):
+    registered = ({
+        "submit_task": tools.submit_task_lite,
+        "get_task": tools.get_task,
+        "list_tasks": tools.list_tasks,
+        "cancel_task": tools.cancel_task,
+    } if profile == "local-lite" else {
+        "submit_task": tools.submit_task,
+        "get_task": tools.get_task,
+        "list_tasks": tools.list_tasks,
+        "continue_task": tools.continue_task,
+        "cancel_task": tools.cancel_task,
+        "approve_task": tools.approve_task,
+    })
+    for name, function in registered.items():
         read_only = name in {"get_task", "list_tasks"}
         server.tool(name=name, annotations=ToolAnnotations(read_only_hint=read_only,
             destructive_hint=name in {"cancel_task", "approve_task"}, idempotent_hint=True,
-            open_world_hint=False))(getattr(tools, name))
+            open_world_hint=False))(function)
     origin = f"{url.scheme}://{url.netloc}"
     transport = TransportSecuritySettings(allowed_hosts=[url.netloc], allowed_origins=[origin])
     app = server.streamable_http_app(stateless_http=True, json_response=True, transport_security=transport)
