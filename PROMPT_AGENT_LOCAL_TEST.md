@@ -1,248 +1,141 @@
-# /goal — Independently validate A2A-MQ locally and fix only proven defects
+# /goal - Validate A2A-MQ on a low-resource server without changing the host
 
-You are working **locally inside this A2A_MQ repository**. Treat the checked-out commit as the system under test. Your job is to perform an independent, adversarial validation of the integrated implementation, find real defects before making performance claims, fix defects only when they are reproducible and well understood, and leave a compact evidence package that another engineer can audit.
+This is a self-contained task for a NEW agent conversation in `rodhayl/A2A_MQ`, branch `implementation/production-hardening-20260916`. Test the actual checkout, find reproducible defects and fix their root causes. The owner has explicitly required a lightweight, venv-only run. This replaces the previous instruction to install every extra and start Docker stacks.
 
-## Operating principles
+## Non-negotiable host and resource boundaries
 
-1. **Start with a deliberate bug hunt and deterministic validation.** Read `AGENTS.md`, `README.md`, `docs/IMPLEMENTED_STACK.md`, `docs/IMPLEMENTATION_COVERAGE.md`, the relevant ADRs, `pyproject.toml`, acceptance code, deployment code, and the production/runtime entry points before drawing conclusions.
-2. **Do not trust prior evidence or pass counts.** Re-run tests from this checkout. Existing files under `docs/validation/` are historical context only.
-3. **Preserve settled architecture unless evidence falsifies it.** The integrated entry point is `a2a_mq.application:from_env`; existing `production.py` / `production_env.py`, `service:from_env`, and legacy/demo paths are intentionally preserved. Do not collapse these profiles merely to simplify tests.
-4. **Prefer correctness and reproducibility over speed.** Runtime duration is not important. Token usage and unnecessary rework should be minimized.
-5. **Use positive, evidence-driven changes.** If you find a defect, first create the smallest reproducer/regression test, then fix the root cause, then rerun the relevant narrow test and the broader affected suite.
-6. **Never turn a missing dependency/service into a pass.** A required gate that cannot run is `INCOMPLETE`, not `PASS`. Required skips, xfails, empty JUnit files, import fallbacks, mocked native SDKs, or connection failures cannot satisfy acceptance.
-7. **Keep the run local and safe.** Use disposable databases/containers/credentials. Do not contact production services, rotate/delete real Vault keys, alter external policies, or use paid model APIs. This project does not require an LLM API key.
-8. **Do not push.** You may create local commits for fixes if useful, but leave pushing/merging to the owner.
+- Use an existing Python 3.12 or 3.13 interpreter and a fresh project-local venv WITHOUT `--system-site-packages`. Run every Python/pip command through that venv's absolute executable. A venv isolates Python packages, not CPU, RAM, network or filesystem access; obey the remaining boundaries separately.
+- Keep the venv, temporary files, SQLite fixtures, caches and raw evidence under an ignored `.local-validation/` directory on a disk-backed filesystem. Preserve any pre-existing venv, files and worktree changes. Do not recreate or delete someone else's environment. Avoid `/tmp` when it is memory-backed.
+- Do not use sudo, OS package managers, global/user pip installs, `--break-system-packages`, system services, cron, shell-profile changes, system Python changes or newly installed runtimes. Missing Python/venv support is `INCOMPLETE`; continue the static work possible without installing system components.
+- Do not install or invoke Docker, Compose, Podman, Kubernetes, Dapr sidecars, brokers, PostgreSQL servers, Vault servers or telemetry collectors. Do not start an alternative native multi-service stack. These restrictions apply even when those tools are already installed. Existing unrelated services are not test fixtures.
+- Start with ONLY `requirements/local-validation.txt`. Do not install `.[dev]`, all extras, SDK bundles, GPU/model libraries, source-build toolchains or dependency upgrades. Download binary wheels only. Record an unavailable pin/wheel as `INCOMPLETE` rather than silently changing versions.
+- Run ONE test command at a time, one test file at a time. No pytest-xdist, parallel agents running tools, multiple benchmark jobs or coverage in this pass. Set numerical-library thread counts to one. Small concurrency regressions may use their existing bounded threads; inspect subprocess tests before running them and defer those requiring multiple services or material memory use.
+- Inspect available RAM and disk before installing and between test groups. Use 512 MiB available RAM and 2 GiB free disk as conservative starting safety reserves, not a claim about actual hardware needs. Stop the affected workload if these reserves cannot be maintained, the host starts swapping heavily or the run's directory reaches 1 GiB. Continue source inspection instead. Do not create swap or kill other users' processes.
+- Keep network use limited to the ordinary authorized Git remote and package downloads needed for the minimal environment. Tests use SQLite, in-process HTTP or short-lived loopback fixtures, never production endpoints or paid model APIs. Do not print credentials or dump the environment.
+- Preserve architecture and all infrastructure tests/deployment files. This machine is not required to certify them. No reduced assertions, mocked native SDKs presented as real SDK validation, or skipped tests presented as passes.
+- Commit small verified fixes locally, with regression evidence. Do not push, merge, force-push or release from this validation task unless the owner separately authorizes it.
 
-## Phase 0 — Provenance and clean baseline
+## 1. Provenance and deliberate bug hunt
 
-Record:
+Read `AGENTS.md`, this file, `README.md`, `docs/IMPLEMENTED_STACK.md`, `docs/IMPLEMENTATION_COVERAGE.md`, relevant ADRs and `pyproject.toml`. Record the starting SHA and `git status --short` without discarding changes. The integrated entry point is `a2a_mq.application:from_env`; existing `production.py`, `production_env.py`, `service:from_env` and demo paths remain intentional separate profiles.
 
-```bash
-git rev-parse HEAD
-git status --short
-python --version
-python -m pip --version
-docker --version || true
-docker compose version || true
-```
+Review storage/inbox/outbox, leases and fencing, task admission/control, Workflow replay, identity, HTTP boundaries, recovery, retention, DLQ, backup, configuration and acceptance code together. Inspect SDK and deployment integration as source only when unavailable in the minimal environment. Concentrate on tenant/consumer/owner isolation, stable retry bytes, terminal guards, cancellation, failed-start cleanup, schema races, replay resurrection and secret leakage. Capture concrete file/line findings; do not invent a quota of defects or add speculative abstractions.
 
-The worktree should start clean. If it is not clean, preserve and report the pre-existing changes; do not discard them.
+## 2. Create a private minimal environment
 
-Create a fresh evidence directory outside the repository, for example:
+Use Linux bash commands below from the repository root after checking the resource reserves. If a compatible interpreter or these existing shell utilities are unavailable, adapt to existing equivalents or record the limitation; do not install host tools.
 
 ```bash
-EVIDENCE="$(mktemp -d /tmp/a2amq-agent-validation.XXXXXXXX)"
-printf '%s\n' "$EVIDENCE"
+set -euo pipefail
+umask 077
+REPO="$(git rev-parse --show-toplevel)"
+cd "$REPO"
+# Inspect a pre-existing path first; reject symlinks or someone else's directory.
+if [ -L "$REPO/.local-validation" ]; then exit 1; fi
+mkdir -p "$REPO/.local-validation"
+STATE="$(mktemp -d "$REPO/.local-validation/run.XXXXXXXX")"
+mkdir -p "$STATE/tmp" "$STATE/cache" "$STATE/evidence"
+EVIDENCE="$STATE/evidence"
+export TMPDIR="$STATE/tmp" TMP="$STATE/tmp" TEMP="$STATE/tmp"
+export XDG_CACHE_HOME="$STATE/cache" PIP_CACHE_DIR="$STATE/cache/pip"
+export PYTHONPYCACHEPREFIX="$STATE/cache/pycache"
+export MYPY_CACHE_DIR="$STATE/cache/mypy" RUFF_CACHE_DIR="$STATE/cache/ruff"
+export PYTHONNOUSERSITE=1 PYTHONDONTWRITEBYTECODE=1
+export PIP_REQUIRE_VIRTUALENV=true PIP_DISABLE_PIP_VERSION_CHECK=1
+export PIP_NO_CACHE_DIR=1 PIP_NO_INPUT=1 PIP_CONFIG_FILE=/dev/null
+export PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 A2AMQ_NO_LLM_TOKENS=1
+export OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1
+export NUMEXPR_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1
+unset PYTHONHOME PYTHONPATH PYTHONUSERBASE PYTEST_ADDOPTS PYTEST_PLUGINS
+unset PIP_TARGET PIP_PREFIX PIP_USER PIP_BREAK_SYSTEM_PACKAGES
+# Process-local removal only: never inspect or change the user's stored secrets.
+unset OPENAI_API_KEY ANTHROPIC_API_KEY GEMINI_API_KEY GOOGLE_API_KEY AZURE_OPENAI_API_KEY
+PY_BASE="$(command -v python3.13 || command -v python3.12 || command -v python3)"
+"$PY_BASE" -c 'import sys; assert sys.version_info[:2] in {(3,12),(3,13)}, sys.version'
+"$PY_BASE" -m venv "$STATE/venv"
+PY="$STATE/venv/bin/python"
+"$PY" -c 'import sys; assert sys.prefix != sys.base_prefix; print(sys.executable)'
+"$PY" -m pip --version
+"$PY" -m pip install --no-cache-dir --only-binary=:all: \
+  -r "$REPO/requirements/local-validation.txt" \
+  > "$EVIDENCE/install.log" 2>&1
+"$PY" -m pip check > "$EVIDENCE/pip-check.log" 2>&1
+"$PY" -m pip list --format=json > "$EVIDENCE/dependencies.json"
+git rev-parse HEAD > "$EVIDENCE/start-sha.txt"
+git status --short > "$EVIDENCE/start-status.txt"
 ```
 
-## Phase 1 — Static bug hunt before broad execution
+The venv is fresh for this run, not a reason to repeatedly reinstall dependencies. Retain it for reproducible retries. Never use a bare `pip`, `pip3` or system Python for subsequent work. Run source tests via the repository's pytest `pythonpath = ["src"]`; an editable install and a build backend are not needed for this initial pass.
 
-Inspect at minimum these areas as one system rather than isolated files:
+## 3. Sequential, broker-free regression
 
-- `src/a2a_mq/application.py`, `configuration.py`, `deployment.py`, `provision.py`
-- `postgres.py`, `storage.py`, `tasks.py`, `workflows.py`, `recovery.py`, `schema_lifecycle.py`
-- `deadletters.py`, `dlq_callback.py`, `maintenance.py`, `sqlite_archive.py`, `pg_backup.py`
-- `bridge.py`, `task_api.py`, `mcp_server.py`, `mcp_adapter.py`
-- `identity.py`, `protection.py`, `secure_transport.py`, `vault.py`
-- `operations_http.py`, `admin.py`, `telemetry.py`, `projections.py`
-- `acceptance.py`, `live_probe.py`, `performance.py`
-- both deployment paths already present in the repository and all new tests.
+Run `"$PY" tools/check.py` and save its result. Audit each candidate file's imports and fixture setup BEFORE execution. Marker filtering does not prevent module-level imports or collection side effects. Use explicit paths, not a repository-wide pytest collection.
 
-Look specifically for correctness failures involving:
+Start with these core candidates, in this order, one at a time:
 
-- tenant/consumer/owner isolation and authorization bypasses;
-- message/task ID reuse, idempotency, stale leases/fences and duplicate delivery;
-- PostgreSQL/SQLite semantic drift, transaction boundaries and schema races;
-- outbox ambiguity, replay resurrection, DLQ tampering/truncation/expiry, encrypted-route downgrade;
-- Workflow restart/reconciliation, cancellation races, waits, fan-out/fan-in, and terminal-state rewrites;
-- cleanup/retention deleting data before runtime completion or publication drain;
-- startup/shutdown partial failure, resource leaks, readiness lying, duplicated relays;
-- MCP/A2A operations bypassing the common `Principal` authorization model;
-- secret leakage in command lines, logs, telemetry, manifests, generated evidence or exception strings;
-- deployment broker parity differences between JetStream and RabbitMQ;
-- test gates that can accidentally pass because the real SDK/service did not execute.
+```text
+tests/test_json_boundary_regressions.py
+tests/test_domain.py
+tests/test_reference_replay.py
+tests/test_storage.py
+tests/test_storage_recovery.py
+tests/test_transport.py
+tests/test_transport_lifecycle.py
+tests/test_runtime.py
+tests/test_service.py
+tests/test_junit_evidence.py
+tests/test_task_ledger.py
+tests/test_task_api.py
+tests/test_operations_new.py
+tests/test_projection_retention_new.py
+tests/test_pg_backup_new.py
+tests/test_deployment_new.py
+```
 
-Write concrete findings with file/line references into `$EVIDENCE/bug-hunt.md`. Do not invent issues merely to fill a quota.
+Only execute candidates whose inspected imports/fixtures fit the minimal dependency and host boundaries. `test_deployment_new.py` is for static manifest generation, not starting a stack; `test_pg_backup_new.py` uses subprocess fixtures, not a live database. Verify that remains true in this checkout. Defer any unsupported candidate explicitly and continue the supported ones. Additional deterministic modules are allowed after the same inspection, without adding dependencies.
 
-## Phase 2 — Fresh environment, dependencies, packaging and static gates
-
-Create/recreate a local virtual environment and install the complete development stack:
+For EACH eligible file, substitute its path and a unique log stem in this template:
 
 ```bash
-python3 -m venv .venv
-. .venv/bin/activate
-python -m pip install --upgrade pip
-python -m pip install -e '.[dev,bridge,workflow,postgres,security,mcp,observability,deployment]'
-python -m pip check
-ruff check .
-mypy
+TEST=tests/test_json_boundary_regressions.py
+STEM="$(basename "$TEST" .py)"
+# The pytest configuration adds src; explicitly enable only the async plugin.
+# Use an already available timeout utility, otherwise a bounded agent tool call.
+set +e
+timeout --signal=TERM --kill-after=15s 300s \
+  "$PY" -m pytest -p pytest_asyncio.plugin -p no:cacheprovider \
+  -o addopts= -q -W error --maxfail=1 \
+  -m 'not live and not postgres and not upstream and not mcp and not vault' \
+  --basetemp="$STATE/tmp/$STEM" --junitxml="$EVIDENCE/$STEM.xml" "$TEST" \
+  > "$EVIDENCE/$STEM.log" 2>&1
+RC=$?
+set -e
+printf '%s\n' "$RC" > "$EVIDENCE/$STEM.exit-code"
+"$PY" scripts/assert_junit_complete.py "$EVIDENCE/$STEM.xml"
+# Interpret the exit code AND JUnit. A timeout/nonzero exit is not a pass.
+test "$RC" -eq 0
 ```
 
-Then build and install a wheel into a directory outside the source tree. Verify that imports and package data (`schema.json`, `binding.json`, `py.typed`) work **without relying on `PYTHONPATH=src` or the source checkout**.
+A failed command is input to the fix loop, not permission to keep launching expensive retries. Preserve the first failure and its exit code. Run resource checks again before resuming. An unexpected skip, xfail, collection error, missing report, empty selection or timeout cannot satisfy this file's gate. Explicitly deselected infrastructure tests are outside this profile, not validated.
 
-Any dependency-resolution or wheel failure is a real failure to report.
+## 4. Optional tools and intentionally deferred gates
 
-## Phase 3 — Complete deterministic local regression
+Use Ruff/mypy only if already available INSIDE this run's venv, sequentially with bounded commands. Do not use host executables or install all development extras to obtain them. If unavailable, record `NOT_RUN_DEPENDENCY_LIMIT`. Packaging can be tested only if its pinned build prerequisites are already present in the venv and resource reserves permit it; otherwise defer it explicitly.
 
-First run the repository-wide non-live suite, not only the newly added tests:
+Security/telemetry/native-SDK tests requiring extra packages are source-reviewed and marked `NOT_RUN_DEPENDENCY_LIMIT` in the default run. Do not install cryptography, OpenTelemetry exporters, A2A/MCP/Dapr SDK bundles or database drivers merely to make the total count larger. The owner can authorize a separately budgeted venv-only extension later.
 
-```bash
-python -m pytest -p no:cacheprovider -W error -q \
-  -m 'not live and not postgres' \
-  --junitxml="$EVIDENCE/non-live.xml" \
-  2>&1 | tee "$EVIDENCE/non-live.log"
-```
+Do not run `make up`, `make check`, bare repository-wide pytest, `a2a_mq.live_probe`, performance/load tests, or the acceptance driver's `full`, `sdk`, `postgres` or `vault` modes. Do not run its `local` mode blindly either: its current prerequisite/collection scope is broader than this lightweight profile. Keep that driver and its strict full criteria unchanged.
 
-Then run the project's strict local acceptance driver:
+Record PostgreSQL, Vault, real Dapr Workflow, JetStream, RabbitMQ, native A2A/MCP interoperability and full-stack acceptance as `NOT_RUN_RESOURCE_LIMIT` or `NOT_RUN_DEPENDENCY_LIMIT`, with overall full acceptance `INCOMPLETE`. Unit fixtures do not replace those integration gates. No remote/cloud execution or external service connections are authorized as a workaround.
 
-```bash
-python -m a2a_mq.acceptance --mode local --root "$PWD" \
-  --output "$EVIDENCE/acceptance-local"
-```
+## 5. Fix loop and cleanup
 
-Also execute focused concurrency/restart/recovery/DLQ/retention/security tests independently when broad output makes diagnosis difficult.
+For each confirmed defect: preserve a minimal reproducer, add a regression test, apply the smallest architecture-consistent fix, rerun that test and affected lightweight files sequentially, and make a focused local commit. Separate code defects, missing dependencies and host-resource limits. Preserve passing behavior and existing full infrastructure gates.
 
-A test run with unexpected skips is not accepted. Record the exact collected/passed/skipped/failed counts.
+Stop and reap only subprocesses created by this run. Remove their temporary databases/files once evidence is captured; keep the isolated venv and compact evidence for reproducibility. Do not sweep unrelated `/tmp`, remove old worktrees, kill matching system processes, or run Docker cleanup commands. Never commit `.local-validation/`, venvs, caches, credentials, raw dumps or unsanitized logs. No scheduled jobs, background services or shell activation should remain after the task.
 
-## Phase 4 — Native protocol SDK gate
+## 6. Deliverable
 
-Run the official A2A, MCP and Dapr SDK-backed acceptance path:
+Write a concise, sanitized `LOCAL_VALIDATION_REPORT.md` at the repository root. Include starting/final SHA, preserved pre-existing changes, venv path/interpreter, exact command/exit-code/JUnit counts for executed files, resource observations, confirmed fixes and local commit SHAs, unexecuted files with reasons, and unresolved defects. Raw evidence stays in `$EVIDENCE` under the ignored run directory; do not duplicate or upload large archives.
 
-```bash
-python -m a2a_mq.acceptance --mode sdk --root "$PWD" \
-  --output "$EVIDENCE/acceptance-sdk"
-```
-
-Verify that the tests actually import and exercise the pinned native SDKs. Pay special attention to:
-
-- Agent Card resolution;
-- JSON-RPC and HTTP+JSON send/get/list/cancel;
-- streaming and reconnect semantics;
-- unsupported push-notification behavior;
-- MCP authentication and owner-scoped tools;
-- malformed/oversized bodies and authorization denials.
-
-Do not replace a missing native SDK with fixtures to make this gate green.
-
-## Phase 5 — Real disposable PostgreSQL
-
-Use a dedicated disposable PostgreSQL database. Prefer a fresh local container if no disposable database is already available. Store the DSN in a private file outside the repository and point `A2AMQ_POSTGRES_DSN_FILE` at it. Use TLS where the acceptance path requires verified TLS; if a specific legacy gate explicitly supports an isolated insecure local fixture, keep that exception scoped to that test only.
-
-Run:
-
-```bash
-python -m a2a_mq.acceptance --mode postgres --root "$PWD" \
-  --output "$EVIDENCE/acceptance-postgres"
-```
-
-Independently stress at least:
-
-- two replicas racing to claim the same command;
-- duplicate command/result handling;
-- restart/reopen persistence;
-- task/consumer isolation;
-- schema initialization by concurrent roles;
-- retention/replay interactions;
-- backup/restore on a disposable DB.
-
-Inspect the DB after tests for leaked test rows or cross-scope corruption.
-
-## Phase 6 — Real disposable Vault Transit
-
-Only run this phase against a dedicated local/disposable Vault Transit test key. Prepare `A2AMQ_VAULT_TEST_CONFIG_FILE` exactly as documented in `docs/IMPLEMENTED_STACK.md`. The key must provide the versions expected by the test; never mutate a real production key or policy.
-
-Run:
-
-```bash
-python -m a2a_mq.acceptance --mode vault --root "$PWD" \
-  --output "$EVIDENCE/acceptance-vault"
-```
-
-Verify encryption/decryption, key-version read windows, tamper rejection, receiver/tenant binding, replay behavior and plaintext downgrade rejection. Search logs/evidence for Vault tokens, plaintext secret material and wrapped/unwrapped key leakage.
-
-If a safe disposable Vault is unavailable, mark this phase `INCOMPLETE` with the exact missing prerequisite.
-
-## Phase 7 — Real JetStream and RabbitMQ end-to-end stacks
-
-You may create disposable containers only. Use two fresh output directories.
-
-JetStream example:
-
-```bash
-ROOT_JS="$(mktemp -d /tmp/a2amq-js.XXXXXXXX)"
-python -m a2a_mq.deployment compose --broker jetstream --source "$PWD" --output "$ROOT_JS/stack"
-docker compose -f "$ROOT_JS/stack/compose.yaml" up --build -d
-```
-
-Generate and start a separate RabbitMQ stack with `--broker rabbitmq`.
-
-For each broker, validate real behavior rather than only manifest rendering:
-
-- actual command publication and worker competition;
-- independent observer fan-out;
-- duplicate/redelivery behavior;
-- API process restart and worker restart while work is in flight;
-- Dapr Workflow restart/reconciliation;
-- input-required and auth-required continuations;
-- cancellation before/during work;
-- fan-out/fan-in completion;
-- A2A native client and streaming;
-- MCP tools;
-- DLQ capture and replay;
-- authorization denials and tenant/owner isolation;
-- broker TLS/authentication and generated secret handling;
-- cleanup without corrupting persisted task state.
-
-Inspect container logs for exceptions, retries that never converge, unbounded loops, secret/payload leakage and false-ready states.
-
-Always tear down the disposable stacks and volumes you created after evidence has been collected.
-
-## Phase 8 — One strict full gate
-
-When PostgreSQL, Vault and Docker prerequisites are all genuinely available, run:
-
-```bash
-python -m a2a_mq.acceptance --mode full --root "$PWD" \
-  --output "$EVIDENCE/acceptance-full" \
-  --allow-disposable-containers --timeout 1200
-```
-
-`FULL_PASS` is valid only if every required group executes successfully. Verify the generated verdict rather than trusting process exit alone.
-
-If full mode cannot run because a prerequisite is unavailable, do not weaken the gate. Report `INCOMPLETE` and list the exact missing prerequisite(s).
-
-## Phase 9 — Performance only after correctness
-
-Only after correctness gates are green, inspect `python -m a2a_mq.performance --help` and run a small repeatable local benchmark against the disposable stack. Measure at minimum admission latency and throughput under modest concurrency. Performance must never override a correctness failure, and do not compare against historical numbers that were not measured in this run.
-
-## Defect-fix loop
-
-For every reproducible defect:
-
-1. capture the minimal failing command/test and exact observed behavior;
-2. add or strengthen a regression test that fails for the right reason;
-3. implement the smallest root-cause fix consistent with the architecture;
-4. rerun the focused test;
-5. rerun the affected broader gate;
-6. keep unrelated refactors out of the fix;
-7. record the change and evidence in `$EVIDENCE/fixes.md`.
-
-If a suspected issue cannot be reproduced, document it as unconfirmed rather than modifying code speculatively.
-
-## Final deliverable
-
-Produce `LOCAL_VALIDATION_REPORT.md` in the repository root and leave the raw/sanitized evidence under the external `$EVIDENCE` directory. The report must contain:
-
-- tested Git SHA and whether the initial/final worktree was clean;
-- environment/tool versions;
-- bug-hunt findings, classified as fixed / confirmed-open / unconfirmed;
-- exact commands executed;
-- for every gate: `PASS`, `FAIL`, or `INCOMPLETE` — never infer PASS;
-- exact test counts and unexpected skips/xfails;
-- PostgreSQL/Vault/JetStream/RabbitMQ evidence actually executed;
-- security and secret-leak checks;
-- any local commits created for fixes;
-- remaining release blockers;
-- a concise final verdict distinguishing **implementation correctness evidence** from **production certification**.
-
-End your response with a compact table of gates and statuses plus the paths to `LOCAL_VALIDATION_REPORT.md` and the external evidence directory. Do not push anything.
+Use `PASS_LOCAL_LIGHT` only when every selected supported file genuinely passes and no confirmed local defect remains. Report any unexecuted broader requirement separately and overall full acceptance as `INCOMPLETE`; this run is not whole-repository certification, infrastructure parity or production readiness. Finish with the report path, evidence path and a short summary of what actually ran. Do not push.

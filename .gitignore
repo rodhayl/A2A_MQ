@@ -13,3 +13,6 @@ dist/
 .env
 deploy/compose.yaml
 deploy/generated/
+
+# Low-resource validation: venv, caches, temporary DBs and raw evidence stay local.
+/.local-validation/
