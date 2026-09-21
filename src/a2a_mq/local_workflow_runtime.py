@@ -18,6 +18,8 @@ import time
 from .domain import require
 from .local_runtime import (
     APP_ID,
+    CLIENT_TOKEN_REFRESH_SECONDS,
+    SUPERVISOR_INTERVAL_SECONDS,
     _load_profile,
     _native_binary,
     _read,
@@ -150,7 +152,7 @@ def run(root: Path) -> int:
             "--dapr-listen-addresses", "127.0.0.1",
             "--placement-host-address", f"127.0.0.1:{PLACEMENT_PORT}",
             "--scheduler-host-address", f"127.0.0.1:{SCHEDULER_PORT}",
-            "--app-max-concurrency", "4", "--max-body-size", "1Mi",
+            "--app-max-concurrency", "2", "--max-body-size", "1Mi",
             "--enable-metrics=false", "--log-level", "warn",
         ]
         sidecar = subprocess.Popen(sidecar_command, cwd=root, env=env)
@@ -182,6 +184,7 @@ def run(root: Path) -> int:
 
         async def serve() -> int:
             task = asyncio.create_task(server.serve(), name="a2amq-local-workflow-asgi")
+            next_token_refresh = time.monotonic() + CLIENT_TOKEN_REFRESH_SECONDS
             try:
                 while not task.done():
                     for name, process in children.items():
@@ -192,7 +195,11 @@ def run(root: Path) -> int:
                             server.should_exit = True
                             await task
                             return code or 1
-                    await asyncio.sleep(.25)
+                    now = time.monotonic()
+                    if now >= next_token_refresh:
+                        _refresh_client_tokens(root, profile)
+                        next_token_refresh = now + CLIENT_TOKEN_REFRESH_SECONDS
+                    await asyncio.sleep(SUPERVISOR_INTERVAL_SECONDS)
                 await task
                 return 0
             finally:

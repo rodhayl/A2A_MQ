@@ -76,7 +76,7 @@ def _refresh_client_tokens(root: Path, profile: dict) -> None:
         "iss": profile["issuer"], "sub": "local-owner", "tenant": token(profile["tenant"]),
         "scope": "a2a:send a2a:read a2a:cancel a2a:operate a2a:replay a2a:approve",
         "iat": int(now.timestamp()), "nbf": int(now.timestamp()),
-        "exp": int((now + timedelta(hours=1)).timestamp()),
+        "exp": int((now + timedelta(seconds=CLIENT_TOKEN_LIFETIME_SECONDS)).timestamp()),
     }
     public_url = _loopback_public_url(profile["publicUrl"])
     encoded = jwt.encode({**claims, "aud": public_url}, key, algorithm="RS256",
@@ -116,8 +116,22 @@ def _plan(tenant: str, source: str) -> dict:
     tenant, source = token(tenant), token(source)
     return {"stream": {"name": "A2A_MQ", "subjects": [f"a2a.v1.{tenant}.>"],
         "retention": "limits", "storage": "file", "num_replicas": 1,
-        "max_age": 604800000000000, "max_bytes": 268435456, "max_msgs": 100000,
+        "max_age": 604800000000000, "max_bytes": 67108864, "max_msgs": 50000,
         "max_msg_size": 1048576, "discard": "new"}}
+
+
+def _nats_config(store_dir: Path, nats_token: str) -> str:
+    """Bound the single-node JetStream server independently of stream policy."""
+    return f'''host: 127.0.0.1
+port: 4222
+server_name: a2amq-local
+jetstream {{
+  store_dir: {json.dumps(str(store_dir))}
+  max_mem_store: 16MB
+  max_file_store: 96MB
+}}
+authorization {{ token: {json.dumps(nats_token)} }}
+'''
 
 
 def _bus_component(tenant: str, source: str, nats_token: str) -> str:
@@ -296,16 +310,7 @@ def prepare(root: Path, *, tenant: str = "demo", source: str = "local-worker",
     _private_write(root / "nats-token", nats_token)
 
     nats_store = (root / "nats").resolve()
-    _private_write(root / "nats.conf", f'''host: 127.0.0.1
-port: 4222
-server_name: a2amq-local
-jetstream {{
-  store_dir: {json.dumps(str(nats_store))}
-  max_mem_store: 32MB
-  max_file_store: 256MB
-}}
-authorization {{ token: {json.dumps(nats_token)} }}
-''')
+    _private_write(root / "nats.conf", _nats_config(nats_store, nats_token))
     _private_write(root / "components/bus.yaml", _bus_component(tenant, source, nats_token))
     _private_write(root / "components/bus-dlq.yaml", _dlq_component(tenant, nats_token))
     _private_write(root / "components/resiliency.yaml", _resiliency_resource())
@@ -330,7 +335,7 @@ authorization {{ token: {json.dumps(nats_token)} }}
     issuer = "https://local-a2amq.invalid"
     base_claims = {"iss": issuer, "sub": "local-owner", "tenant": tenant, "scope": scopes,
                    "iat": int(now.timestamp()), "nbf": int(now.timestamp()),
-                   "exp": int((now + timedelta(hours=1)).timestamp())}
+                   "exp": int((now + timedelta(seconds=CLIENT_TOKEN_LIFETIME_SECONDS)).timestamp())}
     token_a2a = jwt.encode({**base_claims, "aud": public_url}, key, algorithm="RS256",
                            headers={"kid": "local", "typ": "JWT"})
     _private_write(root / "client.jwt", token_a2a)
@@ -456,7 +461,7 @@ def run(root: Path) -> int:
             "--resources-path", str((root / "components").resolve()),
             "--dapr-listen-addresses", "127.0.0.1",
             "--placement-host-address", " ", "--scheduler-host-address", " ",
-            "--app-max-concurrency", "4", "--max-body-size", "1Mi",
+            "--app-max-concurrency", "2", "--max-body-size", "1Mi",
             "--enable-metrics=false", "--log-level", "warn",
         ]
         sidecar = subprocess.Popen(sidecar_command, cwd=root, env=env)
@@ -472,6 +477,7 @@ def run(root: Path) -> int:
 
         async def serve() -> int:
             task = asyncio.create_task(server.serve(), name="a2amq-local-asgi")
+            next_token_refresh = time.monotonic() + CLIENT_TOKEN_REFRESH_SECONDS
             try:
                 while not task.done():
                     for name, process in (("daprd", sidecar), ("nats", nats)):
@@ -482,7 +488,11 @@ def run(root: Path) -> int:
                             server.should_exit = True
                             await task
                             return code or 1
-                    await asyncio.sleep(.25)
+                    now = time.monotonic()
+                    if now >= next_token_refresh:
+                        _refresh_client_tokens(root, profile)
+                        next_token_refresh = now + CLIENT_TOKEN_REFRESH_SECONDS
+                    await asyncio.sleep(SUPERVISOR_INTERVAL_SECONDS)
                 await task
                 return 0
             finally:

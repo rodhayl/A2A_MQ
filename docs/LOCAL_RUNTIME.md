@@ -44,7 +44,10 @@ second scheduler.
 
 The active Dapr resources are two JetStream pub/sub views with distinct durable
 command and DLQ consumers plus a bounded inbound retry policy (5 x 500 ms) before
-dead-lettering. No Dapr state store is loaded in this tier.
+dead-lettering. No Dapr state store is loaded in this tier. The local JetStream
+stream is file-backed and capped at 64 MiB / 50,000 retained messages with a
+7-day maximum age; the server file-store ceiling is 96 MiB. Dapr-to-app delivery
+and the application callback semaphore are both capped at two concurrent requests.
 
 ## Optional: Local Workflow
 
@@ -159,7 +162,12 @@ tier rather than silently increasing host requirements.
 
 Both built-in launchers bind the application to `127.0.0.1:18000`, Dapr APIs to
 loopback and NATS to `127.0.0.1:4222`. Generated profiles are owner-private and
-contain random application/Dapr/NATS tokens plus a temporary local JWT signing key.
+contain random application/Dapr/NATS tokens plus a local JWT signing key. The
+generated client JWTs have a one-hour maximum lifetime and are atomically refreshed
+at startup and every 30 minutes while the launcher runs; clients should read the
+token file when opening a new connection instead of treating its contents as a
+permanent credential. The launcher refuses group/world-accessible profile roots or
+a profile created for the other local tier.
 
 The local HTTP A2A endpoint is deliberately loopback-only. Production/distributed
 profiles retain HTTPS requirements.

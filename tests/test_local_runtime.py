@@ -6,10 +6,14 @@ import pytest
 from a2a_mq.domain import PermanentError
 from a2a_mq.local_runtime import (
     APP_ID,
+    CLIENT_TOKEN_LIFETIME_SECONDS,
+    CLIENT_TOKEN_REFRESH_SECONDS,
+    SUPERVISOR_INTERVAL_SECONDS,
     _bus_component,
     _dlq_component,
     _load_profile,
     _loopback_public_url,
+    _nats_config,
     _plan,
     _private_replace,
     _resiliency_resource,
@@ -23,7 +27,8 @@ def test_local_plan_is_single_node_and_bounded():
     assert stream["name"] == "A2A_MQ"
     assert stream["subjects"] == ["a2a.v1.demo.>"]
     assert stream["num_replicas"] == 1
-    assert stream["max_bytes"] == 268435456
+    assert stream["max_bytes"] == 67108864
+    assert stream["max_msgs"] == 50000
     assert stream["discard"] == "new"
 
 
@@ -125,3 +130,16 @@ def test_local_profile_rejects_group_access_and_atomic_secret_refresh(tmp_path):
     _private_replace(secret, "second")
     assert secret.read_text() == "second"
     assert secret.stat().st_mode & 0o077 == 0
+
+
+def test_local_native_caps_match_low_resource_profile(tmp_path):
+    raw = _nats_config(tmp_path / "nats", "fixture-token")
+    assert "max_mem_store: 16MB" in raw
+    assert "max_file_store: 96MB" in raw
+    assert "host: 127.0.0.1" in raw
+
+
+def test_local_supervision_and_token_rotation_are_low_frequency_and_bounded():
+    assert CLIENT_TOKEN_REFRESH_SECONDS < CLIENT_TOKEN_LIFETIME_SECONDS
+    assert CLIENT_TOKEN_REFRESH_SECONDS <= CLIENT_TOKEN_LIFETIME_SECONDS // 2
+    assert SUPERVISOR_INTERVAL_SECONDS >= 1.0
