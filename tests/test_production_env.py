@@ -4,8 +4,8 @@ import pytest
 
 from a2a_mq.domain import PermanentError
 import a2a_mq.production_env as production_env
-from a2a_mq.production_env import (_bool, _dapr_http_endpoint, _mcp_resource_url,
-                                   _secret, _storage_config)
+from a2a_mq.production_env import (_bool, _dapr_grpc_port, _dapr_http_endpoint,
+                                   _mcp_resource_url, _secret, _storage_config)
 
 
 def test_storage_backend_requires_exactly_one_choice(tmp_path):
@@ -75,6 +75,20 @@ def test_production_dapr_endpoint_is_colocated(value):
         _dapr_http_endpoint(value)
     assert _dapr_http_endpoint("http://127.0.0.1:3500") == "http://127.0.0.1:3500"
     assert _dapr_http_endpoint("http://[::1]:3500/") == "http://[::1]:3500"
+
+
+@pytest.mark.parametrize("env", [
+    {"DAPR_GRPC_ENDPOINT":"http://127.0.0.1:50001"},
+    {"DAPR_GRPC_ENDPOINT":"http://dapr.example:50001"},
+    {"DAPR_GRPC_PORT":"0"},
+    {"DAPR_GRPC_PORT":"70000"},
+    {"DAPR_GRPC_PORT":"not-a-port"},
+])
+def test_production_workflow_grpc_uses_explicit_colocated_port(env):
+    with pytest.raises(PermanentError, match="COLOCATED_DAPR_REQUIRED"):
+        _dapr_grpc_port(env)
+    assert _dapr_grpc_port({}) == "50001"
+    assert _dapr_grpc_port({"DAPR_GRPC_PORT":"51001"}) == "51001"
 
 
 def test_secret_configuration_is_unambiguous_and_file_is_permission_checked(tmp_path):

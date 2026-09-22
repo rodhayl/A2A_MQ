@@ -197,6 +197,40 @@ async def test_worker_liveness_fails_when_critical_runtime_task_dies(tmp_path):
     assert runtime.stopped and bus.closed
 
 
+async def test_worker_official_sdk_is_pinned_to_colocated_grpc(tmp_path):
+    store = SQLiteStore(tmp_path / "worker-colocated.db", tenant="demo", consumer="workflow")
+    bus = Bus()
+    created = {}
+
+    class OfficialRuntime(Runtime):
+        def __init__(self, *, host=None, port=None):
+            super().__init__()
+            created["runtime"] = (host, port)
+
+    class OfficialClient(Client):
+        def __init__(self, *, host=None, port=None):
+            super().__init__()
+            created["client"] = (host, port)
+
+    class SDK:
+        WorkflowRuntime = OfficialRuntime
+        DaprWorkflowClient = OfficialClient
+
+    app = create_workflow_worker(
+        store, bus, app_token="fixture-token",
+        workflow_host="127.0.0.1", workflow_port="51001",
+        workflow_sdk=SDK, reconcile_interval=.01, relay_interval=.01,
+    )
+    async with app.router.lifespan_context(app):
+        async with asyncio.timeout(2):
+            while not app.state.a2amq_worker_state["workflow_ready"]:
+                await asyncio.sleep(.01)
+    assert created == {
+        "runtime": ("127.0.0.1", "51001"),
+        "client": ("127.0.0.1", "51001"),
+    }
+
+
 async def test_worker_starts_official_runtime_shape_and_shuts_down(tmp_path):
     store = SQLiteStore(tmp_path / "worker.db", tenant="demo", consumer="workflow")
     bus = Bus()

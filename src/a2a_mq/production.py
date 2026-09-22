@@ -166,6 +166,7 @@ def create_workflow_worker(store, bus, *, app_token: str, source: str = "workflo
                            database_capacity: int = 16, callback_concurrency: int = 8,
                            callback_timeout: float = 30, relay_interval: float = .5,
                            reconcile_interval: float = 1,
+                           workflow_host: str = "127.0.0.1", workflow_port: str = "50001",
                            runtime_factory: Callable[[], Any] | None = None,
                            client_factory: Callable[[], Any] | None = None,
                            workflow_sdk: Any | None = None):
@@ -173,6 +174,10 @@ def create_workflow_worker(store, bus, *, app_token: str, source: str = "workflo
     from .transport import subscriber
 
     source = token(source)
+    require(workflow_host in {"127.0.0.1", "localhost", "::1"}
+            and isinstance(workflow_port, str) and workflow_port.isascii()
+            and workflow_port.isdigit() and 1 <= int(workflow_port) <= 65535,
+            "COLOCATED_DAPR_REQUIRED")
     ledger = TaskLedger(store, source=source)
     database = AsyncSQLite(store, capacity=database_capacity)
     state: dict[str, Any] = {"tasks": [], "runtime": None, "started": False,
@@ -240,18 +245,21 @@ def create_workflow_worker(store, bus, *, app_token: str, source: str = "workflo
         tasks: list[asyncio.Task] = []
         state["stopping"] = False
         try:
-            if runtime_factory is None or client_factory is None:
+            dapr_workflow = workflow_sdk
+            if (runtime_factory is None or client_factory is None) and dapr_workflow is None:
                 try:
                     import dapr.ext.workflow as dapr_workflow
                 except ImportError:
                     raise PermanentError("WORKFLOW_EXTRA_REQUIRED") from None
-                runtime = (runtime_factory or dapr_workflow.WorkflowRuntime)()
-                register(runtime, ledger, sdk=workflow_sdk or dapr_workflow)
-                client = (client_factory or dapr_workflow.DaprWorkflowClient)()
-            else:
+            if runtime_factory is not None:
                 runtime = runtime_factory()
-                register(runtime, ledger, sdk=workflow_sdk)
+            else:
+                runtime = dapr_workflow.WorkflowRuntime(host=workflow_host, port=workflow_port)
+            register(runtime, ledger, sdk=dapr_workflow)
+            if client_factory is not None:
                 client = client_factory()
+            else:
+                client = dapr_workflow.DaprWorkflowClient(host=workflow_host, port=workflow_port)
             actions = DaprActions(ledger, client)
             controls = ActionRelay(ledger, database, actions=actions)
             outbox = OutboxRelay(database, bus)

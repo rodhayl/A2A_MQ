@@ -133,6 +133,14 @@ def _dapr_http_endpoint(value: str) -> str:
     return value.rstrip("/")
 
 
+def _dapr_grpc_port(env: Mapping[str, str]) -> str:
+    require(not env.get("DAPR_GRPC_ENDPOINT"), "COLOCATED_DAPR_REQUIRED")
+    value = env.get("DAPR_GRPC_PORT", "50001")
+    require(isinstance(value, str) and value.isascii() and value.isdigit()
+            and 1 <= int(value) <= 65535, "COLOCATED_DAPR_REQUIRED")
+    return value
+
+
 def _bus(env: Mapping[str, str]) -> DaprPublisher:
     endpoint = _dapr_http_endpoint(
         _value(env, "DAPR_HTTP_ENDPOINT", default="http://127.0.0.1:3500")
@@ -195,13 +203,17 @@ def create_worker_from_env(env: Mapping[str, str] | None = None):
     env = os.environ if env is None else env
     tenant = token(_value(env, "A2A_TENANT", default="demo"))
     consumer = token(_value(env, "A2A_CONSUMER", default="workflow-worker"))
-    app_token = _secret(env, "APP_API_TOKEN", "APP_API_TOKEN_FILE", required=True)
     source = token(_value(env, "A2A_SOURCE", default="workflow-worker"))
+    grpc_port = _dapr_grpc_port(env)
+    app_token = _secret(env, "APP_API_TOKEN", "APP_API_TOKEN_FILE", required=True)
     _storage_config(env)
     store, _ = _stores(env, tenant=tenant, task_consumer=consumer)
     bus = _bus(env)
     try:
-        return create_workflow_worker(store, bus, app_token=app_token, source=source)
+        return create_workflow_worker(
+            store, bus, app_token=app_token, source=source,
+            workflow_host="127.0.0.1", workflow_port=grpc_port,
+        )
     except BaseException:
         _close_bus(bus)
         _close_stores(store)
