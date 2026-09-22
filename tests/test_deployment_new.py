@@ -88,6 +88,17 @@ def test_production_secrets_tls_ha_and_workload_scopes(broker):
     assert all(d['kind']!='Secret' for d in docs)
 
 
+@pytest.mark.parametrize('broker', ['jetstream','rabbitmq'])
+def test_integrated_kubernetes_needs_no_runtime_service_account_credentials(broker):
+    docs=kubernetes(config(broker))
+    deployments=[item for item in docs if item['kind']=='Deployment']
+    assert deployments
+    for item in deployments:
+        template=item['spec']['template']
+        assert template['spec']['automountServiceAccountToken'] is False
+        assert template['metadata']['annotations']['dapr.io/disable-builtin-k8s-secret-store']=='true'
+
+
 @pytest.mark.parametrize('change,code',[({'image':'a2amq:latest'},'DIGEST_PINNED_IMAGE_REQUIRED'),
     ({'brokerEndpoint':'nats://plain:4222'},'BROKER_TLS_REQUIRED'),
     ({'egressCIDRs':['0.0.0.0/0']},'EXPLICIT_EGRESS_REQUIRED'),

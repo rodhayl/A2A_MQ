@@ -354,6 +354,7 @@ def kubernetes(config: dict) -> list[dict]:
             copied_names += ["vault-token", "crypto.json"]
         annotations = {"dapr.io/enabled": "true", "dapr.io/app-id": appid, "dapr.io/app-port": "8000",
             "dapr.io/app-token-secret": appid + "-app-token", "dapr.io/api-token-secret": appid + "-dapr-token",
+            "dapr.io/disable-builtin-k8s-secret-store": "true",
             "dapr.io/config": "a2amq-secure", "dapr.io/sidecar-listen-addresses": "127.0.0.1",
             "dapr.io/app-max-concurrency": "8", "dapr.io/sidecar-cpu-request": "100m",
             "dapr.io/sidecar-memory-request": "128Mi", "dapr.io/sidecar-cpu-limit": "1",
@@ -388,7 +389,8 @@ def kubernetes(config: dict) -> list[dict]:
         docs.append({"apiVersion": "apps/v1", "kind": "Deployment", "metadata": {"name": appid, "namespace": namespace},
             "spec": {"replicas": 2 if name in {"api", "workflow"} else 1, "selector": {"matchLabels": labels},
                 "template": {"metadata": {"labels": labels, "annotations": annotations}, "spec": {
-                    "serviceAccountName": appid, "terminationGracePeriodSeconds": 90,
+                    "serviceAccountName": appid, "automountServiceAccountToken": False,
+                    "terminationGracePeriodSeconds": 90,
                     "securityContext": {"fsGroup": 10001, "seccompProfile": {"type": "RuntimeDefault"}},
                     "initContainers": [{"name": "copy-credentials", "image": config["image"], "securityContext": security,
                         "command": ["python", "-c", copy], "volumeMounts": [
