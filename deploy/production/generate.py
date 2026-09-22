@@ -39,6 +39,7 @@ def deployment(*, namespace: str, role: str, app_id: str, image: str,
         "dapr.io/enabled": "true",
         "dapr.io/app-id": app_id,
         "dapr.io/api-token-secret": "dapr-api-token",
+        "dapr.io/disable-builtin-k8s-secret-store": "true",
         "dapr.io/log-as-json": "true",
     }
     if incoming_dapr:

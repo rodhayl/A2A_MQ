@@ -76,3 +76,12 @@ def test_kubernetes_health_probes_target_public_health_contract():
         container = deployment["spec"]["template"]["spec"]["containers"][0]
         assert container["readinessProbe"]["httpGet"]["path"] == "/health/ready"
         assert container["livenessProbe"]["httpGet"]["path"] == "/health/live"
+
+
+def test_dapr_sidecars_do_not_require_service_account_token_for_runtime_secret_api():
+    items = manifests()
+    deployments = [item for item in items if item["kind"] == "Deployment"]
+    for deployment in deployments:
+        template = deployment["spec"]["template"]
+        assert template["spec"]["automountServiceAccountToken"] is False
+        assert template["metadata"]["annotations"]["dapr.io/disable-builtin-k8s-secret-store"] == "true"
