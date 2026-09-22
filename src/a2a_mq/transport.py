@@ -63,20 +63,35 @@ class DaprPublisher:
         self.timeout = timeout
         self.headers = {"dapr-api-token": api_token} if api_token else {}
         self._owns_client = client is None
-        self.client = client or httpx.AsyncClient(follow_redirects=False, trust_env=False)
+        self.client = client
+        self._closed = False
+
+    def _http_client(self) -> httpx.AsyncClient:
+        if not self._owns_client:
+            require(self.client is not None, "PUBLISHER_CLIENT_REQUIRED")
+            return self.client
+        if self._closed:
+            raise RetryableError("PUBLISHER_CLOSED")
+        if self.client is None:
+            self.client = httpx.AsyncClient(follow_redirects=False, trust_env=False)
+        return self.client
 
     async def close(self) -> None:
         if self._owns_client:
-            await self.client.aclose()
+            self._closed = True
+            client, self.client = self.client, None
+            if client is not None:
+                await client.aclose()
 
     async def _status(self, method: str, path: str, headers: dict[str, str],
                       content: bytes | None = None) -> int:
         # Only HTTP status is part of the Dapr acceptance/health contract. Streaming
         # avoids buffering irrelevant bodies; the outer deadline also bounds headers.
+        client = self._http_client()
         async with asyncio.timeout(self.timeout):
-            async with self.client.stream(method, self.url + path, content=content,
-                                          headers=headers, timeout=self.timeout,
-                                          follow_redirects=False) as response:
+            async with client.stream(method, self.url + path, content=content,
+                                     headers=headers, timeout=self.timeout,
+                                     follow_redirects=False) as response:
                 return response.status_code
 
     async def _post(self, topic: str, event: dict[str, Any]) -> None:
@@ -112,7 +127,7 @@ class DaprPublisher:
         try:
             status = await self._status("GET", "/v1.0/healthz/outbound", self.headers)
             return 200 <= status < 300
-        except (httpx.RequestError, TimeoutError):
+        except (httpx.RequestError, TimeoutError, RetryableError):
             return False
 
 

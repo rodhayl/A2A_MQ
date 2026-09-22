@@ -162,7 +162,7 @@ async def test_lifespan_exception_still_closes_owned_client():
         with pytest.raises(RuntimeError, match="fixture shutdown"):
             async with app.router.lifespan_context(app):
                 raise RuntimeError("fixture shutdown")
-        assert bus.client.is_closed
+        assert bus.client is None or bus.client.is_closed
     finally:
         await bus.close()
 
@@ -227,3 +227,33 @@ async def test_duplicate_app_credentials_are_rejected_before_processing():
         assert response.status_code == 401 and not called and not sent
         response = await client.post("/events", json=event, headers={"dapr-api-token": "fixture-token"})
         assert response.json() == {"status": "SUCCESS"} and len(called) == 1
+
+
+async def test_owned_publisher_client_is_lazy_singleton_and_terminally_closed(monkeypatch):
+    created = []
+    real_client = httpx.AsyncClient
+
+    def factory(**kwargs):
+        client = real_client(transport=httpx.MockTransport(lambda request: httpx.Response(204)))
+        created.append(client)
+        return client
+
+    monkeypatch.setattr(httpx, "AsyncClient", factory)
+    bus = DaprPublisher()
+    assert bus.client is None and created == []
+    assert await bus.ready()
+    assert len(created) == 1 and bus.client is created[0]
+    assert await bus.ready()
+    assert len(created) == 1
+    await bus.close()
+    assert created[0].is_closed and bus.client is None
+    assert not await bus.ready()
+    assert len(created) == 1
+
+
+async def test_injected_publisher_client_remains_caller_owned_after_close():
+    async with httpx.AsyncClient(transport=httpx.MockTransport(lambda request: httpx.Response(204))) as client:
+        bus = DaprPublisher(client=client)
+        await bus.close()
+        assert not client.is_closed
+        assert await bus.ready()
