@@ -32,8 +32,11 @@ def measured_stack(tmp_path, monkeypatch):
     root.mkdir()
     (root / "profile.json").write_text('{"mode":"local-lite"}')
     report = tmp_path / "report.json"
-    monkeypatch.setattr(sys, "argv", ["probe", "--profile", str(root), "--json", str(report),
-                                     "--log", str(tmp_path / "log.txt")])
+    tools = tmp_path / "tools"
+    monkeypatch.setattr(probe, "_validated_tools_bin", lambda root, roles: tools / "bin")
+    monkeypatch.setattr(probe, "_native_tools_match", lambda roles, commands, bin_dir, expected: True)
+    monkeypatch.setattr(sys, "argv", ["probe", "--profile", str(root), "--tools-dir", str(tools),
+                                     "--json", str(report), "--log", str(tmp_path / "log.txt")])
     state = {"finished": False, "exited": None, "missing_rss": None, "missing_cpu": None, "added": False}
     class Process:
         pid = 1001
@@ -95,7 +98,10 @@ def test_new_descendant_during_measurement_is_not_silently_ignored(measured_stac
 def test_stable_complete_measurements_pass(measured_stack):
     probe, report, _, cleaned = measured_stack
     assert probe.main() == 0
-    assert json.loads(report.read_text())["verdict"] == "PASS_LOCAL_LITE"
+    result = json.loads(report.read_text())
+    assert result["verdict"] == "PASS_LOCAL_LITE"
+    assert result["failedChecks"] == []
+    assert result["observed"]["nativeToolsBin"].endswith("/tools/bin")
     assert cleaned == [1001]
 
 

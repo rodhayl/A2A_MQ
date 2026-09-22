@@ -320,7 +320,7 @@ def main() -> int:
     parser.add_argument("--profile", required=True, type=Path)
     parser.add_argument("--json", dest="json_path", required=True, type=Path)
     parser.add_argument("--log", required=True, type=Path)
-    parser.add_argument("--tools-dir", type=Path,
+    parser.add_argument("--tools-dir", required=True, type=Path,
                         help="private bootstrap root whose bin directory must supply native children")
     parser.add_argument("--startup-timeout", type=float)
     parser.add_argument("--idle-seconds", type=float, default=60)
@@ -350,7 +350,7 @@ def main() -> int:
     policy = _profile_policy(profile)
     expected_roles = policy["expectedRoles"]
     expected_count = len(expected_roles)
-    tools_bin = _validated_tools_bin(args.tools_dir, expected_roles) if args.tools_dir else None
+    tools_bin = _validated_tools_bin(args.tools_dir, expected_roles)
     max_rss = policy["maxTotalRssMiB"] if args.max_total_rss_mib is None else args.max_total_rss_mib
     max_cpu = policy["maxIdleCpuPercent"] if args.max_idle_cpu_percent is None else args.max_idle_cpu_percent
     max_startup = policy["maxStartupSeconds"] if args.max_startup_seconds is None else args.max_startup_seconds
@@ -369,10 +369,8 @@ def main() -> int:
         process = None
         try:
             try:
-                child_env = None
-                if tools_bin is not None:
-                    child_env = os.environ.copy()
-                    child_env["PATH"] = str(tools_bin) + os.pathsep + child_env.get("PATH", "")
+                child_env = os.environ.copy()
+                child_env["PATH"] = str(tools_bin) + os.pathsep + child_env.get("PATH", "")
                 process = subprocess.Popen(
                     [sys.executable, "-m", policy["module"], "run", str(args.profile.resolve())],
                     stdout=log, stderr=subprocess.STDOUT, cwd=Path.cwd(), env=child_env,
@@ -442,8 +440,8 @@ def main() -> int:
                     "exactProcessCount": len(children) == expected_count,
                     "stableIdleProcessCount": idle_peak_process_count == expected_count,
                     **{f"one{role.title()}": len(roles[role]) == 1 for role in expected_roles},
-                    **({"nativeToolsBound": _native_tools_match(
-                        roles, commands, tools_bin, expected_roles)} if tools_bin is not None else {}),
+                    "nativeToolsBound": _native_tools_match(
+                        roles, commands, tools_bin, expected_roles),
                     "rss": peak_total_rss <= max_rss * 1024**2,
                     "idleCpu": cpu_percent <= max_cpu,
                     "startup": startup <= max_startup,
@@ -465,7 +463,7 @@ def main() -> int:
                     "observed": {
                         "processCount": len(children),
                         "processes": {str(pid): commands[pid] for pid in children},
-                        "nativeToolsBin": str(tools_bin) if tools_bin is not None else None,
+                        "nativeToolsBin": str(tools_bin),
                         "rssByRoleMiB": role_rss,
                         "idlePeakRssByRoleMiB": idle_peak_role_rss,
                         "idleCpuByRolePercentOneCore": role_cpu,

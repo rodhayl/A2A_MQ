@@ -146,9 +146,12 @@ def test_stack_probe_writes_failure_when_root_process_cannot_start(tmp_path, mon
         raise OSError("injected start failure")
 
     monkeypatch.setattr(probe.subprocess, "Popen", fail_start)
+    tools = tmp_path / "tools"
+    monkeypatch.setattr(probe, "_validated_tools_bin", lambda root, roles: tools / "bin")
     monkeypatch.setattr(sys, "argv", [
         "local_stack_probe.py",
         "--profile", str(profile),
+        "--tools-dir", str(tools),
         "--json", str(output),
         "--log", str(log),
     ])
@@ -157,6 +160,27 @@ def test_stack_probe_writes_failure_when_root_process_cannot_start(tmp_path, mon
     assert result["verdict"] == "FAIL_LOCAL_LITE"
     assert result["failedChecks"] == ["processStart"]
     assert result["error"] == "OSError"
+
+
+def test_stack_probe_requires_private_tools_argument(tmp_path, monkeypatch):
+    import sys
+    import pytest
+
+    probe = _module()
+    profile = tmp_path / "profile"
+    profile.mkdir()
+    (profile / "profile.json").write_text('{"mode":"local-lite"}')
+    monkeypatch.setattr(sys, "argv", [
+        "local_stack_probe.py",
+        "--profile", str(profile),
+        "--json", str(tmp_path / "result.json"),
+        "--log", str(tmp_path / "result.log"),
+    ])
+    monkeypatch.setattr(probe.subprocess, "Popen",
+                        lambda *a, **k: pytest.fail("process must not start without --tools-dir"))
+    with pytest.raises(SystemExit) as exc:
+        probe.main()
+    assert exc.value.code == 2
 
 
 def test_role_aggregation_preserves_per_role_costs():
