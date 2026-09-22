@@ -54,7 +54,7 @@ jobs:
       - name: Build and install wheel outside source tree
         run: |
           mkdir -p "$RUNNER_TEMP/wheel" "$RUNNER_TEMP/installed"
-          python -m pip wheel --no-deps --no-build-isolation --wheel-dir "$RUNNER_TEMP/wheel" .
+          python -m pip wheel --no-deps --wheel-dir "$RUNNER_TEMP/wheel" .
           python -m pip install --no-deps --target "$RUNNER_TEMP/installed" "$RUNNER_TEMP"/wheel/a2a_mq-*.whl
           A2AMQ_WHEEL_TARGET="$RUNNER_TEMP/installed" python -I -c 'import os,sys; from pathlib import Path; target=Path(os.environ["A2AMQ_WHEEL_TARGET"]).resolve(); sys.path.insert(0,str(target)); import a2a_mq; from importlib.resources import files; import a2a_mq.binding as b; assert Path(a2a_mq.__file__).resolve().is_relative_to(target); assert b.load_binding()["protocolVersion"] == "1.0"; assert files("a2a_mq").joinpath("schema.json").is_file()'
       - name: Retain JUnit evidence

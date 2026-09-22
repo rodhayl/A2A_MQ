@@ -233,6 +233,7 @@ def test_package_gate_uses_external_git_archive_and_isolated_import(tmp_path,mon
     assert calls[0][0][:3] == ["git","archive","--format=tar"]
     assert calls[0][1] == root
     assert calls[1][1] == output and str(root) not in calls[1][0][-1]
+    assert "--no-build-isolation" not in calls[1][0]
     assert calls[-1][0][1:3] == ["-I","-c"]
     assert calls[-1][2]["A2AMQ_WHEEL_TARGET"].startswith(str(output))
 

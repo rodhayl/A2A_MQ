@@ -65,4 +65,6 @@ def test_wheel_smoke_imports_the_installed_target_under_isolated_python():
     assert 'sys.path.insert(0,str(target))' in command
     assert 'Path(a2a_mq.__file__).resolve().is_relative_to(target)' in command
     assert 'PYTHONPATH="$RUNNER_TEMP/installed" python -I' not in command
+    assert "pip wheel --no-deps --wheel-dir" in command
+    assert "--no-build-isolation" not in command
 

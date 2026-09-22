@@ -161,7 +161,7 @@ def package_gate(root, output, env, timeout):
     except (OSError,tarfile.TarError):
         result["evidenceError"]="INVALID_GIT_ARCHIVE"
         return result
-    wheel_cmd=[sys.executable,"-m","pip","wheel","--no-deps","--no-build-isolation",
+    wheel_cmd=[sys.executable,"-m","pip","wheel","--no-deps",
                "--wheel-dir",str(wheels),str(source)]
     result["wheelReturnCode"]=run_command(wheel_cmd,output,output/"package-wheel.log",timeout,env)
     candidates=list(wheels.glob("a2a_mq-*.whl"))
