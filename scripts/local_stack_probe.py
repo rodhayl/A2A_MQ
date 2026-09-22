@@ -257,6 +257,11 @@ def _roles(root_pid: int, commands: dict[int, str]) -> dict[str, list[int]]:
     return roles
 
 
+def _by_role(roles: dict[str, list[int]], values: dict[int, int | float]) -> dict[str, float]:
+    """Aggregate one per-PID measurement without hiding unclassified descendants."""
+    return {role: sum(values.get(pid, 0) for pid in pids) for role, pids in roles.items()}
+
+
 def _require_stable_tree(process, children: dict[int, int]) -> None:
     if process.poll() is not None:
         raise RuntimeError("local runtime exited during measurement")
@@ -343,12 +348,18 @@ def main() -> int:
                 wall = time.monotonic()
                 idle_peak_rss = 0
                 idle_peak_process_count = 0
+                idle_peak_rss_by_pid = {pid: 0 for pid in children}
                 idle_deadline = wall + args.idle_seconds
                 while time.monotonic() < idle_deadline:
                     _require_stable_tree(process, children)
-                    rss_sample, count_sample = _sample_total_rss(process.pid)
+                    rss_by_pid_sample = {pid: _rss(pid) for pid in children}
+                    if any(value <= 0 for value in rss_by_pid_sample.values()):
+                        raise MeasurementUnavailable("RSS measurement unavailable")
+                    rss_sample = sum(rss_by_pid_sample.values())
                     idle_peak_rss = max(idle_peak_rss, rss_sample)
-                    idle_peak_process_count = max(idle_peak_process_count, count_sample)
+                    idle_peak_process_count = max(idle_peak_process_count, len(rss_by_pid_sample))
+                    for pid, value in rss_by_pid_sample.items():
+                        idle_peak_rss_by_pid[pid] = max(idle_peak_rss_by_pid[pid], value)
                     time.sleep(min(.1, max(0.0, idle_deadline - time.monotonic())))
                 elapsed = max(time.monotonic() - wall, .001)
                 _require_stable_tree(process, children)
@@ -356,8 +367,11 @@ def main() -> int:
                 if any(type(value) is not int or value < before[pid] for pid, value in after.items()):
                     raise MeasurementUnavailable("CPU measurement unavailable or inconsistent")
                 hz = os.sysconf(os.sysconf_names["SC_CLK_TCK"])
-                cpu_percent = sum(max(0, after.get(pid, 0) - before.get(pid, 0))
-                                  for pid in children) / hz / elapsed * 100
+                cpu_by_pid = {
+                    pid: max(0, after.get(pid, 0) - before.get(pid, 0)) / hz / elapsed * 100
+                    for pid in children
+                }
+                cpu_percent = sum(cpu_by_pid.values())
                 rss = {pid: _rss(pid) for pid in children}
                 if any(value <= 0 for value in rss.values()):
                     raise MeasurementUnavailable("RSS measurement unavailable")
@@ -366,8 +380,13 @@ def main() -> int:
                 peak_total_rss = max(startup_peak_rss, idle_peak_rss, steady_total_rss)
                 all_alive = _all_alive(process, children)
                 state_bytes = _tree_bytes(args.profile / "state") + _tree_bytes(args.profile / "nats")
-                role_rss = {role: _mib(sum(rss.get(pid, 0) for pid in pids))
-                            for role, pids in roles.items()}
+                role_rss = {role: _mib(value) for role, value in _by_role(roles, rss).items()}
+                idle_peak_role_rss = {
+                    role: _mib(value) for role, value in _by_role(roles, idle_peak_rss_by_pid).items()
+                }
+                role_cpu = {
+                    role: round(value, 3) for role, value in _by_role(roles, cpu_by_pid).items()
+                }
 
                 checks = {
                     "allAlive": all_alive,
@@ -396,6 +415,8 @@ def main() -> int:
                         "processCount": len(children),
                         "processes": {str(pid): commands[pid] for pid in children},
                         "rssByRoleMiB": role_rss,
+                        "idlePeakRssByRoleMiB": idle_peak_role_rss,
+                        "idleCpuByRolePercentOneCore": role_cpu,
                         "allAliveAfterIdle": all_alive,
                         "totalRssMiB": _mib(steady_total_rss),
                         "steadyTotalRssMiB": _mib(steady_total_rss),

@@ -157,3 +157,11 @@ def test_stack_probe_writes_failure_when_root_process_cannot_start(tmp_path, mon
     assert result["verdict"] == "FAIL_LOCAL_LITE"
     assert result["failedChecks"] == ["processStart"]
     assert result["error"] == "OSError"
+
+
+def test_role_aggregation_preserves_per_role_costs():
+    probe = _module()
+    roles = {"app": [1], "daprd": [2], "nats": [3], "placement": [], "scheduler": []}
+    assert probe._by_role(roles, {1: 10, 2: 20, 3: 30}) == {
+        "app": 10, "daprd": 20, "nats": 30, "placement": 0, "scheduler": 0,
+    }

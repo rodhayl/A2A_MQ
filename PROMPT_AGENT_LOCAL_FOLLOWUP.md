@@ -110,9 +110,11 @@ This is not a host install. Do not copy binaries outside `$STATE/tools`, change
 system PATH, start services, or use Docker/PostgreSQL/Redis/Vault/RabbitMQ as a
 workaround. Run one local-lite stack and reap only its owned processes.
 
-Record actual startup/idle peak RSS, stable PID/start-time topology, aggregate CPU,
-flushed disk footprint, binary versions, manifest archiveBytesTotal/binaryBytesTotal,
-and the private-tool disk size. Missing
+Record actual startup/idle peak RSS, steady and idle-peak RSS **per role**, idle CPU
+**per role**, stable PID/start-time topology, aggregate CPU, flushed disk footprint,
+binary versions, manifest archiveBytesTotal/binaryBytesTotal, and the private-tool
+disk size. Use these per-role measurements when evaluating whether Dapr is the
+dominant local overhead; do not infer that from generic estimates. Missing
 measurements or process death cannot pass. Never substitute rough Dapr/NATS
 estimates for measurements or remove Dapr on that basis.
 
