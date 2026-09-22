@@ -243,7 +243,7 @@ Initial stack budget:
 - peak aggregate RSS <= 384 MiB across startup and the idle sampling window;
 - aggregate idle CPU <= 5% of one core;
 - readiness <= 15 seconds;
-- runtime SQLite + JetStream state <= 32 MiB immediately after startup.
+- runtime SQLite + JetStream state <= 32 MiB both during the idle window and after a clean shutdown flush.
 
 If it fails, classify **LOCAL ECONOMICS = REDESIGN_REQUIRED**. Do not start the
 heavy distributed stack and do not raise the resource budget merely to pass.

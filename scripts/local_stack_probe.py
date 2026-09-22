@@ -186,6 +186,21 @@ def _read_profile(root: Path) -> dict:
     return value
 
 
+def _apply_post_shutdown_state(result: dict, state_bytes: int, max_state_mib: float, label: str) -> None:
+    """Record flushed on-disk state and fail when clean shutdown exceeds the tier budget."""
+    observed = result.get("observed")
+    if not isinstance(observed, dict):
+        return
+    value = _mib(state_bytes)
+    observed["postShutdownStateMiB"] = value
+    if value <= max_state_mib:
+        return
+    failures = result.setdefault("failedChecks", [])
+    if "postShutdownState" not in failures:
+        failures.append("postShutdownState")
+    result["verdict"] = f"FAIL_{label}"
+
+
 def _profile_policy(profile: dict) -> dict:
     mode = profile.get("mode", "local-lite")
     if mode == "local-lite":
@@ -352,6 +367,9 @@ def main() -> int:
                     children = _identities(_descendants(process.pid))
         finally:
             _terminate(process, children)
+
+    post_shutdown_state = _tree_bytes(args.profile / "state") + _tree_bytes(args.profile / "nats")
+    _apply_post_shutdown_state(result, post_shutdown_state, max_state, policy["verdict"])
 
     with args.json_path.open("x", encoding="utf-8") as output:
         output.write(json.dumps(result, indent=2, sort_keys=True) + "\n")

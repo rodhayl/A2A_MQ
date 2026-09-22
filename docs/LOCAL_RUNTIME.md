@@ -153,10 +153,10 @@ python scripts/local_stack_probe.py \
 For local-lite the initial budget is:
 
 - exactly 3 steady processes;
-- total RSS <= 384 MiB;
+- peak aggregate RSS <= 384 MiB across startup and idle;
 - idle CPU <= 5% of one core;
 - readiness <= 15 seconds;
-- runtime state <= 32 MiB.
+- runtime state <= 32 MiB both while running and after clean shutdown.
 
 If the optional Workflow tier is explicitly being evaluated:
 
@@ -171,10 +171,10 @@ Its separate initial budget is intentionally higher and never substitutes for th
 lite gate:
 
 - exactly 5 steady processes;
-- total RSS <= 640 MiB;
+- peak aggregate RSS <= 640 MiB across startup and idle;
 - idle CPU <= 8% of one core;
 - readiness <= 25 seconds;
-- runtime state <= 64 MiB.
+- runtime state <= 64 MiB both while running and after clean shutdown.
 
 These are product budgets, not production SLOs. A failed budget means redesign the
 tier rather than silently increasing host requirements.

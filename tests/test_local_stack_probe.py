@@ -113,3 +113,19 @@ def test_stack_probe_policy_requires_stable_idle_process_count():
     for mode in ("local-lite", "local-workflow"):
         policy = probe._profile_policy({"mode": mode})
         assert len(policy["expectedRoles"]) in {3, 5}
+
+
+def test_stack_probe_post_shutdown_state_can_fail_budget():
+    probe = _module()
+    result = {
+        "verdict": "PASS_LOCAL_LITE",
+        "observed": {"runtimeStateMiB": 1.0},
+        "failedChecks": [],
+    }
+    probe._apply_post_shutdown_state(result, 2 * 1024 * 1024, 4.0, "LOCAL_LITE")
+    assert result["verdict"] == "PASS_LOCAL_LITE"
+    assert result["observed"]["postShutdownStateMiB"] == 2.0
+
+    probe._apply_post_shutdown_state(result, 5 * 1024 * 1024, 4.0, "LOCAL_LITE")
+    assert result["verdict"] == "FAIL_LOCAL_LITE"
+    assert "postShutdownState" in result["failedChecks"]
