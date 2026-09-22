@@ -50,11 +50,11 @@ second scheduler.
 The active Dapr resources are two JetStream pub/sub views with distinct durable
 command and DLQ consumers plus a bounded inbound retry policy (5 x 500 ms) before
 dead-lettering. No Dapr state store is loaded in this tier. The pinned Dapr 1.18.3
-runtime defines `placement-host-address` with an empty default and
-`scheduler-host-address` with a nil default; local-lite passes neither flag and
-its least-privilege child environment strips inherited Dapr control-plane address
-variables. This is a versioned compatibility assumption: native version validation
-must pass before the three-process economics gate is accepted. The local JetStream
+runtime defines empty placement/scheduler addresses as the disabled state.
+Local-lite passes `--placement-host-address=` and `--scheduler-host-address=`
+explicitly, and its least-privilege child environment also strips inherited Dapr
+control-plane address variables. Native version validation must still pass before
+the three-process economics gate is accepted. The local JetStream
 stream is file-backed and capped at 64 MiB / 50,000 retained messages with a
 7-day maximum age; the server file-store ceiling is 96 MiB. Dapr-to-app delivery
 and the application callback semaphore are both capped at two concurrent requests.

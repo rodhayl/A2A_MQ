@@ -466,6 +466,7 @@ def _lite_sidecar_command(daprd: str, root: Path) -> list[str]:
         "--app-protocol", "http", "--dapr-http-port", "3500", "--dapr-grpc-port", "50001",
         "--resources-path", str((root / "components").resolve()),
         "--dapr-listen-addresses", "127.0.0.1",
+        "--placement-host-address=", "--scheduler-host-address=",
         "--app-max-concurrency", "2", "--max-body-size", "1Mi",
         "--enable-metrics=false", "--log-level", "warn",
     ]
