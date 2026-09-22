@@ -126,6 +126,11 @@ async def _protectors(settings, cleanup):
     allowed = required | {"caFile", "mount", "namespace"}
     require(isinstance(config, dict) and required <= set(config) <= allowed,
             "INVALID_CRYPTO_CONFIG")
+    token_provider = FileToken(config["tokenFile"])
+    # Validate the mounted credential during startup so readiness cannot succeed
+    # with an unusable crypto configuration. The provider is still invoked again
+    # for every Vault call, preserving token rotation without process restart.
+    token_provider()
     protectors = {}
     for kind, route in (("command", settings.command_route), ("event", settings.event_route)):
         item = config.get(kind)
@@ -143,7 +148,7 @@ async def _protectors(settings, cleanup):
         context = ssl.create_default_context(cafile=config.get("caFile") or None)
         client = httpx.AsyncClient(verify=context, trust_env=False, follow_redirects=False)
         cleanup.push_async_callback(client.aclose)
-        provider = VaultTransit(config["vaultUrl"], FileToken(config["tokenFile"]), keys, item["active"],
+        provider = VaultTransit(config["vaultUrl"], token_provider, keys, item["active"],
             mount=config.get("mount", "transit"), namespace=config.get("namespace", ""), client=client)
         protectors[route] = EnvelopeProtector(provider, tenant=settings.tenant, receiver=item["receiver"])
     return protectors
