@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import os
 from pathlib import Path
 import signal
+import shlex
 import stat
 import subprocess
 import sys
@@ -57,18 +59,19 @@ def _descendants(root: int) -> list[int]:
 
 def _cmdline(pid: int) -> str:
     try:
-        return Path(f"/proc/{pid}/cmdline").read_bytes().replace(b"\0", b" ").decode("utf-8", "replace").strip()
+        argv = Path(f"/proc/{pid}/cmdline").read_bytes().split(b"\0")
+        return shlex.join(arg.decode("utf-8", "replace") for arg in argv if arg)
     except OSError:
         return ""
 
 
-def _cpu_ticks(pid: int) -> int:
+def _cpu_ticks(pid: int) -> int | None:
     try:
         raw = Path(f"/proc/{pid}/stat").read_text()
         tail = raw[raw.rfind(")") + 2:].split()
         return int(tail[11]) + int(tail[12])
     except (OSError, ValueError, IndexError):
-        return 0
+        return None
 
 
 def _start_ticks(pid: int) -> int | None:
@@ -87,20 +90,26 @@ def _identities(pids: list[int]) -> dict[int, int]:
 
 def _tree_bytes(path: Path) -> int:
     total = 0
-    if not path.exists():
-        return 0
-    for candidate in path.rglob("*"):
-        try:
-            if candidate.is_file() and not candidate.is_symlink():
-                total += candidate.stat().st_size
-        except OSError:
-            pass
+    if not path.is_dir() or path.is_symlink():
+        raise MeasurementUnavailable("runtime state directory unavailable or unsafe")
+    try:
+        for candidate in path.rglob("*"):
+            if candidate.is_symlink():
+                raise MeasurementUnavailable("symlinked runtime state cannot be measured")
+            info = candidate.stat()
+            if stat.S_ISREG(info.st_mode):
+                total += info.st_size
+    except OSError:
+        raise MeasurementUnavailable("runtime state measurement unavailable") from None
     return total
 
 
 def _sample_total_rss(root_pid: int) -> tuple[int, int]:
     pids = _descendants(root_pid)
-    return sum(_rss(pid) for pid in pids), len(pids)
+    readings = [_rss(pid) for pid in pids]
+    if not readings or any(value <= 0 for value in readings):
+        raise MeasurementUnavailable("RSS measurement unavailable")
+    return sum(readings), len(pids)
 
 
 def _ready(url: str, deadline: float, process: subprocess.Popen) -> tuple[int, int]:
@@ -187,13 +196,12 @@ def _read_profile(root: Path) -> dict:
 
 
 def _apply_post_shutdown_state(result: dict, state_bytes: int, max_state_mib: float, label: str) -> None:
-    """Record flushed on-disk state and fail when clean shutdown exceeds the tier budget."""
+    """Record flushed state without rounding away an over-budget result."""
     observed = result.get("observed")
     if not isinstance(observed, dict):
         return
-    value = _mib(state_bytes)
-    observed["postShutdownStateMiB"] = value
-    if value <= max_state_mib:
+    observed["postShutdownStateMiB"] = _mib(state_bytes)
+    if state_bytes <= max_state_mib * 1024**2:
         return
     failures = result.setdefault("failedChecks", [])
     if "postShutdownState" not in failures:
@@ -228,16 +236,36 @@ def _profile_policy(profile: dict) -> dict:
     raise ValueError("unsupported local profile mode")
 
 
+class MeasurementUnavailable(RuntimeError):
+    """A required reading is absent; it cannot be interpreted as zero usage."""
+
+
 def _roles(root_pid: int, commands: dict[int, str]) -> dict[str, list[int]]:
-    return {
-        "app": [pid for pid in commands if pid == root_pid],
-        "daprd": [pid for pid, cmd in commands.items() if "daprd" in cmd],
-        "nats": [pid for pid, cmd in commands.items() if "nats-server" in cmd],
-        "placement": [pid for pid, cmd in commands.items()
-                      if "placement" in cmd and "placement-host-address" not in cmd],
-        "scheduler": [pid for pid, cmd in commands.items()
-                      if "scheduler" in cmd and "scheduler-host-address" not in cmd],
-    }
+    roles = {"app": [], "daprd": [], "nats": [], "placement": [], "scheduler": []}
+    names = {"daprd": "daprd", "nats-server": "nats", "placement": "placement", "scheduler": "scheduler"}
+    for pid, command in commands.items():
+        if pid == root_pid:
+            roles["app"].append(pid)
+            continue
+        try:
+            argv = shlex.split(command)
+        except ValueError:
+            argv = []
+        role = names.get(Path(argv[0]).name) if argv else None
+        if role:
+            roles[role].append(pid)
+    return roles
+
+
+def _require_stable_tree(process, children: dict[int, int]) -> None:
+    if process.poll() is not None:
+        raise RuntimeError("local runtime exited during measurement")
+    pids = _descendants(process.pid)
+    current = _identities(pids)
+    if set(pids) != set(current):
+        raise MeasurementUnavailable("process identity unavailable")
+    if current != children:
+        raise RuntimeError("local process topology changed during measurement")
 
 
 def main() -> int:
@@ -252,6 +280,17 @@ def main() -> int:
     parser.add_argument("--max-startup-seconds", type=float)
     parser.add_argument("--max-runtime-state-mib", type=float)
     args = parser.parse_args()
+    limits = (args.max_total_rss_mib, args.max_idle_cpu_percent,
+              args.max_startup_seconds, args.max_runtime_state_mib)
+    if any(value is not None and (not math.isfinite(value) or value < 0) for value in limits):
+        parser.error("resource budgets must be finite and nonnegative")
+    if not math.isfinite(args.idle_seconds) or not 0 < args.idle_seconds <= 60:
+        parser.error("idle measurement must be greater than zero and at most 60 seconds")
+    if args.startup_timeout is not None and (not math.isfinite(args.startup_timeout)
+                                             or not 0 < args.startup_timeout <= 300):
+        parser.error("startup timeout must be greater than zero and at most 300 seconds")
+    if args.json_path.resolve() == args.log.resolve():
+        parser.error("JSON evidence and log must use distinct paths")
 
     if not Path("/proc/self/status").exists():
         raise SystemExit("local stack probe currently requires Linux /proc")
@@ -262,10 +301,10 @@ def main() -> int:
     policy = _profile_policy(profile)
     expected_roles = policy["expectedRoles"]
     expected_count = len(expected_roles)
-    max_rss = args.max_total_rss_mib or policy["maxTotalRssMiB"]
-    max_cpu = args.max_idle_cpu_percent or policy["maxIdleCpuPercent"]
-    max_startup = args.max_startup_seconds or policy["maxStartupSeconds"]
-    max_state = args.max_runtime_state_mib or policy["maxRuntimeStateMiB"]
+    max_rss = policy["maxTotalRssMiB"] if args.max_total_rss_mib is None else args.max_total_rss_mib
+    max_cpu = policy["maxIdleCpuPercent"] if args.max_idle_cpu_percent is None else args.max_idle_cpu_percent
+    max_startup = policy["maxStartupSeconds"] if args.max_startup_seconds is None else args.max_startup_seconds
+    max_state = policy["maxRuntimeStateMiB"] if args.max_runtime_state_mib is None else args.max_runtime_state_mib
     startup_timeout = args.startup_timeout or max_startup + 10
 
     args.json_path.parent.mkdir(parents=True, exist_ok=True)
@@ -275,117 +314,136 @@ def main() -> int:
 
     started = time.monotonic()
     children: dict[int, int] = {}
+    stage = "processStart"
     with args.log.open("xb") as log:
+        process = None
         try:
-            process = subprocess.Popen(
-                [sys.executable, "-m", policy["module"], "run", str(args.profile.resolve())],
-                stdout=log, stderr=subprocess.STDOUT, cwd=Path.cwd(),
-            )
-        except OSError as exc:
-            label = policy["verdict"]
-            result = {
-                "verdict": f"FAIL_{label}",
-                "scope": profile.get("mode", "local-lite"),
-                "error": type(exc).__name__,
-                "message": str(exc)[:512],
-                "failedChecks": ["processStart"],
-            }
-        else:
             try:
-                try:
-                    startup_peak_rss, startup_peak_process_count = _ready(
-                        "http://127.0.0.1:18000/health/ready", started + startup_timeout, process
-                    )
-                    startup = time.monotonic() - started
-                    pids = _descendants(process.pid)
-                    children = _identities(pids)
-                    commands = {pid: _cmdline(pid) for pid in children}
-                    roles = _roles(process.pid, commands)
+                process = subprocess.Popen(
+                    [sys.executable, "-m", policy["module"], "run", str(args.profile.resolve())],
+                    stdout=log, stderr=subprocess.STDOUT, cwd=Path.cwd(),
+                )
+                stage = "startup"
+                startup_peak_rss, startup_peak_process_count = _ready(
+                    "http://127.0.0.1:18000/health/ready", started + startup_timeout, process
+                )
+                startup = time.monotonic() - started
+                pids = _descendants(process.pid)
+                children = _identities(pids)
+                stage = "measurement"
+                if set(pids) != set(children):
+                    raise MeasurementUnavailable("process identity unavailable")
+                _require_stable_tree(process, children)
+                commands = {pid: _cmdline(pid) for pid in children}
+                roles = _roles(process.pid, commands)
 
-                    before = {pid: _cpu_ticks(pid) for pid in children}
-                    wall = time.monotonic()
-                    idle_peak_rss = 0
-                    idle_peak_process_count = 0
-                    idle_deadline = wall + args.idle_seconds
-                    while time.monotonic() < idle_deadline:
-                        rss_sample, count_sample = _sample_total_rss(process.pid)
-                        idle_peak_rss = max(idle_peak_rss, rss_sample)
-                        idle_peak_process_count = max(idle_peak_process_count, count_sample)
-                        time.sleep(min(.1, max(0.0, idle_deadline - time.monotonic())))
-                    elapsed = max(time.monotonic() - wall, .001)
-                    after = {pid: _cpu_ticks(pid) for pid in children}
-                    all_alive = _all_alive(process, children)
-                    hz = os.sysconf(os.sysconf_names["SC_CLK_TCK"])
-                    cpu_percent = sum(max(0, after.get(pid, 0) - before.get(pid, 0))
-                                      for pid in children) / hz / elapsed * 100
-                    rss = {pid: _rss(pid) for pid in children}
-                    steady_total_rss = sum(rss.values())
-                    peak_total_rss = max(startup_peak_rss, idle_peak_rss, steady_total_rss)
-                    state_bytes = _tree_bytes(args.profile / "state") + _tree_bytes(args.profile / "nats")
-                    role_rss = {role: _mib(sum(rss.get(pid, 0) for pid in pids))
-                                for role, pids in roles.items()}
+                before = {pid: _cpu_ticks(pid) for pid in children}
+                if any(type(value) is not int or value < 0 for value in before.values()):
+                    raise MeasurementUnavailable("CPU measurement unavailable")
+                wall = time.monotonic()
+                idle_peak_rss = 0
+                idle_peak_process_count = 0
+                idle_deadline = wall + args.idle_seconds
+                while time.monotonic() < idle_deadline:
+                    _require_stable_tree(process, children)
+                    rss_sample, count_sample = _sample_total_rss(process.pid)
+                    idle_peak_rss = max(idle_peak_rss, rss_sample)
+                    idle_peak_process_count = max(idle_peak_process_count, count_sample)
+                    time.sleep(min(.1, max(0.0, idle_deadline - time.monotonic())))
+                elapsed = max(time.monotonic() - wall, .001)
+                _require_stable_tree(process, children)
+                after = {pid: _cpu_ticks(pid) for pid in children}
+                if any(type(value) is not int or value < before[pid] for pid, value in after.items()):
+                    raise MeasurementUnavailable("CPU measurement unavailable or inconsistent")
+                hz = os.sysconf(os.sysconf_names["SC_CLK_TCK"])
+                cpu_percent = sum(max(0, after.get(pid, 0) - before.get(pid, 0))
+                                  for pid in children) / hz / elapsed * 100
+                rss = {pid: _rss(pid) for pid in children}
+                if any(value <= 0 for value in rss.values()):
+                    raise MeasurementUnavailable("RSS measurement unavailable")
+                _require_stable_tree(process, children)
+                steady_total_rss = sum(rss.values())
+                peak_total_rss = max(startup_peak_rss, idle_peak_rss, steady_total_rss)
+                all_alive = _all_alive(process, children)
+                state_bytes = _tree_bytes(args.profile / "state") + _tree_bytes(args.profile / "nats")
+                role_rss = {role: _mib(sum(rss.get(pid, 0) for pid in pids))
+                            for role, pids in roles.items()}
 
-                    checks = {
-                        "allAlive": all_alive,
-                        "exactProcessCount": len(children) == expected_count,
-                        "stableIdleProcessCount": idle_peak_process_count == expected_count,
-                        **{f"one{role.title()}": len(roles[role]) == 1 for role in expected_roles},
-                        "rss": _mib(peak_total_rss) <= max_rss,
-                        "idleCpu": cpu_percent <= max_cpu,
-                        "startup": startup <= max_startup,
-                        "state": _mib(state_bytes) <= max_state,
-                    }
-                    failures = [name for name, ok in checks.items() if not ok]
-                    label = policy["verdict"]
-                    result = {
-                        "verdict": f"PASS_{label}" if not failures else f"FAIL_{label}",
-                        "scope": profile.get("mode", "local-lite"),
-                        "thresholds": {
-                            "maxTotalRssMiB": max_rss,
-                            "maxIdleCpuPercentOneCore": max_cpu,
-                            "maxStartupSeconds": max_startup,
-                            "maxRuntimeStateMiB": max_state,
-                            "expectedProcesses": expected_count,
-                            "expectedRoles": list(expected_roles),
-                        },
-                        "observed": {
-                            "processCount": len(children),
-                            "allAliveAfterIdle": all_alive,
-                            "processes": {str(pid): commands[pid] for pid in children},
-                            "rssByRoleMiB": role_rss,
-                            "steadyTotalRssMiB": _mib(steady_total_rss),
-                            "peakTotalRssMiB": _mib(peak_total_rss),
-                            "startupPeakRssMiB": _mib(startup_peak_rss),
-                            "idlePeakRssMiB": _mib(idle_peak_rss),
-                            "startupPeakProcessCount": startup_peak_process_count,
-                            "idlePeakProcessCount": idle_peak_process_count,
-                            "idleCpuPercentOneCore": round(cpu_percent, 3),
-                            "startupSeconds": round(startup, 3),
-                            "runtimeStateMiB": _mib(state_bytes),
-                        },
-                        "failedChecks": failures,
-                    }
-                except Exception as exc:
-                    label = policy["verdict"]
-                    result = {
-                        "verdict": f"FAIL_{label}",
-                        "scope": profile.get("mode", "local-lite"),
-                        "error": type(exc).__name__,
-                        "message": str(exc)[:512],
-                        "failedChecks": ["startup"],
-                    }
-                    if not children:
-                        children = _identities(_descendants(process.pid))
-            finally:
+                checks = {
+                    "allAlive": all_alive,
+                    "exactProcessCount": len(children) == expected_count,
+                    "stableIdleProcessCount": idle_peak_process_count == expected_count,
+                    **{f"one{role.title()}": len(roles[role]) == 1 for role in expected_roles},
+                    "rss": peak_total_rss <= max_rss * 1024**2,
+                    "idleCpu": cpu_percent <= max_cpu,
+                    "startup": startup <= max_startup,
+                    "state": state_bytes <= max_state * 1024**2,
+                }
+                failures = [name for name, ok in checks.items() if not ok]
+                label = policy["verdict"]
+                result = {
+                    "verdict": f"PASS_{label}" if not failures else f"FAIL_{label}",
+                    "scope": profile.get("mode", "local-lite"),
+                    "thresholds": {
+                        "maxTotalRssMiB": max_rss,
+                        "maxIdleCpuPercentOneCore": max_cpu,
+                        "maxStartupSeconds": max_startup,
+                        "maxRuntimeStateMiB": max_state,
+                        "expectedProcesses": expected_count,
+                        "expectedRoles": list(expected_roles),
+                    },
+                    "observed": {
+                        "processCount": len(children),
+                        "processes": {str(pid): commands[pid] for pid in children},
+                        "rssByRoleMiB": role_rss,
+                        "allAliveAfterIdle": all_alive,
+                        "totalRssMiB": _mib(steady_total_rss),
+                        "steadyTotalRssMiB": _mib(steady_total_rss),
+                        "peakTotalRssMiB": _mib(peak_total_rss),
+                        "startupPeakRssMiB": _mib(startup_peak_rss),
+                        "idlePeakRssMiB": _mib(idle_peak_rss),
+                        "startupPeakProcessCount": startup_peak_process_count,
+                        "idlePeakProcessCount": idle_peak_process_count,
+                        "idleCpuPercentOneCore": round(cpu_percent, 3),
+                        "startupSeconds": round(startup, 3),
+                        "runtimeStateMiB": _mib(state_bytes),
+                    },
+                    "failedChecks": failures,
+                }
+            except MeasurementUnavailable as exc:
+                if process is not None and not children:
+                    children = _identities(_descendants(process.pid))
+                result = {"verdict": "INCOMPLETE_MEASUREMENT", "scope": policy["mode"],
+                          "message": str(exc), "failedChecks": ["measurement"]}
+            except Exception as exc:
+                label = policy["verdict"]
+                result = {
+                    "verdict": f"FAIL_{label}",
+                    "scope": profile.get("mode", "local-lite"),
+                    "error": type(exc).__name__,
+                    "message": str(exc)[:512],
+                    "failedChecks": [stage],
+                }
+                if process is not None and not children:
+                    children = _identities(_descendants(process.pid))
+        finally:
+            if process is not None:
                 _terminate(process, children)
 
-    post_shutdown_state = _tree_bytes(args.profile / "state") + _tree_bytes(args.profile / "nats")
-    _apply_post_shutdown_state(result, post_shutdown_state, max_state, policy["verdict"])
+    if isinstance(result.get("observed"), dict):
+        try:
+            post_shutdown_state = _tree_bytes(args.profile / "state") + _tree_bytes(args.profile / "nats")
+            _apply_post_shutdown_state(result, post_shutdown_state, max_state, policy["verdict"])
+        except MeasurementUnavailable:
+            result.setdefault("failedChecks", []).append("postShutdownMeasurement")
+            if result["verdict"].startswith("PASS_"):
+                result["verdict"] = "INCOMPLETE_MEASUREMENT"
 
     with args.json_path.open("x", encoding="utf-8") as output:
         output.write(json.dumps(result, indent=2, sort_keys=True) + "\n")
     print(json.dumps(result, sort_keys=True))
-    return 0 if result["verdict"].startswith("PASS_") else 3
+    return (0 if result["verdict"].startswith("PASS_")
+            else 2 if result["verdict"] == "INCOMPLETE_MEASUREMENT" else 3)
 
 
 if __name__ == "__main__":
