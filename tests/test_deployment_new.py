@@ -111,6 +111,12 @@ def test_integrated_service_accounts_have_no_runtime_secret_rbac():
     ({'image':None},'DIGEST_PINNED_IMAGE_REQUIRED'),
     ({'brokerEndpoint':'nats://plain:4222'},'BROKER_TLS_REQUIRED'),
     ({'egressCIDRs':['0.0.0.0/0']},'EXPLICIT_EGRESS_REQUIRED'),
+    ({'egressCIDRs':['not-a-cidr']},'EXPLICIT_EGRESS_REQUIRED'),
+    ({'egressCIDRs':[123]},'EXPLICIT_EGRESS_REQUIRED'),
+    ({'redisHost':'redis.internal'},'INVALID_REDIS_HOST'),
+    ({'redisHost':'redis://redis.internal:6379'},'INVALID_REDIS_HOST'),
+    ({'redisHost':'user:pass@redis.internal:6379'},'INVALID_REDIS_HOST'),
+    ({'redisHost':'redis.internal:70000'},'INVALID_REDIS_HOST'),
     ({'publicUrl':'http://api'},'PUBLIC_HTTPS_URL_REQUIRED'),
     ({'namespace':'tenant-'},'INVALID_KUBERNETES_NAME'),
     ({'namespace':'x'*64},'INVALID_KUBERNETES_NAME'),
@@ -120,6 +126,14 @@ def test_integrated_service_accounts_have_no_runtime_secret_rbac():
 def test_production_rejects_unsafe_defaults(change,code):
     with pytest.raises(PermanentError,match=code):
         kubernetes({**config(),**change})
+
+
+def test_production_redis_host_accepts_bounded_host_port_list():
+    docs=kubernetes({**config(),'redisHost':'redis-a.internal:6379,redis-b.internal:6380'})
+    state=next(item for item in docs if item['kind']=='Component' and item['metadata']['name']=='workflow-state')
+    values={item['name']:item.get('value') for item in state['spec']['metadata']}
+    assert values['redisHost']=='redis-a.internal:6379,redis-b.internal:6380'
+    assert values['enableTLS']=='true'
 
 
 def test_kubernetes_names_and_ingress_host_accept_dns_safe_values():

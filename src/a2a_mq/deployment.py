@@ -332,6 +332,24 @@ def _ingress_host(value: str | None) -> str:
     raise PermanentError("INVALID_INGRESS_HOST")
 
 
+def _redis_hosts(value: str) -> str:
+    require(isinstance(value, str) and 0 < len(value) <= 4096
+            and not any(c.isspace() for c in value), "INVALID_REDIS_HOST")
+    hosts = value.split(",")
+    require(1 <= len(hosts) <= 32 and all(hosts), "INVALID_REDIS_HOST")
+    try:
+        for entry in hosts:
+            parsed = urlsplit("//" + entry)
+            require(bool(parsed.hostname) and parsed.port is not None
+                    and 1 <= parsed.port <= 65535
+                    and parsed.username is None and parsed.password is None
+                    and parsed.path == "" and not parsed.query and not parsed.fragment,
+                    "INVALID_REDIS_HOST")
+    except ValueError:
+        raise PermanentError("INVALID_REDIS_HOST") from None
+    return value
+
+
 def kubernetes(config: dict) -> list[dict]:
     """App-side production resources. Secrets/infrastructure are deliberately external."""
     required = {"namespace", "image", "broker", "brokerEndpoint", "publicUrl", "issuer", "redisHost", "egressCIDRs"}
@@ -342,9 +360,16 @@ def kubernetes(config: dict) -> list[dict]:
             "DIGEST_PINNED_IMAGE_REQUIRED")
     public = https_origin(config["publicUrl"])
     https_issuer(config["issuer"])
-    require(isinstance(config["egressCIDRs"], list) and config["egressCIDRs"], "EXPLICIT_EGRESS_REQUIRED")
-    networks = [ipaddress.ip_network(c) for c in config["egressCIDRs"]]
+    require(isinstance(config["egressCIDRs"], list) and config["egressCIDRs"]
+            and len(config["egressCIDRs"]) <= 64
+            and all(isinstance(c, str) for c in config["egressCIDRs"]),
+            "EXPLICIT_EGRESS_REQUIRED")
+    try:
+        networks = [ipaddress.ip_network(c) for c in config["egressCIDRs"]]
+    except (TypeError, ValueError):
+        raise PermanentError("EXPLICIT_EGRESS_REQUIRED") from None
     require(all(n.prefixlen > 0 for n in networks), "EXPLICIT_EGRESS_REQUIRED")
+    redis_host = _redis_hosts(config["redisHost"])
     docs, roles = [{"apiVersion": "v1", "kind": "Namespace", "metadata": {"name": namespace}}], topology(namespace)
     host = _ingress_host(urlsplit(public).hostname)
     for name, role in roles.items():
@@ -428,7 +453,7 @@ def kubernetes(config: dict) -> list[dict]:
                  "spec": {"mtls": {"enabled": True, "workloadCertTTL": "24h", "allowedClockSkew": "15m"}}})
     docs.append({"apiVersion": "dapr.io/v1alpha1", "kind": "Component", "metadata": {"name": "workflow-state", "namespace": namespace},
         "scopes": ["a2amq-workflow"], "spec": {"type": "state.redis", "version": "v1", "metadata": [
-            {"name": "redisHost", "value": config["redisHost"]}, {"name": "enableTLS", "value": "true"},
+            {"name": "redisHost", "value": redis_host}, {"name": "enableTLS", "value": "true"},
             {"name": "actorStateStore", "value": "true"}, {"name": "redisPassword", "secretKeyRef": {
                 "name": "a2amq-workflow-state", "key": "password"}}]}})
     docs.append({"apiVersion": "networking.k8s.io/v1", "kind": "NetworkPolicy", "metadata": {"name": "a2amq-boundaries", "namespace": namespace},
