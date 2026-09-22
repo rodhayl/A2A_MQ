@@ -156,6 +156,18 @@ async def test_stream_capacity_cleanup_and_terminal(api):
     assert api._streams == 0
 
 
+async def test_snapshot_stream_stops_at_auth_required(api):
+    tid = (await api.send(USER, request(returnImmediately=True)))["id"]
+    await step(api, tid, "working", "WORKING")
+    await step(api, tid, "approval", "AUTH_REQUIRED")
+
+    stream = api.snapshots(USER, tid)
+    assert state_of(await anext(stream)) == "AUTH_REQUIRED"
+    with pytest.raises(StopAsyncIteration):
+        await anext(stream)
+    assert api._streams == 0
+
+
 async def test_list_timestamp_order_filter_and_opaque_cursor(api):
     clock = [1790000000.0]
     api.ledger.store.clock = lambda: clock[0]

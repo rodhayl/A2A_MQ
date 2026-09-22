@@ -221,7 +221,7 @@ class TaskAPI:
                     if wire != previous:
                         yield task
                         previous = wire
-                    if state_of(task) in TERMINAL | {"INPUT_REQUIRED"}:
+                    if state_of(task) in TERMINAL | INTERRUPTED:
                         return
                     await asyncio.sleep(self.poll_interval)
         except TimeoutError:
