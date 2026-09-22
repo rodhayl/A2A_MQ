@@ -329,17 +329,9 @@ def kubernetes(config: dict) -> list[dict]:
         bus["metadata"]["namespace"] = namespace
         docs.append(bus)
         labels = {"app": appid, "part-of": "a2amq"}
-        docs.append({"apiVersion": "v1", "kind": "ServiceAccount", "metadata": {"name": appid, "namespace": namespace}})
-        secrets_names = [appid + "-broker", appid + "-app-token", appid + "-dapr-token"]
-        if name == "workflow":
-            secrets_names.append("a2amq-workflow-state")
-        docs.extend([
-            {"apiVersion": "rbac.authorization.k8s.io/v1", "kind": "Role", "metadata": {"name": appid, "namespace": namespace},
-             "rules": [{"apiGroups": [""], "resources": ["secrets"], "resourceNames": secrets_names, "verbs": ["get"]}]},
-            {"apiVersion": "rbac.authorization.k8s.io/v1", "kind": "RoleBinding", "metadata": {"name": appid, "namespace": namespace},
-             "subjects": [{"kind": "ServiceAccount", "name": appid, "namespace": namespace}],
-             "roleRef": {"apiGroup": "rbac.authorization.k8s.io", "kind": "Role", "name": appid}},
-        ])
+        docs.append({"apiVersion": "v1", "kind": "ServiceAccount",
+                     "metadata": {"name": appid, "namespace": namespace},
+                     "automountServiceAccountToken": False})
         projected = [
             {"secret": {"name": appid + "-app-token", "items": [{"key": "token", "path": "app"}]}},
             {"secret": {"name": appid + "-dapr-token", "items": [{"key": "token", "path": "dapr"}]}},

@@ -99,6 +99,14 @@ def test_integrated_kubernetes_needs_no_runtime_service_account_credentials(brok
         assert template['metadata']['annotations']['dapr.io/disable-builtin-k8s-secret-store']=='true'
 
 
+def test_integrated_service_accounts_have_no_runtime_secret_rbac():
+    docs=kubernetes(config())
+    accounts={item['metadata']['name']:item for item in docs if item['kind']=='ServiceAccount'}
+    assert set(accounts)=={'a2amq-api','a2amq-workflow','a2amq-observer-a','a2amq-observer-b','a2amq-operator'}
+    assert all(item['automountServiceAccountToken'] is False for item in accounts.values())
+    assert not [item for item in docs if item['kind'] in {'Role','RoleBinding'}]
+
+
 @pytest.mark.parametrize('change,code',[({'image':'a2amq:latest'},'DIGEST_PINNED_IMAGE_REQUIRED'),
     ({'brokerEndpoint':'nats://plain:4222'},'BROKER_TLS_REQUIRED'),
     ({'egressCIDRs':['0.0.0.0/0']},'EXPLICIT_EGRESS_REQUIRED'),
