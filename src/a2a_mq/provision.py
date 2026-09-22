@@ -10,7 +10,7 @@ from urllib.parse import quote, urlsplit
 import httpx
 
 from .configuration import read_file
-from .domain import require
+from .domain import PermanentError, require
 from .vault import FileToken
 
 
