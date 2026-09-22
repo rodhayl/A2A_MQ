@@ -67,3 +67,12 @@ def test_postgres_dsn_uses_secret_env_not_unreadable_root_owned_volume():
         }
         assert not any(volume.get("name") == "postgres" for volume in pod["volumes"])
         assert not any(mount.get("name") == "postgres" for mount in container["volumeMounts"])
+
+
+def test_kubernetes_health_probes_target_public_health_contract():
+    items = manifests()
+    deployments = [item for item in items if item["kind"] == "Deployment"]
+    for deployment in deployments:
+        container = deployment["spec"]["template"]["spec"]["containers"][0]
+        assert container["readinessProbe"]["httpGet"]["path"] == "/health/ready"
+        assert container["livenessProbe"]["httpGet"]["path"] == "/health/live"

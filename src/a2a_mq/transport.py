@@ -33,7 +33,8 @@ class _AppTokenMiddleware:
         self.expected = app_token.encode()
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
-        if scope["type"] == "http" and self.expected and scope["path"] != "/health/live":
+        if (scope["type"] == "http" and self.expected
+                and scope["path"] not in {"/health/live", "/health/ready"}):
             values = [value for name, value in scope["headers"] if name.lower() == b"dapr-api-token"]
             if len(values) != 1 or not hmac.compare_digest(values[0], self.expected):
                 await JSONResponse({"error": "UNAUTHORIZED"}, status_code=401)(scope, receive, send)
