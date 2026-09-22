@@ -136,10 +136,6 @@ async def _protectors(settings, cleanup):
             require(isinstance(key, dict) and key_required <= set(key) <= key_allowed,
                     "INVALID_CRYPTO_CONFIG")
     token_provider = FileToken(config["tokenFile"])
-    # Validate the mounted credential during startup so readiness cannot succeed
-    # with an unusable crypto configuration. The provider is still invoked again
-    # for every Vault call, preserving token rotation without process restart.
-    token_provider()
     protectors = {}
     for kind, route in (("command", settings.command_route), ("event", settings.event_route)):
         item = config.get(kind)
@@ -154,6 +150,10 @@ async def _protectors(settings, cleanup):
         provider = VaultTransit(config["vaultUrl"], token_provider, keys, item["active"],
             mount=config.get("mount", "transit"), namespace=config.get("namespace", ""), client=client)
         protectors[route] = EnvelopeProtector(provider, tenant=settings.tenant, receiver=item["receiver"])
+    # Validate the mounted credential only after every static crypto/Vault setting
+    # has passed its canonical constructor checks. The provider still reads the
+    # file again for each Vault call so rotation remains live.
+    token_provider()
     return protectors
 
 

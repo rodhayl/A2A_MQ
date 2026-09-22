@@ -262,6 +262,31 @@ async def test_crypto_config_missing_required_fields_fails_deterministically(set
             await _protectors(protected, cleanup)
 
 
+@pytest.mark.parametrize("change,code", [
+    (lambda config: config["command"]["keys"][0].update(writeVersion=0), "INVALID_KEY_VERSION"),
+    (lambda config: config["command"].update(active="missing-key"), "UNKNOWN_KEY"),
+    (lambda config: config.update(vaultUrl="http://vault.example"), "VAULT_HTTPS_REQUIRED"),
+])
+async def test_crypto_static_validation_precedes_missing_token(settings, tmp_path, change, code):
+    from contextlib import AsyncExitStack
+
+    config = {
+        "vaultUrl": "https://vault.example",
+        "tokenFile": str(tmp_path / "missing-vault-token"),
+        "command": {"receiver": "workers", "active": "command-key",
+                    "keys": [{"id": "command-key", "name": "commands", "writeVersion": 1}]},
+        "event": {"receiver": "observers", "active": "event-key",
+                  "keys": [{"id": "event-key", "name": "events", "writeVersion": 1}]},
+    }
+    change(config)
+    path = tmp_path / "crypto-static-invalid.json"
+    path.write_text(json.dumps(config))
+    protected = replace(settings, crypto_file=str(path))
+    async with AsyncExitStack() as cleanup:
+        with pytest.raises(PermanentError, match=code):
+            await _protectors(protected, cleanup)
+
+
 async def test_crypto_startup_validates_vault_token_file_before_readiness(settings, tmp_path):
     from contextlib import AsyncExitStack
 
