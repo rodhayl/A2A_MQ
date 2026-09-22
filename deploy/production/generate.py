@@ -7,27 +7,12 @@ import copy
 import json
 from pathlib import Path
 import re
-from urllib.parse import urlsplit
 
 from a2a_mq.broker_profiles import assert_portability_contract, platform_profiles
-from a2a_mq.domain import PermanentError, require, token
+from a2a_mq.configuration import https_issuer, https_origin
+from a2a_mq.domain import require, token
 
 IMAGE = re.compile(r"^[A-Za-z0-9._/:@-]+@sha256:[0-9a-f]{64}$")
-
-
-def https_url(value: str) -> str:
-    require(isinstance(value, str) and value and not any(c.isspace() for c in value),
-            "PUBLIC_HTTPS_URL_REQUIRED")
-    try:
-        parsed = urlsplit(value)
-        port = parsed.port
-    except (TypeError, ValueError):
-        raise PermanentError("PUBLIC_HTTPS_URL_REQUIRED") from None
-    require(parsed.scheme == "https" and bool(parsed.hostname) and not parsed.username
-            and not parsed.password and not parsed.query and not parsed.fragment
-            and (port is None or 1 <= port <= 65535),
-            "PUBLIC_HTTPS_URL_REQUIRED")
-    return value.rstrip("/")
 
 
 def env(name: str, value: str) -> dict:
@@ -114,7 +99,7 @@ def generate(*, namespace: str, tenant: str, broker: str, image: str,
              public_url: str, issuer: str, jwt_kid: str, public_key: str) -> dict:
     namespace, tenant, jwt_kid = map(token, (namespace, tenant, jwt_kid))
     require(IMAGE.fullmatch(image) is not None, "IMAGE_DIGEST_REQUIRED")
-    public_url, issuer = https_url(public_url), https_url(issuer)
+    public_url, issuer = https_origin(public_url), https_issuer(issuer)
     require("BEGIN PUBLIC KEY" in public_key and "PRIVATE KEY" not in public_key
             and len(public_key) <= 65536, "INVALID_IDENTITY_KEY")
     profiles = platform_profiles(broker=broker, tenant=tenant)

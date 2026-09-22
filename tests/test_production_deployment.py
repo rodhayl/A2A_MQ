@@ -69,6 +69,24 @@ def test_production_urls_reject_whitespace_invalid_ports_and_credentials(field,v
         deploy.generate(**values)
 
 
+def test_public_url_requires_root_https_origin_but_issuer_may_have_path():
+    with pytest.raises(PermanentError, match="PUBLIC_HTTPS_URL_REQUIRED"):
+        deploy.generate(namespace="a2amq", tenant="demo", broker="jetstream", image=IMAGE,
+                        public_url="https://agent.example/base",
+                        issuer="https://issuer.example/tenant", jwt_kid="key-1",
+                        public_key=PUBLIC_KEY)
+    items = deploy.generate(namespace="a2amq", tenant="demo", broker="jetstream", image=IMAGE,
+                            public_url="https://agent.example",
+                            issuer="https://issuer.example/tenant", jwt_kid="key-1",
+                            public_key=PUBLIC_KEY)["items"]
+    api = next(item for item in items
+               if item["kind"] == "Deployment" and item["metadata"]["name"] == "a2amq-api")
+    env = {entry["name"]:entry["value"] for entry in api["spec"]["template"]["spec"]["containers"][0]["env"]
+           if "value" in entry}
+    assert env["A2A_PUBLIC_URL"] == "https://agent.example"
+    assert env["A2A_JWT_ISSUER"] == "https://issuer.example/tenant"
+
+
 def test_postgres_dsn_uses_secret_env_not_unreadable_root_owned_volume():
     items = manifests()
     deployments = [item for item in items if item["kind"] == "Deployment"]
