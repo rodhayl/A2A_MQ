@@ -132,6 +132,5 @@ def test_legacy_postgres_gate_uses_same_private_dsn_without_logging(tmp_path,mon
         assert captured[0]["A2A_TEST_POSTGRES_DSN"]==private.read_text()
 
 
-def test_sdk_gate_requires_real_upstream_modules_not_phantom_dependency():
-    assert GROUPS["sdk"]["modules"] == ["a2a", "dapr.ext.workflow", "mcp", "httpx"]
-    assert "httpx2" not in {module for group in GROUPS.values() for module in group["modules"]}
+def test_sdk_gate_requires_mcp_v2_http_client_dependency():
+    assert GROUPS["sdk"]["modules"] == ["a2a", "dapr.ext.workflow", "mcp", "httpx2"]

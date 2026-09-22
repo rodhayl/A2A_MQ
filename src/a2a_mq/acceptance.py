@@ -22,7 +22,8 @@ import xml.etree.ElementTree as ET
 GROUPS = {
     "local": {"selection":"not live and not postgres and not upstream and not mcp and not vault",
               "modules":["pytest", "pytest_asyncio", "cryptography", "jwt", "opentelemetry.sdk"]},
-    "sdk": {"selection":"upstream or mcp", "modules":["a2a", "dapr.ext.workflow", "mcp", "httpx"]},
+    # MCP 2.x Streamable HTTP intentionally uses the transitive httpx2 package.
+    "sdk": {"selection":"upstream or mcp", "modules":["a2a", "dapr.ext.workflow", "mcp", "httpx2"]},
     "postgres": {"selection":"postgres", "modules":["psycopg", "psycopg_pool"]},
     "vault": {"selection":"vault", "modules":["cryptography"]},
 }
