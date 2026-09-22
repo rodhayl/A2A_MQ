@@ -82,6 +82,38 @@ def test_unsupported_host_leaves_no_bootstrap_output(tmp_path, monkeypatch):
     assert not output.exists()
 
 
+def test_bootstrap_retains_private_archives_for_later_provenance(tmp_path, monkeypatch):
+    import json
+    import sys
+
+    bootstrap = _module()
+    output = tmp_path / "tools"
+    monkeypatch.setattr(bootstrap, "_arch", lambda: "amd64")
+
+    def fake_download(url, destination, expected, expected_bytes, max_bytes):
+        destination.write_bytes(("archive:" + destination.name).encode())
+        return expected_bytes
+
+    def fake_extract(archive, destination, basename, **kwargs):
+        destination.write_bytes(("binary:" + basename).encode())
+        destination.chmod(0o700)
+
+    monkeypatch.setattr(bootstrap, "_download", fake_download)
+    monkeypatch.setattr(bootstrap, "_extract_binary", fake_extract)
+    monkeypatch.setattr(sys, "argv", ["bootstrap_local_tools.py", "--output", str(output)])
+
+    assert bootstrap.main() == 0
+    manifest = json.loads((output / "manifest.json").read_text())
+    assert manifest["runtimeProfile"] == "local-lite"
+    assert set(manifest["binaries"]) == {"daprd", "nats-server"}
+    for name in manifest["binaries"]:
+        archive = output / "archives" / f"{name}.tar.gz"
+        binary = output / "bin" / name
+        assert archive.is_file() and binary.is_file()
+        assert archive.stat().st_mode & 0o077 == 0
+    assert (output / "archives").stat().st_mode & 0o077 == 0
+
+
 def test_workflow_bootstrap_pins_official_dapr_control_plane_assets():
     bootstrap = _module()
     expected = {
