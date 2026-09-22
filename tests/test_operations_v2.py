@@ -74,6 +74,32 @@ async def test_ops_http_replays_archived_dapr_cloudevent(setup):
         await database.aclose()
 
 
+async def test_ops_http_exports_central_dlq_metrics(setup):
+    store, dlq, admin = setup
+    task_ops = OperationsManager(TaskLedger(store, source="workflow-worker"))
+    dlq.record_dlq(command("hello", tenant="demo", skill="echo").wire.encode(),
+                   "HANDLER_FAILED", origin_consumer="observer-a")
+
+    class Verifier:
+        def verify(self, encoded):
+            assert encoded == "fixture"
+            return admin
+
+    database = AsyncSQLite(store)
+    app = create_operations_app(task_ops, database, object(), Verifier(),
+                                dlq_ops=dlq, dlq_database=database)
+    try:
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app),
+                                     base_url="http://ops",
+                                     headers={"Authorization": "Bearer fixture"}) as client:
+            response = await client.get("/metrics")
+        assert response.status_code == 200
+        assert "a2amq_central_pending_dlq 1" in response.text
+        assert "a2amq_central_dlq_captured_total 1" in response.text
+    finally:
+        await database.aclose()
+
+
 def test_verified_sqlite_backup_restores_to_new_file(setup, tmp_path):
     store, dlq, admin = setup
     operations = OperationsManager(TaskLedger(store, source="workflow-worker"))

@@ -60,6 +60,10 @@ class Metrics:
         with self._lock:
             self._values[name] += float(amount)
 
+    def snapshot(self) -> dict[str, float]:
+        with self._lock:
+            return dict(self._values)
+
     def prometheus(self, gauges: dict[str, int | float] | None = None) -> str:
         with self._lock:
             values = dict(self._values)
