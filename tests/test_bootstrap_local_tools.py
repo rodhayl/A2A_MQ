@@ -68,3 +68,15 @@ def test_bootstrap_pins_exact_nats_archive_sizes():
     bootstrap = _module()
     assert bootstrap.ASSETS["amd64"]["nats-server"]["bytes"] == 7236657
     assert bootstrap.ASSETS["arm64"]["nats-server"]["bytes"] == 6528127
+
+
+def test_unsupported_host_leaves_no_bootstrap_output(tmp_path, monkeypatch):
+    import sys
+
+    bootstrap = _module()
+    output = tmp_path / "tools"
+    monkeypatch.setattr(bootstrap.platform, "system", lambda: "Darwin")
+    monkeypatch.setattr(sys, "argv", ["bootstrap_local_tools.py", "--output", str(output)])
+    with pytest.raises(SystemExit, match="Linux only"):
+        bootstrap.main()
+    assert not output.exists()

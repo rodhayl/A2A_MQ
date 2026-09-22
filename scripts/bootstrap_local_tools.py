@@ -133,15 +133,17 @@ def main() -> int:
     root = args.output.resolve()
     if root.exists():
         raise SystemExit("output already exists; refusing to overwrite")
-    root.mkdir(parents=True, mode=0o700)
-    bin_dir = root / "bin"
-    bin_dir.mkdir(mode=0o700)
+    # Validate the host before creating any persistent output. Unsupported hosts
+    # must not leave an empty tools directory that blocks a corrected retry.
     arch = _arch()
-    manifest = {
-        "platform": "linux", "arch": arch, "daprVersion": DAPR_VERSION,
-        "daprFlavor": "allcomponents", "natsVersion": NATS_VERSION, "binaries": {},
-    }
+    root.mkdir(parents=True, mode=0o700)
     try:
+        bin_dir = root / "bin"
+        bin_dir.mkdir(mode=0o700)
+        manifest = {
+            "platform": "linux", "arch": arch, "daprVersion": DAPR_VERSION,
+            "daprFlavor": "allcomponents", "natsVersion": NATS_VERSION, "binaries": {},
+        }
         with tempfile.TemporaryDirectory(prefix="archives-", dir=root) as temp:
             temp_dir = Path(temp)
             for name, spec in ASSETS[arch].items():
