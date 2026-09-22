@@ -276,97 +276,108 @@ def main() -> int:
     started = time.monotonic()
     children: dict[int, int] = {}
     with args.log.open("xb") as log:
-        process = subprocess.Popen(
-            [sys.executable, "-m", policy["module"], "run", str(args.profile.resolve())],
-            stdout=log, stderr=subprocess.STDOUT, cwd=Path.cwd(),
-        )
         try:
+            process = subprocess.Popen(
+                [sys.executable, "-m", policy["module"], "run", str(args.profile.resolve())],
+                stdout=log, stderr=subprocess.STDOUT, cwd=Path.cwd(),
+            )
+        except OSError as exc:
+            label = policy["verdict"]
+            result = {
+                "verdict": f"FAIL_{label}",
+                "scope": profile.get("mode", "local-lite"),
+                "error": type(exc).__name__,
+                "message": str(exc)[:512],
+                "failedChecks": ["processStart"],
+            }
+        else:
             try:
-                startup_peak_rss, startup_peak_process_count = _ready(
-                    "http://127.0.0.1:18000/health/ready", started + startup_timeout, process
-                )
-                startup = time.monotonic() - started
-                pids = _descendants(process.pid)
-                children = _identities(pids)
-                commands = {pid: _cmdline(pid) for pid in children}
-                roles = _roles(process.pid, commands)
+                try:
+                    startup_peak_rss, startup_peak_process_count = _ready(
+                        "http://127.0.0.1:18000/health/ready", started + startup_timeout, process
+                    )
+                    startup = time.monotonic() - started
+                    pids = _descendants(process.pid)
+                    children = _identities(pids)
+                    commands = {pid: _cmdline(pid) for pid in children}
+                    roles = _roles(process.pid, commands)
 
-                before = {pid: _cpu_ticks(pid) for pid in children}
-                wall = time.monotonic()
-                idle_peak_rss = 0
-                idle_peak_process_count = 0
-                idle_deadline = wall + args.idle_seconds
-                while time.monotonic() < idle_deadline:
-                    rss_sample, count_sample = _sample_total_rss(process.pid)
-                    idle_peak_rss = max(idle_peak_rss, rss_sample)
-                    idle_peak_process_count = max(idle_peak_process_count, count_sample)
-                    time.sleep(min(.1, max(0.0, idle_deadline - time.monotonic())))
-                elapsed = max(time.monotonic() - wall, .001)
-                after = {pid: _cpu_ticks(pid) for pid in children}
-                all_alive = _all_alive(process, children)
-                hz = os.sysconf(os.sysconf_names["SC_CLK_TCK"])
-                cpu_percent = sum(max(0, after.get(pid, 0) - before.get(pid, 0))
-                                  for pid in children) / hz / elapsed * 100
-                rss = {pid: _rss(pid) for pid in children}
-                steady_total_rss = sum(rss.values())
-                peak_total_rss = max(startup_peak_rss, idle_peak_rss, steady_total_rss)
-                state_bytes = _tree_bytes(args.profile / "state") + _tree_bytes(args.profile / "nats")
-                role_rss = {role: _mib(sum(rss.get(pid, 0) for pid in pids))
-                            for role, pids in roles.items()}
+                    before = {pid: _cpu_ticks(pid) for pid in children}
+                    wall = time.monotonic()
+                    idle_peak_rss = 0
+                    idle_peak_process_count = 0
+                    idle_deadline = wall + args.idle_seconds
+                    while time.monotonic() < idle_deadline:
+                        rss_sample, count_sample = _sample_total_rss(process.pid)
+                        idle_peak_rss = max(idle_peak_rss, rss_sample)
+                        idle_peak_process_count = max(idle_peak_process_count, count_sample)
+                        time.sleep(min(.1, max(0.0, idle_deadline - time.monotonic())))
+                    elapsed = max(time.monotonic() - wall, .001)
+                    after = {pid: _cpu_ticks(pid) for pid in children}
+                    all_alive = _all_alive(process, children)
+                    hz = os.sysconf(os.sysconf_names["SC_CLK_TCK"])
+                    cpu_percent = sum(max(0, after.get(pid, 0) - before.get(pid, 0))
+                                      for pid in children) / hz / elapsed * 100
+                    rss = {pid: _rss(pid) for pid in children}
+                    steady_total_rss = sum(rss.values())
+                    peak_total_rss = max(startup_peak_rss, idle_peak_rss, steady_total_rss)
+                    state_bytes = _tree_bytes(args.profile / "state") + _tree_bytes(args.profile / "nats")
+                    role_rss = {role: _mib(sum(rss.get(pid, 0) for pid in pids))
+                                for role, pids in roles.items()}
 
-                checks = {
-                    "allAlive": all_alive,
-                    "exactProcessCount": len(children) == expected_count,
-                    "stableIdleProcessCount": idle_peak_process_count == expected_count,
-                    **{f"one{role.title()}": len(roles[role]) == 1 for role in expected_roles},
-                    "rss": _mib(peak_total_rss) <= max_rss,
-                    "idleCpu": cpu_percent <= max_cpu,
-                    "startup": startup <= max_startup,
-                    "state": _mib(state_bytes) <= max_state,
-                }
-                failures = [name for name, ok in checks.items() if not ok]
-                label = policy["verdict"]
-                result = {
-                    "verdict": f"PASS_{label}" if not failures else f"FAIL_{label}",
-                    "scope": profile.get("mode", "local-lite"),
-                    "thresholds": {
-                        "maxTotalRssMiB": max_rss,
-                        "maxIdleCpuPercentOneCore": max_cpu,
-                        "maxStartupSeconds": max_startup,
-                        "maxRuntimeStateMiB": max_state,
-                        "expectedProcesses": expected_count,
-                        "expectedRoles": list(expected_roles),
-                    },
-                    "observed": {
-                        "processCount": len(children),
-                        "allAliveAfterIdle": all_alive,
-                        "processes": {str(pid): commands[pid] for pid in children},
-                        "rssByRoleMiB": role_rss,
-                        "steadyTotalRssMiB": _mib(steady_total_rss),
-                        "peakTotalRssMiB": _mib(peak_total_rss),
-                        "startupPeakRssMiB": _mib(startup_peak_rss),
-                        "idlePeakRssMiB": _mib(idle_peak_rss),
-                        "startupPeakProcessCount": startup_peak_process_count,
-                        "idlePeakProcessCount": idle_peak_process_count,
-                        "idleCpuPercentOneCore": round(cpu_percent, 3),
-                        "startupSeconds": round(startup, 3),
-                        "runtimeStateMiB": _mib(state_bytes),
-                    },
-                    "failedChecks": failures,
-                }
-            except Exception as exc:
-                label = policy["verdict"]
-                result = {
-                    "verdict": f"FAIL_{label}",
-                    "scope": profile.get("mode", "local-lite"),
-                    "error": type(exc).__name__,
-                    "message": str(exc)[:512],
-                    "failedChecks": ["startup"],
-                }
-                if not children:
-                    children = _identities(_descendants(process.pid))
-        finally:
-            _terminate(process, children)
+                    checks = {
+                        "allAlive": all_alive,
+                        "exactProcessCount": len(children) == expected_count,
+                        "stableIdleProcessCount": idle_peak_process_count == expected_count,
+                        **{f"one{role.title()}": len(roles[role]) == 1 for role in expected_roles},
+                        "rss": _mib(peak_total_rss) <= max_rss,
+                        "idleCpu": cpu_percent <= max_cpu,
+                        "startup": startup <= max_startup,
+                        "state": _mib(state_bytes) <= max_state,
+                    }
+                    failures = [name for name, ok in checks.items() if not ok]
+                    label = policy["verdict"]
+                    result = {
+                        "verdict": f"PASS_{label}" if not failures else f"FAIL_{label}",
+                        "scope": profile.get("mode", "local-lite"),
+                        "thresholds": {
+                            "maxTotalRssMiB": max_rss,
+                            "maxIdleCpuPercentOneCore": max_cpu,
+                            "maxStartupSeconds": max_startup,
+                            "maxRuntimeStateMiB": max_state,
+                            "expectedProcesses": expected_count,
+                            "expectedRoles": list(expected_roles),
+                        },
+                        "observed": {
+                            "processCount": len(children),
+                            "allAliveAfterIdle": all_alive,
+                            "processes": {str(pid): commands[pid] for pid in children},
+                            "rssByRoleMiB": role_rss,
+                            "steadyTotalRssMiB": _mib(steady_total_rss),
+                            "peakTotalRssMiB": _mib(peak_total_rss),
+                            "startupPeakRssMiB": _mib(startup_peak_rss),
+                            "idlePeakRssMiB": _mib(idle_peak_rss),
+                            "startupPeakProcessCount": startup_peak_process_count,
+                            "idlePeakProcessCount": idle_peak_process_count,
+                            "idleCpuPercentOneCore": round(cpu_percent, 3),
+                            "startupSeconds": round(startup, 3),
+                            "runtimeStateMiB": _mib(state_bytes),
+                        },
+                        "failedChecks": failures,
+                    }
+                except Exception as exc:
+                    label = policy["verdict"]
+                    result = {
+                        "verdict": f"FAIL_{label}",
+                        "scope": profile.get("mode", "local-lite"),
+                        "error": type(exc).__name__,
+                        "message": str(exc)[:512],
+                        "failedChecks": ["startup"],
+                    }
+                    if not children:
+                        children = _identities(_descendants(process.pid))
+            finally:
+                _terminate(process, children)
 
     post_shutdown_state = _tree_bytes(args.profile / "state") + _tree_bytes(args.profile / "nats")
     _apply_post_shutdown_state(result, post_shutdown_state, max_state, policy["verdict"])

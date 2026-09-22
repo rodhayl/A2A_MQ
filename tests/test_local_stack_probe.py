@@ -129,3 +129,31 @@ def test_stack_probe_post_shutdown_state_can_fail_budget():
     probe._apply_post_shutdown_state(result, 5 * 1024 * 1024, 4.0, "LOCAL_LITE")
     assert result["verdict"] == "FAIL_LOCAL_LITE"
     assert "postShutdownState" in result["failedChecks"]
+
+
+def test_stack_probe_writes_failure_when_root_process_cannot_start(tmp_path, monkeypatch):
+    import json
+    import sys
+
+    probe = _module()
+    profile = tmp_path / "profile"
+    profile.mkdir()
+    (profile / "profile.json").write_text('{"mode":"local-lite"}')
+    output = tmp_path / "result.json"
+    log = tmp_path / "result.log"
+
+    def fail_start(*args, **kwargs):
+        raise OSError("injected start failure")
+
+    monkeypatch.setattr(probe.subprocess, "Popen", fail_start)
+    monkeypatch.setattr(sys, "argv", [
+        "local_stack_probe.py",
+        "--profile", str(profile),
+        "--json", str(output),
+        "--log", str(log),
+    ])
+    assert probe.main() == 3
+    result = json.loads(output.read_text())
+    assert result["verdict"] == "FAIL_LOCAL_LITE"
+    assert result["failedChecks"] == ["processStart"]
+    assert result["error"] == "OSError"
