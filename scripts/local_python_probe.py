@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Measure the real local-lite Python app without starting daprd or nats-server."""
 from __future__ import annotations
-import argparse, asyncio, gc, json, os, resource, sys, time
+import argparse, asyncio, gc, json, resource, sys, time
 from pathlib import Path
 
 def _mib(value): return round(float(value)/(1024*1024),3)
