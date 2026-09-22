@@ -52,7 +52,8 @@ def test_dlq_has_a_separate_durable_consumer_and_no_publish_permission():
     raw = _dlq_component("demo", "secret-token")
     assert "name: bus-dlq" in raw
     assert "a2a-demo-local-dlq-v1" in raw
-    assert f"value: {APP_ID}=" in raw
+    assert "publishingScopes" not in raw
+    assert "protectedTopics" in raw
     assert f"value: {APP_ID}=a2a.v1.demo.dlq" in raw
 
 

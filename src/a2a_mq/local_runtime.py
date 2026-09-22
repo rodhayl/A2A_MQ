@@ -231,8 +231,6 @@ spec:
       value: {dlq}
     - name: protectedTopics
       value: {dlq}
-    - name: publishingScopes
-      value: {APP_ID}=
     - name: subscriptionScopes
       value: {APP_ID}={dlq}
 '''
