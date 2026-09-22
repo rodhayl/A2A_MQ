@@ -188,6 +188,44 @@ def test_stack_probe_requires_private_tools_argument(tmp_path, monkeypatch):
     assert exc.value.code == 2
 
 
+def test_stack_probe_native_preflight_writes_incomplete_without_start(tmp_path, monkeypatch):
+    import json
+    import sys
+    import pytest
+
+    probe = _module()
+    profile = tmp_path / "profile"
+    profile.mkdir()
+    (profile / "profile.json").write_text('{"mode":"local-lite"}')
+    output = tmp_path / "result.json"
+    log = tmp_path / "result.log"
+    tools = tmp_path / "tools"
+    monkeypatch.setattr(
+        probe, "_validated_tools_bin",
+        lambda *args: (_ for _ in ()).throw(
+            probe.MeasurementUnavailable("native tools directory unavailable or unsafe")
+        ),
+    )
+    monkeypatch.setattr(
+        probe.subprocess, "Popen",
+        lambda *a, **k: pytest.fail("native provenance failure must prevent process start"),
+    )
+    monkeypatch.setattr(sys, "argv", [
+        "local_stack_probe.py",
+        "--profile", str(profile),
+        "--tools-dir", str(tools),
+        "--native-verification", str(tmp_path / "native.json"),
+        "--json", str(output),
+        "--log", str(log),
+    ])
+    assert probe.main() == 2
+    result = json.loads(output.read_text())
+    assert result["verdict"] == "INCOMPLETE_MEASUREMENT"
+    assert result["failedChecks"] == ["nativeProvenance"]
+    assert "native tools directory" in result["message"]
+    assert log.read_text().strip() == result["message"]
+
+
 def test_role_aggregation_preserves_per_role_costs():
     probe = _module()
     roles = {"app": [1], "daprd": [2], "nats": [3], "placement": [], "scheduler": []}

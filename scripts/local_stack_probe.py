@@ -410,22 +410,34 @@ def main() -> int:
     policy = _profile_policy(profile)
     expected_roles = policy["expectedRoles"]
     expected_count = len(expected_roles)
-    tools_bin = _validated_tools_bin(args.tools_dir, expected_roles)
-    tools_manifest_sha, tools_binary_sha = _native_fingerprints(
-        args.tools_dir.expanduser().absolute(), expected_roles
-    )
-    _verified_native_report(args.native_verification, tools_manifest_sha,
-                            tools_binary_sha, expected_roles)
-    max_rss = policy["maxTotalRssMiB"] if args.max_total_rss_mib is None else args.max_total_rss_mib
-    max_cpu = policy["maxIdleCpuPercent"] if args.max_idle_cpu_percent is None else args.max_idle_cpu_percent
-    max_startup = policy["maxStartupSeconds"] if args.max_startup_seconds is None else args.max_startup_seconds
-    max_state = policy["maxRuntimeStateMiB"] if args.max_runtime_state_mib is None else args.max_runtime_state_mib
-    startup_timeout = args.startup_timeout or max_startup + 10
 
     args.json_path.parent.mkdir(parents=True, exist_ok=True)
     args.log.parent.mkdir(parents=True, exist_ok=True)
     if args.json_path.exists() or args.log.exists():
         raise SystemExit("evidence output already exists; refusing to overwrite")
+
+    try:
+        tools_bin = _validated_tools_bin(args.tools_dir, expected_roles)
+        tools_manifest_sha, tools_binary_sha = _native_fingerprints(
+            args.tools_dir.expanduser().absolute(), expected_roles
+        )
+        _verified_native_report(args.native_verification, tools_manifest_sha,
+                                tools_binary_sha, expected_roles)
+    except MeasurementUnavailable as exc:
+        result = {"verdict": "INCOMPLETE_MEASUREMENT", "scope": policy["mode"],
+                  "message": str(exc), "failedChecks": ["nativeProvenance"]}
+        with args.log.open("xb") as log:
+            log.write((str(exc) + "\n").encode("utf-8"))
+        with args.json_path.open("x", encoding="utf-8") as output:
+            output.write(json.dumps(result, indent=2, sort_keys=True) + "\n")
+        print(json.dumps(result, sort_keys=True))
+        return 2
+
+    max_rss = policy["maxTotalRssMiB"] if args.max_total_rss_mib is None else args.max_total_rss_mib
+    max_cpu = policy["maxIdleCpuPercent"] if args.max_idle_cpu_percent is None else args.max_idle_cpu_percent
+    max_startup = policy["maxStartupSeconds"] if args.max_startup_seconds is None else args.max_startup_seconds
+    max_state = policy["maxRuntimeStateMiB"] if args.max_runtime_state_mib is None else args.max_runtime_state_mib
+    startup_timeout = args.startup_timeout or max_startup + 10
 
     started = time.monotonic()
     children: dict[int, int] = {}
