@@ -206,10 +206,12 @@ class TaskAPI:
         await self._get(principal, task_id)
         return await self._call(self.ledger.control, principal, task_id, "auth", request_id, approved)
 
-    async def snapshots(self, principal, task_id):
+    def _reserve_stream(self) -> None:
         if self._streams >= self.max_streams:
             raise RetryableError("STREAM_CAPACITY_EXCEEDED")
         self._streams += 1
+
+    async def _snapshot_items(self, principal, task_id):
         previous = None
         try:
             async with asyncio.timeout(self.stream_timeout):
@@ -224,23 +226,37 @@ class TaskAPI:
                     await asyncio.sleep(self.poll_interval)
         except TimeoutError:
             raise RetryableError("STREAM_TIME_LIMIT") from None
+
+    async def snapshots(self, principal, task_id):
+        self._reserve_stream()
+        inner = self._snapshot_items(principal, task_id)
+        try:
+            async for task in inner:
+                yield task
         finally:
+            await inner.aclose()
             self._streams -= 1
 
     async def send_snapshots(self, principal, request):
         require(isinstance(request, dict), "INVALID_REQUEST")
         config = configuration(request)
         principal.authorize("read", self.ledger.store.scope.tenant)
-        if self._streams >= self.max_streams:
-            raise RetryableError("STREAM_CAPACITY_EXCEEDED")
-        task = await self._call(self.ledger.submit, principal, request)
-        continuation = bool(request.get("message", {}).get("taskId"))
-        seen = any(m.get("messageId") == request["message"]["messageId"] for m in task.get("history", []))
-        if continuation and not seen and state_of(task) in INTERRUPTED:
-            task = await self._wait(principal, task["id"], initial=task, change_only=True)
-        inner = self.snapshots(principal, task["id"])
+        # Reserve before the first await/admission so concurrent stream requests
+        # cannot all pass a stale capacity check and create durable work that the
+        # process then refuses to stream.
+        self._reserve_stream()
+        inner = None
         try:
+            request = load_json(canonical(request))
+            task = await self._call(self.ledger.submit, principal, request)
+            continuation = bool(request.get("message", {}).get("taskId"))
+            seen = any(m.get("messageId") == request["message"]["messageId"] for m in task.get("history", []))
+            if continuation and not seen and state_of(task) in INTERRUPTED:
+                task = await self._wait(principal, task["id"], initial=task, change_only=True)
+            inner = self._snapshot_items(principal, task["id"])
             async for item in inner:
                 yield history(item, config.get("historyLength"))
         finally:
-            await inner.aclose()
+            if inner is not None:
+                await inner.aclose()
+            self._streams -= 1

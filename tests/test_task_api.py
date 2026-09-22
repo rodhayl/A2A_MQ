@@ -201,3 +201,22 @@ async def test_send_only_scope_cannot_request_waiting_mode_or_admit_side_effect(
     with pytest.raises(PermanentError, match="FORBIDDEN"):
         await api.send(sender, request("send-and-wait"))
     assert api.ledger.pending(("publish",)) == []
+
+
+async def test_send_stream_capacity_is_reserved_before_durable_admission(api):
+    api.max_streams = 1
+    first = api.send_snapshots(USER, request("stream-one", returnImmediately=True))
+    assert state_of(await anext(first)) == "SUBMITTED"
+    assert api._streams == 1
+
+    second = api.send_snapshots(USER, request("stream-two", returnImmediately=True))
+    with pytest.raises(RetryableError, match="STREAM_CAPACITY_EXCEEDED"):
+        await anext(second)
+    await second.aclose()
+
+    jobs = api.ledger.list(USER)[0]
+    assert [task["history"][0]["messageId"] for task in jobs] == ["stream-one"]
+    assert len(api.ledger.pending(("publish",))) == 1
+
+    await first.aclose()
+    assert api._streams == 0
