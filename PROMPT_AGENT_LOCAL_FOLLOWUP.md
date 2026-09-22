@@ -1,129 +1,133 @@
-# /goal - Verify the published local audit, without overloading the host
+# /goal - Verify post-local-pass hardening and advance remaining gates
 
-Start a NEW conversation in `rodhayl/A2A_MQ`. Read `AGENTS.md`, this file and
-`docs/validation/local-audit-20260922.md`. The publication branch is
-`implementation/production-hardening-20260916`; record the actual SHA being tested.
+Start a NEW conversation in `rodhayl/A2A_MQ` on branch
+`implementation/production-hardening-20260916`. Read `AGENTS.md`,
+`docs/STATUS.md`, `docs/VALIDATION.md`,
+`docs/validation/local-run-20260922.md` and this file before changing code.
 
-## Preserve work and the host
+Record the actual starting SHA. The exact-SHA historical `LOCAL_PASS` belongs to
+`3415b10ddcfc5c721f9872c926fead5e11897543`; do not attribute it to a later
+HEAD without rerunning acceptance.
 
-Fetch the branch through the already configured authorized remote. Preserve local
-uncommitted work and the earlier unpushed fixes `b3d17fc` / `8d541e2`; their equivalent
-fixes are already upstream. Do not reset, force-push or blindly cherry-pick them.
-When history diverges, use a separate clean worktree of the fetched branch and
-leave the original checkout intact. Do not claim a SHA passed if subsequent fixes
-changed its tested bytes.
+## Preserve repository and evidence invariants
 
-Use the existing project-private venv when it is suitable, or create a new ignored
-venv without system-site-packages. Every Python/pip command uses its absolute
-executable. No sudo, global/user package installation, Docker, PostgreSQL, Redis,
-Vault, additional services, model calls, broad extras or parallel test jobs.
-Keep caches, fresh state and sanitized evidence in a new ignored
-`.local-validation/` run directory on disk. Keep at least 512 MiB host memory
-headroom and 2 GiB free disk; stop workloads if these reserves cannot be maintained.
-Do not install a new interpreter or alter swap/system configuration.
+- Preserve unrelated user changes.
+- Keep `main` untouched.
+- No force-push, tag, release or version bump.
+- Use small cohesive commits and push this implementation branch.
+- Generated evidence, venvs, private binaries, tokens and profiles stay ignored and
+  uncommitted.
+- A missing prerequisite is UNAVAILABLE/INCOMPLETE, never a synthetic PASS.
+- No LLM/model calls belong in deterministic infrastructure validation.
+- Prefer regression/root-cause fixes over cosmetic refactors.
 
-## First: core viability
+## 1. Independently verify the post-3415 hardening first
 
-Use the core prerequisites in `requirements/core-probe.txt`; do not install all
-extras before measuring. From the clean source root, with PY set to the venv's
-absolute interpreter and STATE/EVIDENCE to fresh private directories:
+Inspect the actual diffs after `3415b10`, including the latest acceptance/CI/MCP
+hardening. Do not trust commit messages alone.
 
-```bash
-umask 077
-"$PY" scripts/local_resource_probe.py \
-  --state-dir "$STATE/core-probe" --json "$EVIDENCE/core-resources.json"
-```
+At minimum run focused regressions covering:
 
-Capture the exit code and inspect JSON. Continue only on exit 0 AND
-`PASS_CORE_LIGHT`. `INCOMPLETE_MEASUREMENT`, `INCOMPLETE_CORE_PROBE` and
-`INCOMPLETE_HOST_HEADROOM` are blockers to economic acceptance, not evidence of
-cheap execution or proof of a code defect. Preserve reports; choose fresh paths
-for retries. Keep the default budgets unchanged. The probe's sleeping idle CPU is
-not the running application's idle CPU; host-wide swap is not process attribution.
+- `tests/test_application_new.py`
+- `tests/test_acceptance_new.py`
+- `tests/test_ci_contract.py`
+- `tests/test_native_adapters_new.py` once pinned SDK dependencies are present
+- directly affected MCP/A2A tests
+- any additional tests required by defects you find
 
-## Second: measure the actual Python local product
+Important contracts now expected in source:
 
-Do not jump directly from the core fixture to native Dapr/NATS. Install only the
-repository's `.[local]` extra inside the same venv, record the venv disk delta,
-then run:
+- static crypto/Vault configuration is validated before mounted token access;
+- acceptance rejects model-provider credentials and binds evidence to the same
+  clean exact Git HEAD/tree before and after execution;
+- FULL_PASS requires repository contracts and an isolated package/wheel smoke;
+- package smoke builds from external `git archive HEAD` and proves imports come
+  from the installed wheel;
+- MCP 2.2 explicitly sets its token-resource validation mode because our
+  JWT verifier already enforces exact audience;
+- official A2A regression covers cross-owner cancel and subscribe on live tasks;
+- CI wheel smoke must not rely on PYTHONPATH under `python -I`.
 
-```bash
-"$PY" scripts/local_python_probe.py \
-  --state-dir "$STATE/python-app" \
-  --json "$EVIDENCE/python-app-resources.json"
-```
+If a focused test fails, reproduce/root-cause/fix it before broad validation.
 
-Continue only on exit 0 AND `PASS_LOCAL_PYTHON`. This gate includes the actual
-A2A/HTTP/crypto/SQLite app and its 60-second background-maintenance window, while
-starting neither daprd nor NATS. `FAIL_LOCAL_PYTHON` means
-`REDESIGN_REQUIRED`; `INCOMPLETE_LOCAL_PYTHON` is a measurement/startup blocker
-and must not be called a resource failure or a pass. Keep the default budget.
+## 2. Install and run the pinned official SDK gate
 
-## Then: selected regressions, one file at a time
-
-Check installed dependencies in the venv. Reuse them; never perform an all-extras
-upgrade to make collection pass. Install only the existing lightweight validation
-requirements when needed. The current local regression files are:
-
-```text
-tests/test_local_resource_probe.py
-tests/test_local_resource_probe_regressions.py
-tests/test_local_python_probe.py
-tests/test_local_runtime.py
-tests/test_local_launcher_regressions.py
-tests/test_local_lite.py
-tests/test_local_workflow.py
-tests/test_local_stack_probe.py
-tests/test_local_stack_probe_regressions.py
-tests/test_local_native_versions.py
-tests/test_bootstrap_local_tools.py
-```
-
-Use the following command separately for each TEST, with a unique STEM. Use an
-existing timeout utility or a bounded agent execution call (300 seconds per file).
+Use the repository-pinned extras in an isolated project venv. Run dependency check,
+then:
 
 ```bash
-PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 PYTHONDONTWRITEBYTECODE=1 PYTHONNOUSERSITE=1 \
-OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 \
-"$PY" -m pytest -p pytest_asyncio.plugin -p no:cacheprovider -o addopts= \
-  -o asyncio_default_fixture_loop_scope=function -q -W error --maxfail=1 "$TEST" \
-  --basetemp="$STATE/tmp/$STEM" --junitxml="$EVIDENCE/$STEM.xml"
-"$PY" scripts/assert_junit_complete.py "$EVIDENCE/$STEM.xml"
+python -m a2a_mq.acceptance --mode sdk --root <repo> --output <fresh-external-dir> --timeout 1800
 ```
 
-Preserve pytest's own exit code as well as JUnit. Do not use the historical
-74-test count as an acceptance target: new local regression files have been added.
-Evaluate the actual collected cases at the tested SHA, not a hard-coded count or
-historical PASS. A timeout, import failure, skip, xfail or missing report is not a
-passing selected gate. Fix only reproducible defects, add a regression first,
-rerun the affected files and make a focused local commit. No cosmetic refactoring.
+The gate must execute the pinned A2A SDK 1.1.2, Dapr Workflow 1.18.3 and MCP 2.2.0
+contracts. Warnings are errors. No skipped/missing JUnit may count as PASS.
 
-## Native economics remains a separate conditional gate
+## 3. Turn Ruff and mypy into actionable defects
 
-Only after the core, Python-product gate and selected tests pass, execute Phase 2
-of `PROMPT_AGENT_LOCAL_TEST.md`. For acceptance, use the repository-pinned private
-bootstrap in the fresh run directory even if a host `daprd` reports version
-1.18.3: Dapr's version/build-info output does not prove the sidecar flavor, while
-JetStream requires the `allcomponents` build. Pass `$STATE/tools/manifest.json` to the native-version checker; require that machine gate to verify `daprFlavor=allcomponents` together with the exact binary versions.
+Run exactly:
 
-This is not a host install. Do not copy binaries outside `$STATE/tools`, change
-system PATH, start services, or use Docker/PostgreSQL/Redis/Vault/RabbitMQ as a
-workaround. Run one local-lite stack and reap only its owned processes.
+```bash
+ruff check .
+mypy src/a2a_mq
+```
 
-Record actual startup/idle peak RSS, steady and idle-peak RSS **per role**, idle CPU
-**per role**, stable PID/start-time topology, aggregate CPU, flushed disk footprint,
-binary versions, manifest archiveBytesTotal/binaryBytesTotal, and the private-tool
-disk size. Use these per-role measurements when evaluating whether Dapr is the
-dominant local overhead; do not infer that from generic estimates. Missing
-measurements or process death cannot pass. Never substitute rough Dapr/NATS
-estimates for measurements or remove Dapr on that basis.
+The previous validated run reported 110 Ruff findings outside the clean `src/`
+subset and 69 mypy errors across source. Treat those counts only as historical.
+
+Classify the current diagnostics. Fix real defects, undefined names, invalid control
+flow, interface mismatches and straightforward typing errors. Avoid broad annotation
+churn or suppressions whose only purpose is making the counter reach zero.
+
+Use small commits and rerun the narrow affected checks after each logical fix.
+
+## 4. Re-establish exact-current-SHA local acceptance
+
+After all code changes, ensure the checkout is clean and run:
+
+```bash
+python tools/check.py
+python -m pip check
+python -m a2a_mq.acceptance --mode local --root <repo> --output <fresh-external-dir> --timeout 1800
+```
+
+This is mandatory because the historical `LOCAL_PASS` is tied to `3415b10`.
+
+The expensive core/warmed/native resource probes do not need to be repeated merely
+because docs, CI, acceptance harness or SDK-only tests changed. Rerun a resource
+probe if relevant local runtime/probe bytes changed during this pass, or if the
+owner explicitly requests a fresh hardware measurement.
+
+## 5. Execute real external gates when prerequisites exist
+
+Attempt, in order and without mock substitution:
+
+1. PostgreSQL verified-TLS;
+2. Vault Transit;
+3. disposable JetStream/RabbitMQ only when container use is explicitly allowed;
+4. full acceptance only when every required prerequisite is real.
+
+Record unavailable prerequisites exactly.
+
+## 6. Hosted CI
+
+Inspect the latest Actions run. Recent jobs have shown `runner_id: 0`, empty
+runner name and zero steps, which is a pre-runner platform failure. Change workflow
+source only when a concrete repository-side defect is evidenced.
 
 ## Deliverable
 
-Write a compact `LOCAL_VALIDATION_REPORT.md`: actual starting/final SHA, venv,
-commands/exits/JUnit counts, core JSON, confirmed fixes, existing work preserved,
-resource limits and unexecuted gates. Keep raw evidence private and uncommitted;
-exclude tokens/private keys, venvs and generated profiles from any shared bundle.
-Report independently: CORE ECONOMICS, PYTHON-PRODUCT ECONOMICS, SELECTED
-REGRESSION, NATIVE LOCAL-LITE ECONOMICS, and FULL ACCEPTANCE. The last remains INCOMPLETE without its real gates.
-Do not push, merge or release unless the owner separately authorizes it.
+Return:
+
+1. starting and final SHA;
+2. commits created/pushed;
+3. focused tests and exact results;
+4. SDK gate result;
+5. Ruff/mypy diagnostics fixed vs remaining;
+6. exact-current-SHA local acceptance result;
+7. external gate results/unavailable prerequisites;
+8. hosted CI state;
+9. confirmation that `main` and version remain unchanged;
+10. the single highest-value remaining action.
+
+Keep source presence, historical evidence, current-SHA executed evidence and
+unavailable infrastructure clearly separated.

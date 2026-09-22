@@ -4,38 +4,36 @@
 
 ## Current source status
 
-The current branch now contains both local tiers described in ADR 0011:
-`a2a_mq.local_lite` / `a2amq-local` (three-process default) and the optional
-`a2a_mq.local_workflow` / `a2amq-local-workflow` (five-process Workflow tier),
-plus the pure-core and native stack resource probes.
+The branch contains both local tiers described in ADR 0011 plus the distributed
+production-like implementation.
 
-No native target-machine result is recorded here yet. Source presence is not a
-resource or interoperability pass. The current local gates require fresh execution
-of:
+The latest exact-SHA local execution evidence is
+[local-run-20260922.md](validation/local-run-20260922.md) at
+`3415b10ddcfc5c721f9872c926fead5e11897543`. On that SHA:
 
-1. `scripts/local_resource_probe.py`;
-2. lightweight sequential regression;
-3. when native `daprd` and `nats-server` already exist,
-   `scripts/local_stack_probe.py`;
-4. focused official A2A/Dapr/JetStream smoke for local-lite;
-5. only when the optional Workflow tier is explicitly evaluated, its independent
-   five-process resource and real wait/timer/approval/restart smoke.
+- core economics passed;
+- the warmed Python local product passed;
+- 118 selected local regressions passed;
+- repository-pinned Dapr 1.18.3 all-components and NATS Server 2.15.0 were
+  checksum/version verified;
+- the real native three-process local-lite stack passed its resource budget and
+  functional roundtrip;
+- repository contracts and isolated wheel packaging smoke passed;
+- formal local acceptance produced `LOCAL_PASS` with 929 tests and clean exact
+  Git provenance.
 
-The local-lite tier intentionally excludes Workflow-only waits/timers/approval and
-does not claim independently-offline worker pools. The optional local Workflow
-source now exists but has no native target-machine pass recorded here. Distributed
-PostgreSQL/Vault/RabbitMQ/full-stack gates remain separate.
+That evidence remains attached to `3415b10`. Later source/harness hardening on
+this branch does not inherit the verdict. Read [current status](STATUS.md) for the
+current source SHA and the exact rerun boundary.
 
-The latest phase-3 continuation is recorded in
-[durable-service validation](validation/durable-service-20260917.md), with source
-commits, 184 selected tests, real HTTP/process scope and an offline wheel smoke.
-Read [current status](STATUS.md) and [independent review](../TEST_MVP.md) before
-interpreting a pass. The original full MVP remains unrecovered and unaccepted.
+The optional five-process local Workflow tier still has no equivalent native
+resource/restart acceptance evidence. Distributed PostgreSQL verified-TLS, Vault,
+official SDK and dual-broker/full-stack gates also remain separate and incomplete.
 
-The following phase results and the
-[earlier hardening execution](validation/hardening-20260916.md) are historical.
-They are not acceptance evidence for the current source SHA or a certificate for
-the full MVP. Absence of a runtime is not a passing integration gate.
+The next machine run should first verify the post-`3415b10` commits with focused
+regressions, then rerun exact-SHA local acceptance. Repeating the expensive resource
+probes is only required when their relevant runtime/measurement bytes changed or
+when a new target-machine measurement is explicitly needed.
 
 ## Historical environment
 
