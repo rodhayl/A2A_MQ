@@ -43,6 +43,10 @@ a2amq-local run .local-validation/local-lite
 The launcher itself becomes the ASGI process, so it does not remain as a fourth
 supervisor. JetStream provisioning runs in a short-lived helper before steady state.
 
+Local-lite uses one combined durable action relay for command publication and
+immediate start/cancel actions, rather than two independent 100 ms SQLite pollers.
+The outbox relay remains separate because it operates on the transactional outbox.
+
 Local-lite reuses TaskLedger/TaskAPI, official A2A JSON-RPC and HTTP+JSON bindings,
 JWT authorization, Dapr Pub/Sub, JetStream, SQLite outbox, cancellation, DLQ/replay
 and operations. Immediate deterministic `echo` and `upper` tasks are supported.

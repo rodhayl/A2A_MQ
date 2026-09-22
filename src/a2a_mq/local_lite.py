@@ -325,10 +325,12 @@ def create_app(settings: LocalLiteSettings):
             if mcp_server is not None:
                 await stack.enter_async_context(mcp_server.session_manager.run())
             jobs = [
-                asyncio.create_task(ActionRelay(ledger, database, publisher=bus).run(stop, settings.relay_interval),
-                                    name="a2amq-local-publish"),
-                asyncio.create_task(ActionRelay(ledger, database, actions=actions).run(stop, settings.relay_interval),
-                                    name="a2amq-local-actions"),
+                asyncio.create_task(
+                    ActionRelay(ledger, database, publisher=bus, actions=actions).run(
+                        stop, settings.relay_interval
+                    ),
+                    name="a2amq-local-actions",
+                ),
                 asyncio.create_task(OutboxRelay(database, bus).run(stop, interval=settings.relay_interval),
                                     name="a2amq-local-outbox"),
                 asyncio.create_task(AdmissionRepair(ledger).run(database, stop),

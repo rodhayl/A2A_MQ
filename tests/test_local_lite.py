@@ -3,6 +3,7 @@ import pytest
 from a2a_mq.domain import Envelope, PermanentError, state_of
 from a2a_mq.identity import Principal
 from a2a_mq.local_lite import LocalLiteActions, LocalLiteSettings, LocalLiteTaskAPI
+from a2a_mq.runtime import AsyncSQLite
 from a2a_mq.storage import SQLiteStore
 from a2a_mq.tasks import TaskLedger
 
@@ -82,3 +83,30 @@ def test_local_lite_issuer_uses_strict_https_validation(tmp_path):
     ):
         with pytest.raises(PermanentError):
             LocalLiteSettings(**base, issuer=issuer)
+
+
+async def test_combined_action_relay_handles_publish_and_start_in_one_lane(tmp_path):
+    from a2a_mq.workflows import ActionRelay
+
+    class Publisher:
+        def __init__(self):
+            self.events = []
+
+        async def publish(self, envelope):
+            self.events.append(envelope)
+
+    store = SQLiteStore(tmp_path / "local.db", tenant="demo", consumer="local")
+    ledger = TaskLedger(store, source="local-worker")
+    task = ledger.submit(principal(), request(transform="upper"))
+    database = AsyncSQLite(store, capacity=4)
+    publisher = Publisher()
+    actions = LocalLiteActions(ledger)
+    relay = ActionRelay(ledger, database, publisher=publisher, actions=actions)
+    try:
+        assert await relay.flush_once() == 1
+        assert len(publisher.events) == 1
+        assert ledger.accept(publisher.events[0]) is True
+        assert await relay.flush_once() == 1
+        assert state_of(ledger.get(principal(), task["id"])) == "COMPLETED"
+    finally:
+        await database.aclose()
