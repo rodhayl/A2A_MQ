@@ -255,3 +255,28 @@ def test_local_launcher_never_reports_failed_uvicorn_startup_as_success():
     assert _server_exit_code(Server(True)) == 0
     assert _server_exit_code(Server(False)) == 1
     assert _server_exit_code(object()) == 1
+
+
+def test_local_lite_strips_dapr_control_plane_host_environment(tmp_path, monkeypatch):
+    root = tmp_path / "profile"
+    root.mkdir(mode=0o700)
+    for name, value in (("app-api-token", "a" * 32), ("dapr-api-token", "d" * 32)):
+        path = root / name
+        path.write_text(value)
+        path.chmod(0o600)
+    monkeypatch.setenv("DAPR_SCHEDULER_HOST_ADDRESS_DNS_A", "127.0.0.1:50006")
+    monkeypatch.setenv("DAPR_SCHEDULER_HOST_ADDRESS", "127.0.0.1:50006")
+    monkeypatch.setenv("DAPR_PLACEMENT_HOST_ADDRESS", "127.0.0.1:50005")
+    profile = {
+        "issuer": "https://local-a2amq.invalid",
+        "publicUrl": "http://127.0.0.1:18000",
+        "tenant": "demo",
+        "source": "local-worker",
+        "mcp": False,
+    }
+
+    _, sidecar, child = _runtime_environments(root, profile)
+    for env in (sidecar, child):
+        assert "DAPR_SCHEDULER_HOST_ADDRESS_DNS_A" not in env
+        assert "DAPR_SCHEDULER_HOST_ADDRESS" not in env
+        assert "DAPR_PLACEMENT_HOST_ADDRESS" not in env
