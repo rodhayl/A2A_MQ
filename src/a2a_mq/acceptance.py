@@ -17,6 +17,7 @@ import re
 import subprocess
 import sys
 import time
+import tarfile
 import xml.etree.ElementTree as ET
 
 from .domain import PermanentError
@@ -136,7 +137,59 @@ def test_gate(name,root,output,env,timeout):
     return result
 
 
-FULL_REQUIRED = frozenset({*GROUPS, "repository-check", "dependency-check", "lint", "types", "jetstream", "rabbitmq"})
+FULL_REQUIRED = frozenset({*GROUPS, "repository-check", "dependency-check", "lint", "types", "package", "jetstream", "rabbitmq"})
+
+
+
+def package_gate(root, output, env, timeout):
+    """Build and import the exact committed wheel entirely outside the checkout."""
+    archive=output/"package-source.tar"
+    source=output/"package-source"
+    wheels=output/"package-wheel"
+    installed=output/"package-installed"
+    source.mkdir(mode=0o700)
+    wheels.mkdir(mode=0o700)
+    installed.mkdir(mode=0o700)
+    result={"name":"package","status":"FAILED"}
+    archive_cmd=["git","archive","--format=tar","HEAD","-o",str(archive)]
+    result["archiveReturnCode"]=run_command(archive_cmd,root,output/"package-archive.log",timeout,env)
+    if result["archiveReturnCode"] != 0:
+        return result
+    try:
+        with tarfile.open(archive,"r:") as bundle:
+            bundle.extractall(source,filter="data")
+    except (OSError,tarfile.TarError):
+        result["evidenceError"]="INVALID_GIT_ARCHIVE"
+        return result
+    wheel_cmd=[sys.executable,"-m","pip","wheel","--no-deps","--no-build-isolation",
+               "--wheel-dir",str(wheels),str(source)]
+    result["wheelReturnCode"]=run_command(wheel_cmd,output,output/"package-wheel.log",timeout,env)
+    candidates=list(wheels.glob("a2a_mq-*.whl"))
+    if result["wheelReturnCode"] != 0 or len(candidates) != 1:
+        result["evidenceError"]="WHEEL_BUILD_FAILED"
+        return result
+    wheel=candidates[0]
+    install_cmd=[sys.executable,"-m","pip","install","--no-deps","--target",str(installed),str(wheel)]
+    result["installReturnCode"]=run_command(install_cmd,output,output/"package-install.log",timeout,env)
+    if result["installReturnCode"] != 0:
+        return result
+    smoke=(
+        "import os,sys; from pathlib import Path; "
+        "target=Path(os.environ['A2AMQ_WHEEL_TARGET']).resolve(); "
+        "sys.path.insert(0,str(target)); import a2a_mq; "
+        "from importlib.resources import files; import a2a_mq.binding as b; "
+        "assert Path(a2a_mq.__file__).resolve().is_relative_to(target); "
+        "assert b.load_binding()['protocolVersion']=='1.0'; "
+        "assert files('a2a_mq').joinpath('schema.json').is_file()"
+    )
+    child={**env,"A2AMQ_WHEEL_TARGET":str(installed)}
+    smoke_cmd=[sys.executable,"-I","-c",smoke]
+    result["smokeReturnCode"]=run_command(smoke_cmd,output,output/"package-smoke.log",timeout,child)
+    if result["smokeReturnCode"] == 0:
+        result.update(status="PASSED",wheel=wheel.name,
+                      wheelSha256=hashlib.sha256(wheel.read_bytes()).hexdigest(),
+                      wheelBytes=wheel.stat().st_size)
+    return result
 
 
 def full_status(results,requested):
@@ -212,6 +265,7 @@ def main():
                                  ('types',[sys.executable,'-m','mypy'])]:
                 rc=run_command(command,root,output/(name+'.log'),args.timeout,env)
                 results.append({'name':name,'status':'PASSED' if rc==0 else 'FAILED','returnCode':rc})
+            results.append(package_gate(root,output,env,args.timeout))
             for broker in ('jetstream','rabbitmq'):
                 if not args.allow_disposable_containers:
                     results.append({'name':broker,'status':'UNAVAILABLE','missing':['explicit container opt-in']})

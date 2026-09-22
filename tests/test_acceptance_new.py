@@ -198,6 +198,10 @@ def test_full_acceptance_requires_repository_contract_checker():
     assert "repository-check" in FULL_REQUIRED
 
 
+def test_full_acceptance_requires_exact_commit_package_smoke():
+    assert "package" in FULL_REQUIRED
+
+
 def test_sdk_gate_requires_mcp_v2_http_client_dependency():
     assert GROUPS["sdk"]["modules"] == ["a2a", "dapr.ext.workflow", "mcp", "httpx2"]
 
