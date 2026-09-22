@@ -1,13 +1,17 @@
 """Central DLQ provenance, two-phase replay, and offline restore contracts."""
+import httpx
 import pytest
 
 from a2a_mq.backup import restore_sqlite_backup
 from a2a_mq.central_dlq import CentralDLQ
-from a2a_mq.domain import PermanentError, command
+from a2a_mq.domain import PermanentError, canonical, command
 from a2a_mq.identity import Principal
 from a2a_mq.operations import OperationsManager
+from a2a_mq.ops_http import create_operations_app
+from a2a_mq.runtime import AsyncSQLite
 from a2a_mq.storage import SQLiteStore
 from a2a_mq.tasks import TaskLedger
+from a2a_mq.transport import cloud_event
 
 
 @pytest.fixture
@@ -30,6 +34,44 @@ def test_dlq_preserves_origin_and_split_replay_state(setup):
     dlq.mark_replayed(admin, entry)
     replayed = dlq.list_dlq(admin, include_replayed=True)[0][0]
     assert replayed["replayedAt"] == 1000.0
+
+
+async def test_ops_http_replays_archived_dapr_cloudevent(setup):
+    store, dlq, admin = setup
+    task_ops = OperationsManager(TaskLedger(store, source="workflow-worker"))
+    original = command("hello", tenant="demo", skill="echo")
+    delivered = {**cloud_event(original), "pubsubname": "bus", "topic": original.route}
+    entry = dlq.record_dlq(canonical(delivered).encode(), "HANDLER_FAILED",
+                           origin_consumer="observer-a")
+
+    class Verifier:
+        def verify(self, encoded):
+            assert encoded == "fixture"
+            return admin
+
+    class Publisher:
+        def __init__(self):
+            self.items = []
+
+        async def publish(self, envelope):
+            self.items.append(envelope)
+
+    database = AsyncSQLite(store)
+    publisher = Publisher()
+    app = create_operations_app(task_ops, database, publisher, Verifier(),
+                                dlq_ops=dlq, dlq_database=database)
+    try:
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app),
+                                     base_url="http://ops",
+                                     headers={"Authorization": "Bearer fixture"}) as client:
+            response = await client.post(f"/dlq/{entry}/replay")
+        assert response.status_code == 200
+        assert response.json() == {"replayed": original.as_dict()["messageId"]}
+        assert [item.wire for item in publisher.items] == [original.wire]
+        replayed = dlq.list_dlq(admin, include_replayed=True)[0][0]
+        assert replayed["attempts"] == 1 and replayed["replayedAt"] == 1000.0
+    finally:
+        await database.aclose()
 
 
 def test_verified_sqlite_backup_restores_to_new_file(setup, tmp_path):

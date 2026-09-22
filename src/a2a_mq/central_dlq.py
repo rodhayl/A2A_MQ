@@ -151,6 +151,17 @@ class CentralDLQ:
             raise RetryableError("STORAGE_INTEGRITY_ERROR")
         return raw
 
+    def replay_candidate(self, principal: Principal, entry_id: str) -> Envelope:
+        raw = self.dlq_payload(principal, entry_id)
+        entry_id = _key(entry_id)
+        with self.store._connection() as db:
+            row = db.execute("SELECT truncated FROM a2amq_central_dlq "
+                             "WHERE tenant=? AND consumer=? AND entry_id=?",
+                             (*self.keys, entry_id)).fetchone()
+        require(row is not None, "DLQ_NOT_FOUND")
+        require(not bool(row["truncated"]), "DLQ_NOT_REPLAYABLE")
+        return _replay_envelope(raw, self.store.scope.tenant)
+
     def prepare_replay(self, principal: Principal, entry_id: str, *, force: bool = False) -> None:
         _admin(principal, self.store.scope.tenant)
         require(type(force) is bool, "INVALID_QUERY")
@@ -180,14 +191,7 @@ class CentralDLQ:
         self.metrics.inc("a2amq_dlq_replayed_total")
 
     async def replay_dlq(self, principal: Principal, entry_id: str, publisher, *, force: bool = False) -> Envelope:
-        raw = self.dlq_payload(principal, entry_id)
-        with self.store._connection() as db:
-            row = db.execute("SELECT truncated FROM a2amq_central_dlq "
-                             "WHERE tenant=? AND consumer=? AND entry_id=?",
-                             (*self.keys, _key(entry_id))).fetchone()
-        require(row is not None, "DLQ_NOT_FOUND")
-        require(not bool(row["truncated"]), "DLQ_NOT_REPLAYABLE")
-        envelope = _replay_envelope(raw, self.store.scope.tenant)
+        envelope = self.replay_candidate(principal, entry_id)
         self.prepare_replay(principal, entry_id, force=force)
         await publisher.publish(envelope)
         self.mark_replayed(principal, entry_id)

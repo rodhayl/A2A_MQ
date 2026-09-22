@@ -169,16 +169,21 @@ class OperationsManager:
             raise RetryableError("STORAGE_INTEGRITY_ERROR")
         return raw
 
-    async def replay_dlq(self, principal: Principal, entry_id: str, publisher,
-                         *, force: bool = False) -> Envelope:
+    def replay_candidate(self, principal: Principal, entry_id: str) -> Envelope:
         _admin(principal, self.store.scope.tenant)
-        require(type(force) is bool, "INVALID_QUERY")
         entry_id = _key(entry_id)
         try:
             envelope = Envelope.parse(self.dlq_payload(principal, entry_id))
         except PermanentError:
             raise PermanentError("DLQ_NOT_REPLAYABLE") from None
         require(envelope.as_dict()["tenantId"] == self.store.scope.tenant, "DLQ_TENANT_MISMATCH")
+        envelope.check_expiry()
+        return envelope
+
+    def prepare_replay(self, principal: Principal, entry_id: str, *, force: bool = False) -> None:
+        _admin(principal, self.store.scope.tenant)
+        require(type(force) is bool, "INVALID_QUERY")
+        entry_id = _key(entry_id)
         with self.store._transaction() as db:
             row = db.execute("SELECT replayed_at FROM a2amq_dlq WHERE tenant=? AND consumer=? AND entry_id=?",
                              (*self.keys, entry_id)).fetchone()
@@ -187,12 +192,27 @@ class OperationsManager:
             db.execute("UPDATE a2amq_dlq SET attempts=attempts+1 WHERE tenant=? AND consumer=? AND entry_id=?",
                        (*self.keys, entry_id))
         self.metrics.inc("a2amq_dlq_replay_attempts_total")
-        await publisher.publish(envelope)
+
+    def mark_replayed(self, principal: Principal, entry_id: str) -> None:
+        _admin(principal, self.store.scope.tenant)
+        entry_id = _key(entry_id)
         with self.store._transaction() as db:
+            row = db.execute("SELECT attempts FROM a2amq_dlq "
+                             "WHERE tenant=? AND consumer=? AND entry_id=?",
+                             (*self.keys, entry_id)).fetchone()
+            require(row is not None, "DLQ_NOT_FOUND")
+            require(row["attempts"] > 0, "DLQ_NOT_ATTEMPTED")
             db.execute("UPDATE a2amq_dlq SET replayed_at=COALESCE(replayed_at,?) "
                        "WHERE tenant=? AND consumer=? AND entry_id=?",
                        (self.store._now(), *self.keys, entry_id))
         self.metrics.inc("a2amq_dlq_replayed_total")
+
+    async def replay_dlq(self, principal: Principal, entry_id: str, publisher,
+                         *, force: bool = False) -> Envelope:
+        envelope = self.replay_candidate(principal, entry_id)
+        self.prepare_replay(principal, entry_id, force=force)
+        await publisher.publish(envelope)
+        self.mark_replayed(principal, entry_id)
         return envelope
 
     def retire(self, principal: Principal, *, retention_seconds: float,

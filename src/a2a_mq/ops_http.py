@@ -102,12 +102,8 @@ def create_operations_app(task_ops, task_database, publisher, verifier, *,
         force = body.get("force", False)
         require(type(force) is bool, "INVALID_QUERY")
         principal = current_principal()
-        raw = await db_call(dlq_database, dlq_ops.dlq_payload, principal, request.path_params["entry_id"])
-        from .domain import Envelope
-        try:
-            envelope = Envelope.parse(raw)
-        except PermanentError:
-            raise PermanentError("DLQ_NOT_REPLAYABLE") from None
+        envelope = await db_call(dlq_database, dlq_ops.replay_candidate, principal,
+                                 request.path_params["entry_id"])
         await db_call(dlq_database, dlq_ops.prepare_replay, principal,
                       request.path_params["entry_id"], force=force)
         await publisher.publish(envelope)
