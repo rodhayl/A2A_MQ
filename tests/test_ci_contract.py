@@ -34,7 +34,7 @@ def test_all_actions_are_sha_pinned_without_persisted_checkout_credentials():
 def test_required_sdk_is_installed_and_selected_without_hidden_skips():
     steps = workflow()["jobs"]["local"]["steps"]
     commands = "\n".join(step.get("run", "") for step in steps)
-    assert (".[dev,upstream,postgres,mcp]" in commands or ".[dev,upstream,postgres]" in commands) and "python -m pip check" in commands
+    assert ".[dev,upstream,postgres,mcp]" in commands and "python -m pip check" in commands
     assert "import a2a.types" in commands
     test = next(step for step in steps if step.get("id") == "tests")
     assert "-W error" in test["run"] and "not live and not postgres" in test["run"]
