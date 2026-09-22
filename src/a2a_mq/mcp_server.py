@@ -155,7 +155,10 @@ def create_mcp(api, verifier, *, resource_url: str, profile: str = "workflow",
     tools = MCPTools(api, verifier, current_token)
     server = MCPServer("A2A-MQ durable tasks", token_verifier=Verifier(),
         auth=AuthSettings(issuer_url=AnyHttpUrl(verifier.issuer),
-                          resource_server_url=AnyHttpUrl(resource_url), required_scopes=[]))
+                          resource_server_url=AnyHttpUrl(resource_url), required_scopes=[],
+                          # JWTVerifier already enforces the exact resource URL as aud.
+                          # MCP 2.2 requires this choice to be explicit under -W error.
+                          validate_token_resource=False))
     registered = ({
         "submit_task": tools.submit_task_lite,
         "get_task": tools.get_task,

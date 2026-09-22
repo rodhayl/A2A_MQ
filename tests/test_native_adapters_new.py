@@ -131,6 +131,7 @@ async def test_official_mcp_http_tools_and_authenticated_task(tmp_path):
     api = TaskAPI(TaskLedger(store), database)
     verifier, issue = identity("https://api.example/mcp")
     server, app = create_mcp(api, verifier, resource_url="https://api.example/mcp")
+    assert server.settings.auth.validate_token_resource is False
     try:
         async with server.session_manager.run():
             async with httpx2.AsyncClient(transport=httpx2.ASGITransport(app=app),
