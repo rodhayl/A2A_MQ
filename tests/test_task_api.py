@@ -185,3 +185,19 @@ async def test_invalid_configuration_never_admitted(api, config):
     with pytest.raises(PermanentError):
         await api.send(USER, request(**config))
     assert not api.ledger.pending(("publish",))
+
+
+async def test_send_only_scope_can_admit_immediate_without_read_authority(api):
+    sender = Principal("sender", "demo", frozenset({"a2a:send"}))
+    task = await api.send(sender, request("send-only", returnImmediately=True))
+    assert state_of(task) == "SUBMITTED"
+    assert len(api.ledger.pending(("publish",))) == 1
+    with pytest.raises(PermanentError, match="FORBIDDEN"):
+        await api.get(sender, task["id"])
+
+
+async def test_send_only_scope_cannot_request_waiting_mode_or_admit_side_effect(api):
+    sender = Principal("sender", "demo", frozenset({"a2a:send"}))
+    with pytest.raises(PermanentError, match="FORBIDDEN"):
+        await api.send(sender, request("send-and-wait"))
+    assert api.ledger.pending(("publish",)) == []

@@ -175,12 +175,18 @@ class TaskAPI:
     async def send(self, principal, request):
         require(isinstance(request, dict), "INVALID_REQUEST")
         config = configuration(request)
-        principal.authorize("read", self.ledger.store.scope.tenant)
+        immediate = config.get("returnImmediately", False)
+        # Submission is authorized by ledger.submit() with a2a:send. A caller that
+        # asks this method to wait for later task state must also hold a2a:read,
+        # and that check happens before durable admission to avoid a side effect
+        # followed by an authorization failure.
+        if not immediate:
+            principal.authorize("read", self.ledger.store.scope.tenant)
         request = load_json(canonical(request))
         continuation = bool(request.get("message", {}).get("taskId"))
         task = await self._call(self.ledger.submit, principal, request)
         seen = any(m.get("messageId") == request["message"]["messageId"] for m in task.get("history", []))
-        if not config.get("returnImmediately", False):
+        if not immediate:
             task = await self._wait(principal, task["id"],
                                     initial=task if continuation and not seen and state_of(task) in INTERRUPTED else None)
         return history(task, config.get("historyLength"))
