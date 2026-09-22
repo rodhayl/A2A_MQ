@@ -174,14 +174,13 @@ def _local_keys(root):
 
 
 def _compose_into(output: Path, *, broker: str, source_root: Path, images: dict | None = None):
-    require(not output.exists(), "OUTPUT_ALREADY_EXISTS")
+    require(output.is_dir() and not output.is_symlink(), "OUTPUT_ALREADY_EXISTS")
     images = {**IMAGES, **(images or {})}
     require(set(images) == set(IMAGES) and all(isinstance(v, str) and v and ":latest" not in v
             for v in images.values()), "INVALID_IMAGE_CONFIG")
     require((source_root / "deploy/Dockerfile.full").is_file(), "SOURCE_ROOT_REQUIRED")
     plan, roles = broker_plan(), topology()
     require(broker in {"jetstream", "rabbitmq"}, "INVALID_BROKER")
-    output.mkdir(parents=True, mode=0o700)
     _local_keys(output)
     passwords = {k: secrets.token_hex(32) for k in ("postgres", "redis", "nats", "rabbit")}
     uid, gid = os.getuid(), os.getgid()
@@ -313,18 +312,17 @@ proxy_buffering off; proxy_read_timeout 3700s; proxy_set_header Connection ""; }
 
 
 def compose(output: Path, *, broker: str, source_root: Path, images: dict | None = None):
-    """Generate a disposable fixture atomically so failed builds retain no credentials."""
+    """Generate a disposable fixture without overwriting or retaining partial credentials."""
     final = output.absolute()
     require(not final.exists() and not final.is_symlink(), "OUTPUT_ALREADY_EXISTS")
-    staging = final.with_name(final.name + "." + secrets.token_hex(8) + ".tmp")
-    require(not staging.exists() and not staging.is_symlink(), "OUTPUT_ALREADY_EXISTS")
     try:
-        generated = _compose_into(staging, broker=broker, source_root=source_root, images=images)
-        relative = generated.relative_to(staging)
-        os.replace(staging, final)
-        return final / relative
+        final.mkdir(parents=True, mode=0o700)
+    except FileExistsError:
+        raise PermanentError("OUTPUT_ALREADY_EXISTS") from None
+    try:
+        return _compose_into(final, broker=broker, source_root=source_root, images=images)
     except BaseException:
-        shutil.rmtree(staging, ignore_errors=True)
+        shutil.rmtree(final, ignore_errors=True)
         raise
 
 
