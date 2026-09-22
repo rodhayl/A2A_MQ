@@ -117,13 +117,20 @@ def create_mcp(api, verifier, *, resource_url: str, profile: str = "workflow",
     Mount the app at '/', and enter server.session_manager.run() from the host
     lifespan. Modern requests are sessionless; legacy sessions are disabled too.
     """
-    url = urlsplit(resource_url)
+    try:
+        url = urlsplit(resource_url)
+        port = url.port
+    except (TypeError, ValueError):
+        raise PermanentError("MCP_HTTPS_RESOURCE_REQUIRED") from None
     secure = url.scheme == "https"
     loopback = (allow_insecure_loopback and url.scheme == "http"
                 and url.hostname in {"127.0.0.1", "localhost", "::1"})
-    require((secure or loopback) and bool(url.hostname) and url.path == "/mcp"
-            and not url.username and not url.password and not url.query and not url.fragment
-            and "?" not in resource_url and "#" not in resource_url,
+    require(isinstance(resource_url, str) and (secure or loopback) and bool(url.hostname)
+            and url.path == "/mcp" and not url.username and not url.password
+            and not url.query and not url.fragment
+            and "?" not in resource_url and "#" not in resource_url
+            and not any(c.isspace() for c in resource_url)
+            and (port is None or 1 <= port <= 65535),
             "MCP_HTTPS_RESOURCE_REQUIRED")
     require(verifier.audience == resource_url and urlsplit(verifier.issuer).scheme == "https",
             "MCP_RESOURCE_AUDIENCE_REQUIRED")

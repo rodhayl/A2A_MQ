@@ -17,11 +17,17 @@ from .task_api import TaskAPI
 def create_mcp(api: TaskAPI, verifier: JWTVerifier, *, resource_url: str,
                name: str = "A2A-MQ durable tasks"):
     """Return a configured official MCPServer; caller chooses the HTTP mount."""
-    parsed = urlsplit(resource_url)
+    try:
+        parsed = urlsplit(resource_url)
+        port = parsed.port
+    except (TypeError, ValueError):
+        raise PermanentError("MCP_HTTPS_RESOURCE_REQUIRED") from None
     require(isinstance(resource_url, str) and parsed.scheme == "https" and bool(parsed.hostname)
             and parsed.path == "/mcp" and not parsed.username and not parsed.password
             and not parsed.query and not parsed.fragment
             and "?" not in resource_url and "#" not in resource_url
+            and not any(c.isspace() for c in resource_url)
+            and (port is None or 1 <= port <= 65535)
             and 8 < len(resource_url) <= 2048, "MCP_HTTPS_RESOURCE_REQUIRED")
     require(verifier.audience == resource_url and urlsplit(verifier.issuer).scheme == "https",
             "MCP_AUDIENCE_MISMATCH")

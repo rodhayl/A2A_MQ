@@ -36,6 +36,9 @@ async def test_official_server_registers_bounded_task_tools():
     "https://mcp.example/other",
     "https://mcp.example/mcp?",
     "https://mcp.example/mcp#",
+    "https://mcp.example:70000/mcp",
+    "https://mcp.example/mcp\n",
+    "https://mcp.example/mcp\t",
 ])
 def test_mcp_adapter_requires_exact_https_resource_before_sdk_import(url):
     verifier = Verifier()
