@@ -96,7 +96,10 @@ def create_api_platform(task_store, dlq_store, bus, *, a2a_verifier, mcp_verifie
     state: dict[str, Any] = {"relay_task": None, "stopping": False}
 
     async def live(request):
-        return JSONResponse({"status": "alive"})
+        relay_task = state["relay_task"]
+        failed = (not state["stopping"] and relay_task is not None and relay_task.done())
+        return JSONResponse({"status": "failed" if failed else "alive"},
+                            status_code=503 if failed else 200)
 
     async def ready(request):
         relay_task = state["relay_task"]

@@ -123,6 +123,33 @@ async def test_api_platform_enters_mcp_lifespan_and_drains_relays(tmp_path):
     assert mcp.marker["paths"] == ["/mcp", "/.well-known/oauth-protected-resource/mcp"]
 
 
+async def test_api_liveness_fails_when_command_relay_dies(tmp_path):
+    path = tmp_path / "api-dead-relay.db"
+    tasks = SQLiteStore(path, tenant="demo", consumer="workflow")
+    dead = SQLiteStore(path, tenant="demo", consumer="operations")
+    bus = Bus()
+    app = create_api_platform(
+        tasks, dead, bus,
+        a2a_verifier=object(), mcp_verifier=object(),
+        public_url="https://agent.example",
+        bridge_factory=bridge, mcp_factory=mcp,
+    )
+
+    async def stop_immediately(*args, **kwargs):
+        return None
+
+    app.state.command_relay.run = stop_immediately
+    async with app.router.lifespan_context(app):
+        await asyncio.sleep(0)
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app),
+                                     base_url="https://agent.example") as client:
+            live = await client.get("/health/live")
+            ready = await client.get("/health/ready")
+            assert live.status_code == 503 and live.json() == {"status":"failed"}
+            assert ready.status_code == 503
+    assert bus.closed
+
+
 async def test_worker_http_lifespan_does_not_block_on_workflow_runtime_start(tmp_path):
     store = SQLiteStore(tmp_path / "worker-blocked.db", tenant="demo", consumer="workflow")
     bus = Bus()
