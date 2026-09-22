@@ -138,6 +138,7 @@ tests/test_local_resource_probe.py
 tests/test_local_python_probe.py
 tests/test_local_stack_probe.py
 tests/test_bootstrap_local_tools.py
+tests/test_local_native_versions.py
 tests/test_local_lite.py
 tests/test_local_runtime.py
 tests/test_local_workflow.py
@@ -191,6 +192,19 @@ if [ -z "$DAPR_BIN" ] && [ -x "$HOME/.dapr/bin/daprd" ]; then
 fi
 NATS_BIN="$(command -v nats-server || true)"
 printf 'daprd=%s\nnats-server=%s\n' "$DAPR_BIN" "$NATS_BIN"   > "$EVIDENCE/native-prerequisites.txt"
+
+if [ -n "$DAPR_BIN" ] && [ -n "$NATS_BIN" ]; then
+  set +e
+  "$PY" "$REPO/scripts/check_local_native_versions.py" \
+    --daprd "$DAPR_BIN" --nats-server "$NATS_BIN" \
+    --json "$EVIDENCE/native-versions-existing.json"
+  VERSION_RC=$?
+  set -e
+  if [ "$VERSION_RC" -ne 0 ]; then
+    DAPR_BIN=""
+    NATS_BIN=""
+  fi
+fi
 ```
 
 If either binary is absent, do not install it into the host. After the core and
@@ -198,18 +212,23 @@ broker-free gates have passed, you MAY use the repository's private bootstrap to
 download the exact pinned release archives into this run directory:
 
 ```bash
-TOOLS="$STATE/tools"
-"$PY" "$REPO/scripts/bootstrap_local_tools.py" --output "$TOOLS" \
-  > "$EVIDENCE/bootstrap-local-tools.json"
-export PATH="$TOOLS/bin:$PATH"
-DAPR_BIN="$(command -v daprd || true)"
-NATS_BIN="$(command -v nats-server || true)"
+if [ -z "$DAPR_BIN" ] || [ -z "$NATS_BIN" ]; then
+  TOOLS="$STATE/tools"
+  "$PY" "$REPO/scripts/bootstrap_local_tools.py" --output "$TOOLS" \
+    > "$EVIDENCE/bootstrap-local-tools.json"
+  export PATH="$TOOLS/bin:$PATH"
+  DAPR_BIN="$(command -v daprd || true)"
+  NATS_BIN="$(command -v nats-server || true)"
+  "$PY" "$REPO/scripts/check_local_native_versions.py" \
+    --daprd "$DAPR_BIN" --nats-server "$NATS_BIN" \
+    --json "$EVIDENCE/native-versions-bootstrap.json"
+fi
 ```
 
 This bootstrap supports Linux amd64/arm64 only, verifies repository-pinned SHA-256
 digests before extracting one regular binary from each archive, and never writes
 outside `$STATE/tools`. Treat download/checksum/platform failures as
-**INCOMPLETE_NATIVE_PREREQ**, not as permission to install system packages. Record
+**INCOMPLETE_NATIVE_PREREQ**, not as permission to install system packages. A discovered binary with a different version is **INCOMPLETE_NATIVE_VERSION** and may be replaced only by the private pinned bootstrap inside this run directory. Record
 `$TOOLS/manifest.json` in the evidence and include its disk size in the resource
 report. The tools disappear when the validation run directory is removed.
 
