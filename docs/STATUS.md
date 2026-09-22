@@ -165,8 +165,33 @@ Additional acceptance/supply-chain hardening after `a3d7020a` includes:
   `setuptools==82.0.1` build-system pin is honored rather than an arbitrary host
   backend (`70ad2ece`).
 
+Further source/harness hardening after `70ad2ece` includes:
+
+- optional Workflow validation now uses separately pinned official Dapr 1.18.3
+  Placement/Scheduler assets while local-lite retains its two-binary footprint;
+  retained release archives, manifests and extracted binaries are cross-bound by
+  SHA-256 provenance (`7c317b75`, `ba3bd5d9`, `3c7dfba1`, `09b003fb`);
+- the resource probe now requires a prior matching `PASS_NATIVE_VERSION` report
+  for the exact manifest/binary fingerprints and emits structured
+  `INCOMPLETE_MEASUREMENT` evidence when native provenance preflight fails
+  (`8a374e64`, `79383583`);
+- production input validation was tightened for Kubernetes names, ingress/broker/
+  Redis endpoints and egress CIDRs, without broadening default egress
+  (`6eb41a67`, `b7ea2862`);
+- central DLQ replay now safely reconstructs and revalidates the original Dapr
+  CloudEvent/envelope and refuses truncated or identifier/topic-mismatched payloads
+  (`90af24fe`);
+- Workflow HTTP startup no longer blocks on runtime connection, while fatal
+  background-task failure now drives liveness to 503 for both Workflow and API
+  critical loops so Kubernetes can restart a dead worker/relay
+  (`3839f543`, `afb56ed6`, `b30da821`);
+- disposable full-stack acceptance removes generated JWT/TLS/private broker/database
+  credentials after a successful Compose teardown; explicit `--keep-failed`
+  remains the opt-in diagnostic retention path (`eec02c99`).
+
 These changes are source/harness hardening only. They have not inherited the
-historical `LOCAL_PASS` and require focused/current-SHA execution.
+historical `LOCAL_PASS`, resource observations or any external gate result and
+require focused/current-SHA execution.
 
 ## Evidence that exists
 
