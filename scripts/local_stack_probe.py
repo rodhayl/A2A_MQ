@@ -306,6 +306,38 @@ def _native_fingerprints(root: Path, expected_roles: tuple[str, ...]) -> tuple[s
     return _sha256_file(root / "manifest.json"), binaries
 
 
+def _verified_native_report(path: Path, manifest_sha: str, binary_sha: dict[str, str],
+                            expected_roles: tuple[str, ...]) -> dict:
+    """Require a prior PASS_NATIVE_VERSION for these exact bootstrap bytes."""
+    names = {"daprd": "daprd", "nats": "nats-server",
+             "placement": "placement", "scheduler": "scheduler"}
+    expected = {names[role] for role in expected_roles if role != "app"}
+    try:
+        if path.is_symlink():
+            raise MeasurementUnavailable("native verification unavailable or unsafe")
+        flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0)
+        fd = os.open(path, flags)
+        with os.fdopen(fd, "rb") as stream:
+            info = os.fstat(stream.fileno())
+            if not stat.S_ISREG(info.st_mode) or info.st_size <= 0 or info.st_size > 65536:
+                raise MeasurementUnavailable("native verification unavailable or unsafe")
+            raw = stream.read(65537)
+        if len(raw) > 65536:
+            raise MeasurementUnavailable("native verification unavailable or unsafe")
+        report = json.loads(raw.decode("utf-8", errors="strict"))
+    except MeasurementUnavailable:
+        raise
+    except (OSError, UnicodeError, ValueError, KeyError):
+        raise MeasurementUnavailable("native verification unavailable or invalid") from None
+    actual = report.get("binarySha256") if isinstance(report, dict) else None
+    if (not isinstance(report, dict) or report.get("verdict") != "PASS_NATIVE_VERSION"
+            or report.get("bootstrapManifestSha256") != manifest_sha
+            or not isinstance(actual, dict) or set(actual) != expected
+            or actual != binary_sha):
+        raise MeasurementUnavailable("native verification does not match bootstrap tools")
+    return report
+
+
 def _native_tools_match(roles: dict[str, list[int]], commands: dict[int, str],
                         bin_dir: Path, expected_roles: tuple[str, ...]) -> bool:
     names = {"daprd": "daprd", "nats": "nats-server",
@@ -348,6 +380,8 @@ def main() -> int:
     parser.add_argument("--log", required=True, type=Path)
     parser.add_argument("--tools-dir", required=True, type=Path,
                         help="private bootstrap root whose bin directory must supply native children")
+    parser.add_argument("--native-verification", required=True, type=Path,
+                        help="PASS_NATIVE_VERSION JSON for the exact bootstrap bytes")
     parser.add_argument("--startup-timeout", type=float)
     parser.add_argument("--idle-seconds", type=float, default=60)
     parser.add_argument("--max-total-rss-mib", type=float)
@@ -380,6 +414,8 @@ def main() -> int:
     tools_manifest_sha, tools_binary_sha = _native_fingerprints(
         args.tools_dir.expanduser().absolute(), expected_roles
     )
+    _verified_native_report(args.native_verification, tools_manifest_sha,
+                            tools_binary_sha, expected_roles)
     max_rss = policy["maxTotalRssMiB"] if args.max_total_rss_mib is None else args.max_total_rss_mib
     max_cpu = policy["maxIdleCpuPercent"] if args.max_idle_cpu_percent is None else args.max_idle_cpu_percent
     max_startup = policy["maxStartupSeconds"] if args.max_startup_seconds is None else args.max_startup_seconds

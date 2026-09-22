@@ -145,6 +145,7 @@ PROFILE="$STATE/local-lite"
 "$PY" "$REPO/scripts/local_stack_probe.py" \
   --profile "$PROFILE" \
   --tools-dir "$TOOLS" \
+  --native-verification "$EVIDENCE/native-versions-bootstrap.json" \
   --json "$EVIDENCE/local-stack-resources.json" \
   --log "$EVIDENCE/local-stack.log"
 ```

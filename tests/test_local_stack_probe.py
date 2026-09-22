@@ -150,10 +150,13 @@ def test_stack_probe_writes_failure_when_root_process_cannot_start(tmp_path, mon
     monkeypatch.setattr(probe, "_validated_tools_bin", lambda root, roles: tools / "bin")
     monkeypatch.setattr(probe, "_native_fingerprints",
                         lambda root, roles: ("a" * 64, {"daprd":"b" * 64, "nats-server":"c" * 64}))
+    monkeypatch.setattr(probe, "_verified_native_report",
+                        lambda *args: {"verdict":"PASS_NATIVE_VERSION"})
     monkeypatch.setattr(sys, "argv", [
         "local_stack_probe.py",
         "--profile", str(profile),
         "--tools-dir", str(tools),
+        "--native-verification", str(tmp_path / "native.json"),
         "--json", str(output),
         "--log", str(log),
     ])
@@ -242,6 +245,73 @@ def test_stack_probe_rejects_nonprivate_or_symlinked_tools(tmp_path):
     (root / "bin").symlink_to(target)
     with __import__("pytest").raises(probe.MeasurementUnavailable, match="unavailable or unsafe"):
         probe._validated_tools_bin(root, ("app", "daprd", "nats"))
+
+
+def test_stack_probe_requires_matching_native_verification(tmp_path):
+    import json
+    import pytest
+
+    probe = _module()
+    report = tmp_path / "native.json"
+    manifest_sha = "a" * 64
+    binaries = {"daprd":"b" * 64, "nats-server":"c" * 64}
+    report.write_text(json.dumps({
+        "verdict":"PASS_NATIVE_VERSION",
+        "bootstrapManifestSha256":manifest_sha,
+        "binarySha256":binaries,
+    }))
+    assert probe._verified_native_report(
+        report, manifest_sha, binaries, ("app", "daprd", "nats")
+    )["verdict"] == "PASS_NATIVE_VERSION"
+
+    for value in (
+        {"verdict":"INCOMPLETE_NATIVE_VERSION",
+         "bootstrapManifestSha256":manifest_sha, "binarySha256":binaries},
+        {"verdict":"PASS_NATIVE_VERSION",
+         "bootstrapManifestSha256":"f" * 64, "binarySha256":binaries},
+        {"verdict":"PASS_NATIVE_VERSION",
+         "bootstrapManifestSha256":manifest_sha,
+         "binarySha256":{"daprd":"b" * 64, "nats-server":"d" * 64}},
+    ):
+        report.write_text(json.dumps(value))
+        with pytest.raises(probe.MeasurementUnavailable, match="does not match"):
+            probe._verified_native_report(
+                report, manifest_sha, binaries, ("app", "daprd", "nats")
+            )
+
+
+def test_stack_probe_workflow_verification_requires_control_plane_hashes(tmp_path):
+    import json
+    import pytest
+
+    probe = _module()
+    report = tmp_path / "native-workflow.json"
+    manifest_sha = "a" * 64
+    binaries = {
+        "daprd":"b" * 64, "nats-server":"c" * 64,
+        "placement":"d" * 64, "scheduler":"e" * 64,
+    }
+    report.write_text(json.dumps({
+        "verdict":"PASS_NATIVE_VERSION",
+        "bootstrapManifestSha256":manifest_sha,
+        "binarySha256":binaries,
+    }))
+    probe._verified_native_report(
+        report, manifest_sha, binaries,
+        ("app", "daprd", "nats", "placement", "scheduler")
+    )
+    incomplete = dict(binaries)
+    incomplete.pop("scheduler")
+    report.write_text(json.dumps({
+        "verdict":"PASS_NATIVE_VERSION",
+        "bootstrapManifestSha256":manifest_sha,
+        "binarySha256":incomplete,
+    }))
+    with pytest.raises(probe.MeasurementUnavailable, match="does not match"):
+        probe._verified_native_report(
+            report, manifest_sha, binaries,
+            ("app", "daprd", "nats", "placement", "scheduler")
+        )
 
 
 def test_stack_probe_native_fingerprints_match_manifest_and_binaries(tmp_path):
