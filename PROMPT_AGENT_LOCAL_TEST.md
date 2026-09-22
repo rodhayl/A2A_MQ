@@ -163,11 +163,28 @@ NATS_BIN="$(command -v nats-server || true)"
 printf 'daprd=%s\nnats-server=%s\n' "$DAPR_BIN" "$NATS_BIN"   > "$EVIDENCE/native-prerequisites.txt"
 ```
 
-If either is absent, set **LOCAL ECONOMICS = INCOMPLETE_NATIVE_PREREQ** for the
-real stack. Do not install it. Continue only source/broker-free analysis.
+If either binary is absent, do not install it into the host. After the core and
+broker-free gates have passed, you MAY use the repository's private bootstrap to
+download the exact pinned release archives into this run directory:
 
-If both exist, record venv disk usage, then install only the product's local Python
-extra in the same venv:
+```bash
+TOOLS="$STATE/tools"
+"$PY" "$REPO/scripts/bootstrap_local_tools.py" --output "$TOOLS" \
+  > "$EVIDENCE/bootstrap-local-tools.json"
+export PATH="$TOOLS/bin:$PATH"
+DAPR_BIN="$(command -v daprd || true)"
+NATS_BIN="$(command -v nats-server || true)"
+```
+
+This bootstrap supports Linux amd64/arm64 only, verifies repository-pinned SHA-256
+digests before extracting one regular binary from each archive, and never writes
+outside `$STATE/tools`. Treat download/checksum/platform failures as
+**INCOMPLETE_NATIVE_PREREQ**, not as permission to install system packages. Record
+`$TOOLS/manifest.json` in the evidence and include its disk size in the resource
+report. The tools disappear when the validation run directory is removed.
+
+If both binaries are now available, record venv/tool disk usage, then install only
+the product's local Python extra in the same venv:
 
 ```bash
 du -sb "$STATE/venv" > "$EVIDENCE/venv-before-local.txt" || true
