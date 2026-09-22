@@ -36,11 +36,12 @@ five-process Workflow tier the default without separate resource evidence.
 
 Before broad local testing, create the isolated venv and run the core resource probe
 from PROMPT_AGENT_LOCAL_TEST.md. After the core/Python/selected regressions pass,
-run the real three-process local stack probe. Existing exact native binaries may be
-used; otherwise the repository's pinned bootstrap may place daprd/nats-server only
-inside the current ignored `.local-validation` run directory and must pass the
-native-version check first. Never install host binaries or services as part of
-validation.
+run the real three-process local stack probe with the repository-pinned private
+native bootstrap inside the current ignored `.local-validation` run directory.
+The acceptance gate deliberately does not trust an arbitrary same-version host
+daprd because JetStream requires Dapr's all-components flavor, which
+`--version`/`--build-info` do not identify. Require the bootstrap manifest and
+native-version check. Never install host binaries or services.
 
 ## Low-resource validation
 

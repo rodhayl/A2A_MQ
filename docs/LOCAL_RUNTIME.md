@@ -28,7 +28,10 @@ archive into an ignored private directory. JetStream is compiled behind Dapr's
 `allcomponents` build tag, so the bootstrap intentionally uses the default/all-components
 `daprd` release asset rather than the smaller `stablecomponents` flavor. It verifies
 fixed SHA-256 digests and extracts only the expected regular binaries; prepend that
-run-local `bin/` to `PATH`. This is a test bootstrap, not a host installation or production updater.
+run-local `bin/` to `PATH`. This is a test bootstrap, not a host installation or production updater. For the reproducible local economics
+gate, prefer this pinned private asset even when a same-version host daprd exists:
+Dapr's version output does not identify whether that binary was built with
+`allcomponents`, which JetStream requires.
 
 Prepare and run:
 

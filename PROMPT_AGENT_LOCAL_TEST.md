@@ -185,61 +185,40 @@ root cause, rerun focused/affected lightweight tests, and create a focused local
 
 Proceed only if Phase 0 passes and Phase 1 has no unresolved local-lite defect.
 
-First detect existing native prerequisites without installing them:
+For an acceptance result, use the repository-pinned private native tools even when
+same-version host binaries happen to exist. Dapr `--version`/`--build-info` do
+not identify the sidecar build flavor, and `pubsub.jetstream` in Dapr 1.18.3 is
+compiled only with the `allcomponents` build tag. A same-version
+`stablecomponents` binary therefore cannot prove this product topology.
+
+Do NOT install anything into the host. Bootstrap the exact Dapr all-components
+and NATS release archives only inside this run directory:
 
 ```bash
-DAPR_BIN="$(command -v daprd || true)"
-if [ -z "$DAPR_BIN" ] && [ -x "$HOME/.dapr/bin/daprd" ]; then
-  DAPR_BIN="$HOME/.dapr/bin/daprd"
-fi
-NATS_BIN="$(command -v nats-server || true)"
-printf 'daprd=%s\nnats-server=%s\n' "$DAPR_BIN" "$NATS_BIN"   > "$EVIDENCE/native-prerequisites.txt"
-
-if [ -n "$DAPR_BIN" ] && [ -n "$NATS_BIN" ]; then
-  set +e
-  "$PY" "$REPO/scripts/check_local_native_versions.py" \
-    --daprd "$DAPR_BIN" --nats-server "$NATS_BIN" \
-    --json "$EVIDENCE/native-versions-existing.json"
-  VERSION_RC=$?
-  set -e
-  if [ "$VERSION_RC" -ne 0 ]; then
-    DAPR_BIN=""
-    NATS_BIN=""
-  fi
-fi
+TOOLS="$STATE/tools"
+"$PY" "$REPO/scripts/bootstrap_local_tools.py" --output "$TOOLS" \
+  > "$EVIDENCE/bootstrap-local-tools.json"
+export PATH="$TOOLS/bin:$PATH"
+DAPR_BIN="$TOOLS/bin/daprd"
+NATS_BIN="$TOOLS/bin/nats-server"
+"$PY" "$REPO/scripts/check_local_native_versions.py" \
+  --daprd "$DAPR_BIN" --nats-server "$NATS_BIN" \
+  --json "$EVIDENCE/native-versions-bootstrap.json"
 ```
 
-If either binary is absent, do not install it into the host. After the core and
-broker-free gates have passed, you MAY use the repository's private bootstrap to
-download the exact pinned release archives into this run directory:
+Require the bootstrap to succeed, its `manifest.json` to contain
+`"daprFlavor": "allcomponents"`, and the native-version checker to return
+`PASS_NATIVE_VERSION`. Linux/architecture/download/checksum/version failures are
+`INCOMPLETE_NATIVE_PREREQ` or `INCOMPLETE_NATIVE_VERSION`; they are not
+permission to install packages or use an unproven host daprd. Record:
 
 ```bash
-if [ -z "$DAPR_BIN" ] || [ -z "$NATS_BIN" ]; then
-  TOOLS="$STATE/tools"
-  "$PY" "$REPO/scripts/bootstrap_local_tools.py" --output "$TOOLS" \
-    > "$EVIDENCE/bootstrap-local-tools.json"
-  export PATH="$TOOLS/bin:$PATH"
-  DAPR_BIN="$(command -v daprd || true)"
-  NATS_BIN="$(command -v nats-server || true)"
-  "$PY" "$REPO/scripts/check_local_native_versions.py" \
-    --daprd "$DAPR_BIN" --nats-server "$NATS_BIN" \
-    --json "$EVIDENCE/native-versions-bootstrap.json"
-fi
+du -sb "$STATE/tools" > "$EVIDENCE/native-tools-size.txt" || true
 ```
 
-This bootstrap supports Linux amd64/arm64 only, verifies repository-pinned SHA-256
-digests before extracting one regular binary from each archive, and never writes
-outside `$STATE/tools`. Treat download/checksum/platform failures as
-**INCOMPLETE_NATIVE_PREREQ**, not as permission to install system packages. A discovered binary with a different version is **INCOMPLETE_NATIVE_VERSION** and may be replaced only by the private pinned bootstrap inside this run directory. Record
-`$TOOLS/manifest.json` in the evidence and include its disk size in the resource
-report. The tools disappear when the validation run directory is removed.
-
-If both binaries are now available, the local Python product dependencies are
-already installed and measured. Record only any run-local native tool footprint:
-
-```bash
-du -sb "$STATE/tools" > "$EVIDENCE/native-tools-size.txt" 2>/dev/null || true
-```
+The private tools are evidence fixtures and disappear with this validation run.
+They are not added to PATH globally, copied to `~/.dapr`, or installed as
+services.
 
 Prepare one private profile:
 

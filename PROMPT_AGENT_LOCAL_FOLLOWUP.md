@@ -77,25 +77,21 @@ rerun the affected files and make a focused local commit. No cosmetic refactorin
 
 ## Native economics remains a separate conditional gate
 
-Only after the core and selected tests pass, follow Phase 2 in
-`PROMPT_AGENT_LOCAL_TEST.md`. The owner has authorized the repository's pinned
-private bootstrap for this validation: if exact native binaries are not already
-available, run `scripts/bootstrap_local_tools.py` into this run's
-`$STATE/tools` only, prepend that private `bin/` to PATH, and require
-`scripts/check_local_native_versions.py` to return `PASS_NATIVE_VERSION` before
-starting the stack. This is not a host installation and must not write outside the
-ignored run directory. A platform/download/checksum/version failure remains
-`INCOMPLETE_NATIVE_PREREQ` or `INCOMPLETE_NATIVE_VERSION`.
+Only after the core and selected tests pass, execute Phase 2 of
+`PROMPT_AGENT_LOCAL_TEST.md`. For acceptance, use the repository-pinned private
+bootstrap in the fresh run directory even if a host `daprd` reports version
+1.18.3: Dapr's version/build-info output does not prove the sidecar flavor, while
+JetStream requires the `allcomponents` build. Require the bootstrap manifest to
+say `daprFlavor=allcomponents` and require the exact native-version gate.
 
-Do not launch Workflow, containers, PostgreSQL, Redis, Vault, RabbitMQ, collectors
-or any alternative service as a workaround. Run only one local-lite stack and
-stop/reap only its owned processes afterward.
+This is not a host install. Do not copy binaries outside `$STATE/tools`, change
+system PATH, start services, or use Docker/PostgreSQL/Redis/Vault/RabbitMQ as a
+workaround. Run one local-lite stack and reap only its owned processes.
 
-For a real stack run, record actual binary versions, startup/idle peak RSS,
-PID/start-time identities, CPU and flushed disk footprint. Missing readings or
-process death during observation cannot pass. Keep the native 3-process measurement
-separate from core numbers and from synthetic process fixtures. Never substitute
-rough Dapr/NATS estimates for measurements or remove Dapr on that basis.
+Record actual startup/idle peak RSS, stable PID/start-time topology, aggregate CPU,
+flushed disk footprint, binary versions and the private-tool disk size. Missing
+measurements or process death cannot pass. Never substitute rough Dapr/NATS
+estimates for measurements or remove Dapr on that basis.
 
 ## Deliverable
 
