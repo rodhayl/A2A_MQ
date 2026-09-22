@@ -18,7 +18,7 @@ from starlette.routing import Mount, Route
 from .bridge import create_bridge
 from .central_dlq import CentralDLQ
 from .domain import PermanentError, RetryableError, require, token
-from .mcp_adapter import streamable_http_app as create_mcp_http
+from .mcp_server import create_mcp as create_mcp_http
 from .operations import Metrics, OperationsManager
 from .ops_http import create_operations_app
 from .runtime import AsyncSQLite, OutboxRelay
@@ -53,8 +53,14 @@ async def _finish(task: asyncio.Task | None, *, timeout: float = 15) -> None:
         pass
 
 
-def _has_lifespan(app: Any) -> bool:
-    return hasattr(app, "router") and hasattr(app.router, "lifespan_context")
+class _ASGIEndpoint:
+    """Preserve the public path when routing a three-argument ASGI application."""
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        await self.app(scope, receive, send)
 
 
 def create_api_platform(task_store, dlq_store, bus, *, a2a_verifier, mcp_verifier,
@@ -80,7 +86,9 @@ def create_api_platform(task_store, dlq_store, bus, *, a2a_verifier, mcp_verifie
     relay = ActionRelay(task_ledger, task_db, publisher=bus)
 
     bridge = bridge_factory(api, a2a_verifier, public_url=public_url)
-    mcp_app = mcp_factory(api, mcp_verifier, resource_url=mcp_resource, path="/")
+    mcp_server, mcp_app = mcp_factory(
+        api, mcp_verifier, resource_url=mcp_resource, profile="workflow"
+    )
     ops_app = create_operations_app(task_ops, task_db, bus, a2a_verifier,
                                     dlq_ops=dlq_ops, dlq_database=dlq_db,
                                     backup_dir=backup_dir)
@@ -111,11 +119,7 @@ def create_api_platform(task_store, dlq_store, bus, *, a2a_verifier, mcp_verifie
         relay_task: asyncio.Task | None = None
         try:
             async with AsyncExitStack() as stack:
-                mcp_server = getattr(getattr(mcp_app, "state", None), "a2amq_mcp_server", None)
-                if mcp_server is not None:
-                    await stack.enter_async_context(mcp_server.session_manager.run())
-                elif _has_lifespan(mcp_app):
-                    await stack.enter_async_context(mcp_app.router.lifespan_context(mcp_app))
+                await stack.enter_async_context(mcp_server.session_manager.run())
                 relay_task = asyncio.create_task(relay.run(stop, interval=relay_interval),
                                                  name="a2amq-command-relay")
                 state["relay_task"] = relay_task
@@ -141,7 +145,9 @@ def create_api_platform(task_store, dlq_store, bus, *, a2a_verifier, mcp_verifie
     app = Starlette(routes=[
         Route("/health/live", live, methods=["GET"]),
         Route("/health/ready", ready, methods=["GET"]),
-        Mount("/mcp", app=mcp_app),
+        Route("/mcp", _ASGIEndpoint(mcp_app), methods=["GET", "POST", "DELETE", "OPTIONS"]),
+        Route("/.well-known/oauth-protected-resource/mcp", _ASGIEndpoint(mcp_app),
+              methods=["GET", "OPTIONS"]),
         Mount("/ops", app=ops_app),
         Mount("/", app=bridge),
     ], lifespan=lifespan)

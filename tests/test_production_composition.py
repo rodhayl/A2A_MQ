@@ -52,19 +52,30 @@ def bridge(api, verifier, *, public_url):
     return app
 
 
-def mcp(api, verifier, *, resource_url, path):
-    marker = {"entered": False, "exited": False}
+def mcp(api, verifier, *, resource_url, profile):
+    marker = {"entered": False, "exited": False, "paths": []}
+    mcp.marker = marker
 
     @asynccontextmanager
-    async def lifespan(app):
+    async def manager():
         marker["entered"] = True
         yield
         marker["exited"] = True
 
-    app = Starlette(lifespan=lifespan)
-    app.state.marker = marker
-    assert path == "/"
-    return app
+    async def app(scope, receive, send):
+        from starlette.responses import JSONResponse
+        marker["paths"].append(scope["path"])
+        await JSONResponse({"path": scope["path"]})(scope, receive, send)
+
+    class SessionManager:
+        def run(self):
+            return manager()
+
+    class Server:
+        session_manager = SessionManager()
+
+    assert profile == "workflow"
+    return Server(), app
 
 
 async def test_api_platform_enters_mcp_lifespan_and_drains_relays(tmp_path):
@@ -78,10 +89,16 @@ async def test_api_platform_enters_mcp_lifespan_and_drains_relays(tmp_path):
         public_url="https://agent.example",
         bridge_factory=bridge, mcp_factory=mcp,
     )
-    mcp_app = next(route.app for route in app.routes if getattr(route, "path", None) == "/mcp")
     async with app.router.lifespan_context(app):
-        assert mcp_app.state.marker["entered"] and not bus.closed
-    assert mcp_app.state.marker["exited"] and bus.closed
+        assert mcp.marker["entered"] and not mcp.marker["exited"] and not bus.closed
+        import httpx
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app),
+                                     base_url="https://agent.example") as client:
+            assert (await client.post("/mcp", json={})).json()["path"] == "/mcp"
+            assert (await client.get("/.well-known/oauth-protected-resource/mcp")).json()["path"] \
+                == "/.well-known/oauth-protected-resource/mcp"
+    assert mcp.marker["exited"] and bus.closed
+    assert mcp.marker["paths"] == ["/mcp", "/.well-known/oauth-protected-resource/mcp"]
 
 
 async def test_worker_starts_official_runtime_shape_and_shuts_down(tmp_path):
