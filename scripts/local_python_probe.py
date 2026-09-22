@@ -61,6 +61,12 @@ def _tree_bytes(path: Path) -> int:
 
 async def _measure(app, idle_seconds: float) -> tuple[float, int]:
     async with app.router.lifespan_context(app):
+        bus = getattr(app.state, "a2amq_bus", None)
+        if bus is None or not getattr(bus, "_owns_client", False):
+            raise MeasurementUnavailable("owned Dapr publisher unavailable")
+        # Warm the owned HTTP client without network I/O so RSS represents the
+        # bridge after its first sidecar interaction while daprd remains absent.
+        bus._http_client()
         cpu_started = time.process_time()
         wall_started = time.perf_counter()
         await asyncio.sleep(idle_seconds)
@@ -112,7 +118,7 @@ def _run(args, state: Path) -> tuple[int, dict]:
             "stateMiB": _mib(state_bytes),
         },
         "failedChecks": failures,
-        "scope": "local-lite Python app + SQLite/background loops; no daprd or nats-server",
+        "scope": "warmed local-lite Python app + SQLite/background loops; no daprd or nats-server",
     }
     return (0 if not failures else 3), result
 

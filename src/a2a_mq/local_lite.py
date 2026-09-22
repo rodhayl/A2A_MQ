@@ -361,6 +361,7 @@ def create_app(settings: LocalLiteSettings):
     app = Starlette(routes=routes, lifespan=lifespan)
     app.state.a2amq_api = api
     app.state.a2amq_ledger = ledger
+    app.state.a2amq_bus = bus
     app.state.a2amq_profile = "local-lite"
     return app
 

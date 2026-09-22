@@ -114,3 +114,51 @@ def test_python_probe_missing_measurement_is_incomplete(tmp_path, monkeypatch):
     assert evidence["verdict"] == "INCOMPLETE_LOCAL_PYTHON"
     assert evidence["failedChecks"] == ["measurement"]
     assert "fixture details" not in report.read_text()
+
+
+async def test_python_probe_warms_owned_dapr_client_before_idle():
+    from contextlib import asynccontextmanager
+    from types import SimpleNamespace
+
+    probe = _module()
+    events = []
+
+    class Bus:
+        _owns_client = True
+
+        def _http_client(self):
+            events.append("warm")
+            return object()
+
+    @asynccontextmanager
+    async def lifespan(app):
+        events.append("start")
+        yield
+        events.append("stop")
+
+    app = SimpleNamespace(
+        state=SimpleNamespace(a2amq_bus=Bus()),
+        router=SimpleNamespace(lifespan_context=lifespan),
+    )
+    cpu, rss = await probe._measure(app, 0)
+    assert cpu >= 0 and rss >= 0
+    assert events == ["start", "warm", "stop"]
+
+
+async def test_python_probe_requires_owned_publisher_for_warm_measurement():
+    from contextlib import asynccontextmanager
+    from types import SimpleNamespace
+    import pytest
+
+    probe = _module()
+
+    @asynccontextmanager
+    async def lifespan(app):
+        yield
+
+    app = SimpleNamespace(
+        state=SimpleNamespace(),
+        router=SimpleNamespace(lifespan_context=lifespan),
+    )
+    with pytest.raises(probe.MeasurementUnavailable, match="owned Dapr publisher unavailable"):
+        await probe._measure(app, 0)

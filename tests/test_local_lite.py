@@ -128,3 +128,35 @@ async def test_local_resource_cleanup_always_closes_publisher():
     with pytest.raises(RuntimeError, match="database close failed"):
         await _close_local_resources(Database(), Bus())
     assert events == ["database", "bus"]
+
+
+def test_local_app_exposes_lazy_owned_bus_for_resource_probe(tmp_path, monkeypatch):
+    import json
+    from starlette.applications import Starlette
+    from a2a_mq.local_lite import create_app
+
+    app_token = tmp_path / "app-token"
+    dapr_token = tmp_path / "dapr-token"
+    keys = tmp_path / "keys.json"
+    for path, value in ((app_token, "a" * 32), (dapr_token, "d" * 32)):
+        path.write_text(value)
+        path.chmod(0o600)
+    keys.write_text(json.dumps({"local": "unused-fixture-key"}))
+    keys.chmod(0o600)
+
+    class Identity:
+        audience = "http://127.0.0.1:18000"
+        issuer = "https://local-a2amq.invalid"
+
+    monkeypatch.setattr("a2a_mq.local_lite.verifier", lambda settings, audience=None: Identity())
+    monkeypatch.setattr("a2a_mq.local_lite.create_bridge", lambda *a, **k: Starlette())
+    settings = LocalLiteSettings(
+        sqlite_path=str(tmp_path / "local.db"),
+        app_token_file=str(app_token),
+        dapr_token_file=str(dapr_token),
+        jwt_keys_file=str(keys),
+        issuer="https://local-a2amq.invalid",
+    )
+    app = create_app(settings)
+    assert app.state.a2amq_bus._owns_client is True
+    assert app.state.a2amq_bus.client is None
