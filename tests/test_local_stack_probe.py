@@ -81,3 +81,20 @@ def test_stack_probe_collects_only_live_process_identities(monkeypatch):
     starts = {1: 100, 2: None, 3: 300}
     monkeypatch.setattr(probe, "_start_ticks", lambda pid: starts[pid])
     assert probe._identities([1, 2, 3]) == {1: 100, 3: 300}
+
+
+def test_stack_probe_all_alive_requires_root_and_original_children(monkeypatch):
+    probe = _module()
+
+    class Process:
+        def __init__(self, code=None):
+            self.code = code
+        def poll(self):
+            return self.code
+
+    monkeypatch.setattr(probe, "_same_process", lambda pid, started: pid != 2)
+    assert probe._all_alive(Process(), {1: 10, 2: 20}) is False
+    assert probe._all_alive(Process(code=1), {1: 10}) is False
+
+    monkeypatch.setattr(probe, "_same_process", lambda pid, started: True)
+    assert probe._all_alive(Process(), {1: 10, 2: 20}) is True

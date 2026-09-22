@@ -119,6 +119,11 @@ def _same_process(pid: int, started: int) -> bool:
     return _start_ticks(pid) == started
 
 
+def _all_alive(process: subprocess.Popen, children: dict[int, int]) -> bool:
+    return process.poll() is None and all(_same_process(pid, started)
+                                          for pid, started in children.items())
+
+
 def _terminate(process: subprocess.Popen, children: dict[int, int]) -> None:
     if process.poll() is None:
         process.send_signal(signal.SIGTERM)
@@ -263,6 +268,7 @@ def main() -> int:
                 time.sleep(args.idle_seconds)
                 elapsed = max(time.monotonic() - wall, .001)
                 after = {pid: _cpu_ticks(pid) for pid in children}
+                all_alive = _all_alive(process, children)
                 hz = os.sysconf(os.sysconf_names["SC_CLK_TCK"])
                 cpu_percent = sum(max(0, after.get(pid, 0) - before.get(pid, 0))
                                   for pid in children) / hz / elapsed * 100
@@ -273,6 +279,7 @@ def main() -> int:
                             for role, pids in roles.items()}
 
                 checks = {
+                    "allAlive": all_alive,
                     "exactProcessCount": len(children) == expected_count,
                     **{f"one{role.title()}": len(roles[role]) == 1 for role in expected_roles},
                     "rss": _mib(total_rss) <= max_rss,
@@ -295,6 +302,7 @@ def main() -> int:
                     },
                     "observed": {
                         "processCount": len(children),
+                        "allAliveAfterIdle": all_alive,
                         "processes": {str(pid): commands[pid] for pid in children},
                         "rssByRoleMiB": role_rss,
                         "totalRssMiB": _mib(total_rss),
