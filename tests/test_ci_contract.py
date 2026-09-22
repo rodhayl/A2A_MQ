@@ -56,3 +56,13 @@ def test_upload_is_restricted_to_junit_and_missing_evidence_is_an_error():
     assert upload["if"] == "always()"
     assert upload["with"]["path"] == "${{ runner.temp }}/a2amq-validation/results.xml"
     assert upload["with"]["if-no-files-found"] == "error"
+
+def test_wheel_smoke_imports_the_installed_target_under_isolated_python():
+    steps = workflow()["jobs"]["local"]["steps"]
+    smoke = next(step for step in steps if step.get("name") == "Build and install wheel outside source tree")
+    command = smoke["run"]
+    assert 'A2AMQ_WHEEL_TARGET="$RUNNER_TEMP/installed" python -I' in command
+    assert 'sys.path.insert(0,str(target))' in command
+    assert 'Path(a2a_mq.__file__).resolve().is_relative_to(target)' in command
+    assert 'PYTHONPATH="$RUNNER_TEMP/installed" python -I' not in command
+
