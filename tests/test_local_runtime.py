@@ -143,3 +143,9 @@ def test_local_supervision_and_token_rotation_are_low_frequency_and_bounded():
     assert CLIENT_TOKEN_REFRESH_SECONDS < CLIENT_TOKEN_LIFETIME_SECONDS
     assert CLIENT_TOKEN_REFRESH_SECONDS <= CLIENT_TOKEN_LIFETIME_SECONDS // 2
     assert SUPERVISOR_INTERVAL_SECONDS >= 1.0
+
+
+def test_local_rotation_constants_match_documented_budget():
+    assert CLIENT_TOKEN_LIFETIME_SECONDS == 3600
+    assert CLIENT_TOKEN_REFRESH_SECONDS == 1800
+    assert SUPERVISOR_INTERVAL_SECONDS == 1.0

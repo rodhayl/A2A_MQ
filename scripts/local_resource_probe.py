@@ -131,7 +131,8 @@ def main() -> int:
                 effect={"index": index},
                 result=result,
             )
-        if len(store.list_tasks(limit=min(args.tasks, 200))) != min(args.tasks, 200):
+        tasks, _ = store.list_tasks(limit=min(args.tasks, 200))
+        if len(tasks) != min(args.tasks, 200):
             raise RuntimeError("task projection count mismatch")
     finally:
         pass

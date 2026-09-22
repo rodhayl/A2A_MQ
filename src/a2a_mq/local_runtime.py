@@ -19,6 +19,9 @@ from urllib.parse import urlsplit
 from .domain import require, token
 
 APP_ID = "a2amq-local"
+CLIENT_TOKEN_LIFETIME_SECONDS = 3600
+CLIENT_TOKEN_REFRESH_SECONDS = 1800
+SUPERVISOR_INTERVAL_SECONDS = 1.0
 
 
 def _private_write(path: Path, value: str) -> None:
