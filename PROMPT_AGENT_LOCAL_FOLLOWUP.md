@@ -92,10 +92,17 @@ python -m a2a_mq.acceptance --mode local --root <repo> --output <fresh-external-
 
 This is mandatory because the historical `LOCAL_PASS` is tied to `3415b10`.
 
-The expensive core/warmed/native resource probes do not need to be repeated merely
-because docs, CI, acceptance harness or SDK-only tests changed. Rerun a resource
-probe if relevant local runtime/probe bytes changed during this pass, or if the
-owner explicitly requests a fresh hardware measurement.
+Before deciding whether to skip the expensive resource probes, inspect the raw
+`.local-validation` evidence from the `3415b10` run if it still exists. The
+committed validation report contains resource-probe command strings that do not
+match the CLI accepted by those scripts at `3415b10`, so exact command provenance
+is not established by Git history alone.
+
+If the raw JSON/logs and shell history/agent transcript establish valid invocations,
+preserve that historical evidence and only rerun resource probes when relevant
+runtime/probe bytes changed. If the raw evidence is absent or cannot resolve the
+mismatch, rerun core, warmed Python and native local-lite probes once with the
+current documented CLI before treating their measurements as reproducible evidence.
 
 ## 5. Execute real external gates when prerequisites exist
 

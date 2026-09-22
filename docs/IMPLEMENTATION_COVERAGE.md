@@ -5,9 +5,9 @@ acceptance are separate. Historical test counts do not certify the current SHA.
 
 | Scope | Implemented source | Evidence still required |
 | --- | --- | --- |
-| Local economics / NFR-013 | `scripts/local_resource_probe.py`, `scripts/local_stack_probe.py`, ADR 0011 | Passed on validated SHA `3415b10` (core, warmed Python, native 3-process); rerun exact final SHA before current-head PASS |
+| Local economics / NFR-013 | `scripts/local_resource_probe.py`, `scripts/local_stack_probe.py`, ADR 0011 | Resource figures were reported at `3415b10`, but recorded probe commands mismatch that SHA's CLI; inspect raw evidence or rerun before treating them as reproducible; then rerun exact final SHA as required |
 | Local-lite A2A bridge | `local_lite.py`, official `bridge.py`, JWT identity, SQLite TaskLedger/TaskAPI | Real local-lite Dapr/NATS functional roundtrip passed at `3415b10`; official A2A SDK gate and current-head rerun remain |
-| Local-lite transport | direct native launcher, one Dapr sidecar, bounded single-node JetStream, separate command/DLQ durables | Native 3-process resource evidence passed at `3415b10`; restart/redelivery coverage and exact-final-SHA rerun remain |
+| Local-lite transport | direct native launcher, one Dapr sidecar, bounded single-node JetStream, separate command/DLQ durables | Native 3-process figures were reported at `3415b10` but exact probe invocation is not established by committed evidence; raw-evidence verification/rerun plus restart/redelivery coverage remain |
 | Local-lite state | SQLite jobs/tasks/actions/outbox/runtime-end, retention identities | Target-machine restart and backup/restore smoke |
 | Local-lite execution | immediate deterministic echo/upper executor using existing durable actions | Race/restart/cancel regression plus real transport execution |
 | Local-lite cancellation | existing owner-scoped TaskAPI/TaskLedger controls | Real A2A cancel race through sidecar |

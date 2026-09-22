@@ -11,13 +11,15 @@ The latest exact-SHA local execution evidence is
 [local-run-20260922.md](validation/local-run-20260922.md) at
 `3415b10ddcfc5c721f9872c926fead5e11897543`. On that SHA:
 
-- core economics passed;
-- the warmed Python local product passed;
+- core economics and the warmed Python local product were reported as passing,
+  but their recorded command lines are inconsistent with the scripts at that SHA
+  and require raw-evidence inspection or rerun for reproducible provenance;
 - 118 selected local regressions passed;
 - repository-pinned Dapr 1.18.3 all-components and NATS Server 2.15.0 were
   checksum/version verified;
-- the real native three-process local-lite stack passed its resource budget and
-  functional roundtrip;
+- the real native three-process local-lite stack was reported as passing its
+  resource budget and functional roundtrip, with the same command-transcription
+  caveat;
 - repository contracts and isolated wheel packaging smoke passed;
 - formal local acceptance produced `LOCAL_PASS` with 929 tests and clean exact
   Git provenance.

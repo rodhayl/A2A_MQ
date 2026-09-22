@@ -159,9 +159,12 @@ Vault or broker gate is claimed as executed by that review.
 
 Historical evidence must stay attached to the SHA it actually tested.
 
-The 2026-09-22 validation run on HEAD `3415b10ddcfc5c721f9872c926fead5e11897543`
-(documented in `docs/validation/local-run-20260922.md`) established the following
-current-SHA execution evidence on Linux x86_64:
+The 2026-09-22 validation report for HEAD `3415b10ddcfc5c721f9872c926fead5e11897543`
+is documented in `docs/validation/local-run-20260922.md`. A later audit found that
+the three recorded resource-probe command lines do not match the CLI accepted by
+those scripts at `3415b10`. Accordingly, the resource figures below are reported
+historical observations pending raw-evidence inspection or rerun; they are not
+currently exact-command reproducible evidence from repository history:
 
 1. **`PASS_CORE_LIGHT`:** Pure-core Python + SQLite economic probe executed 100 tasks;
    peak RSS 44.22 MiB (<= 192 MiB budget), idle CPU 0.002% (<= 2.0% budget), state DB 0.134 MiB.
@@ -176,9 +179,10 @@ current-SHA execution evidence on Linux x86_64:
    idle CPU 2.85% (<= 5.0% budget), functional roundtrip verified.
 6. **Packaging and contracts:** `tools/check.py` passed, wheel built and verified outside source
    tree in clean venv (`a2a_mq-0.1.0-py3-none-any.whl`), `ruff check src/` passed (0 errors).
-7. **`LOCAL_PASS`:** Full broker-independent acceptance gate (`a2a_mq.acceptance --mode local`)
-   executed and passed all 929 tests (0 failures, 0 errors, 0 skipped; exit code 0) bound to
-   clean exact git provenance.
+7. **`LOCAL_PASS`:** The separate broker-independent acceptance gate is reported
+   as having executed and passed all 929 tests (0 failures, 0 errors, 0 skipped;
+   exit code 0) on `3415b10`. Its command shape is compatible with the acceptance
+   CLI and is distinct from the resource-probe transcription issue.
 
 ## Distributed and external gates status
 
