@@ -89,8 +89,13 @@ def run_command(args,root,log,timeout,env):
 def test_gate(name,root,output,env,timeout):
     group=GROUPS[name]
     missing=[m for m in group['modules'] if not present(m)]
-    if name=='postgres' and not env.get('A2AMQ_POSTGRES_DSN_FILE'):
-        missing.append('A2AMQ_POSTGRES_DSN_FILE')
+    if name == 'postgres':
+        # The acceptance gate is always verified-TLS. A direct pytest CI fixture may
+        # opt into local sslmode=disable, but that override cannot satisfy acceptance.
+        env = {**env}
+        env.pop('A2AMQ_POSTGRES_TEST_ALLOW_INSECURE', None)
+        if not env.get('A2AMQ_POSTGRES_DSN_FILE'):
+            missing.append('A2AMQ_POSTGRES_DSN_FILE')
     if name=='vault' and not env.get('A2AMQ_VAULT_TEST_CONFIG_FILE'):
         missing.append('A2AMQ_VAULT_TEST_CONFIG_FILE')
     if missing:

@@ -1,4 +1,4 @@
-"""Live shared-store gate: selecting -m postgres requires a disposable TLS database."""
+"""Live shared-store gate; TLS is mandatory except for the explicit disposable CI fixture."""
 import os
 from concurrent.futures import ThreadPoolExecutor
 from uuid import uuid4
@@ -18,10 +18,12 @@ def test_real_postgres_parallel_admission_control_and_projection():
     path=os.environ.get('A2AMQ_POSTGRES_DSN_FILE')
     assert path, 'A2AMQ_POSTGRES_DSN_FILE is required; missing infrastructure is not a skip'
     dsn=read_file(path,secret=True).strip()
+    allow_insecure=os.environ.get('A2AMQ_POSTGRES_TEST_ALLOW_INSECURE') == '1'
     tenant='acceptance-'+uuid4().hex[:12]
     stores=[]
     def open_one(i):
-        s=PostgresStore(dsn,tenant=tenant,consumer='tasks' if i<4 else 'observer-'+str(i))
+        s=PostgresStore(dsn,tenant=tenant,consumer='tasks' if i<4 else 'observer-'+str(i),
+                        allow_insecure=allow_insecure)
         stores.append(s)
         ledger=TaskLedger(s)
         Operations(ledger)
@@ -46,7 +48,7 @@ def test_real_postgres_parallel_admission_control_and_projection():
             assert observer.store.get_task(t['id'])['status']['state']=='TASK_STATE_COMPLETED'
         with ledger.store._transaction() as db:
             assert db.execute('SELECT COUNT(*) FROM a2amq_jobs WHERE tenant=? AND consumer=?',ledger.keys).fetchone()[0]==1
-        reopened=PostgresStore(dsn,tenant=tenant,consumer='tasks')
+        reopened=PostgresStore(dsn,tenant=tenant,consumer='tasks',allow_insecure=allow_insecure)
         stores.append(reopened)
         assert reopened.get_task(t['id'])['status']['state']=='TASK_STATE_COMPLETED'
     finally:

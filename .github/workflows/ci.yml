@@ -92,6 +92,12 @@ jobs:
           python-version: '3.13'
           cache: pip
           cache-dependency-path: pyproject.toml
+      - name: Prepare disposable CI PostgreSQL inputs
+        run: |
+          umask 077
+          printf '%s\n' "$A2A_TEST_POSTGRES_DSN" > "$RUNNER_TEMP/a2amq-postgres.dsn"
+          echo "A2AMQ_POSTGRES_DSN_FILE=$RUNNER_TEMP/a2amq-postgres.dsn" >> "$GITHUB_ENV"
+          echo "A2AMQ_POSTGRES_TEST_ALLOW_INSECURE=1" >> "$GITHUB_ENV"
       - name: Install PostgreSQL gate dependencies
         run: |
           python -m pip install -e '.[dev,postgres]'

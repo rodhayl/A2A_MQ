@@ -113,7 +113,8 @@ def test_legacy_postgres_gate_uses_same_private_dsn_without_logging(tmp_path,mon
     private=tmp_path/"dsn"
     private.write_text("host=fixture dbname=acceptance password=private-value sslmode=verify-full")
     private.chmod(0o600)
-    env={"A2AMQ_POSTGRES_DSN_FILE":str(private)}
+    env={"A2AMQ_POSTGRES_DSN_FILE":str(private),
+         "A2AMQ_POSTGRES_TEST_ALLOW_INSECURE":"1"}
     if conflict:
         env["A2A_TEST_POSTGRES_DSN"]="different-db"
     monkeypatch.setattr("a2a_mq.acceptance.present",lambda name:True)
@@ -130,6 +131,7 @@ def test_legacy_postgres_gate_uses_same_private_dsn_without_logging(tmp_path,mon
     else:
         assert result["status"]=="PASSED"
         assert captured[0]["A2A_TEST_POSTGRES_DSN"]==private.read_text()
+        assert "A2AMQ_POSTGRES_TEST_ALLOW_INSECURE" not in captured[0]
 
 
 def test_sdk_gate_requires_mcp_v2_http_client_dependency():
