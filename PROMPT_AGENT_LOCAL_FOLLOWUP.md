@@ -150,9 +150,11 @@ PROFILE="$STATE/local-lite"
 ```
 
 Require the exact PASS verdict expected by each probe and its exit code 0.
-For the native stack probe, also require `nativeToolsBound=true` so the measured
-children are the same private executables whose archive/binary provenance was
-verified. `INCOMPLETE_*` stays incomplete; a measurement failure is not a resource PASS.
+For the native stack probe, require `nativeToolsBound=true` and exact equality of
+`bootstrapManifestSha256` plus every `binarySha256` entry between the native-version
+JSON and stack-resource JSON. This proves the measured children are the same private
+executables whose retained release archives were verified. Any mismatch stays
+`INCOMPLETE_NATIVE_PREREQ`; a measurement failure is not a resource PASS.
 
 ## 5. Execute real external gates when prerequisites exist
 

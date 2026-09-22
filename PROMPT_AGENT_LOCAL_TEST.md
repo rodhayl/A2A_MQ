@@ -215,7 +215,8 @@ NATS_BIN="$TOOLS/bin/nats-server"
 
 Require the bootstrap to succeed, its `manifest.json` to contain
 `"daprFlavor": "allcomponents"`, and the native-version checker to return
-`PASS_NATIVE_VERSION`. Linux/architecture/download/checksum/version failures are
+`PASS_NATIVE_VERSION`. Preserve its `bootstrapManifestSha256` and `binarySha256`
+fields for comparison with the stack resource report. Linux/architecture/download/checksum/version failures are
 `INCOMPLETE_NATIVE_PREREQ` or `INCOMPLETE_NATIVE_VERSION`; they are not
 permission to install packages or use an unproven host daprd. Record:
 
@@ -252,6 +253,11 @@ Initial stack budget:
 - aggregate idle CPU <= 5% of one core;
 - readiness <= 15 seconds;
 - runtime SQLite + JetStream state <= 32 MiB both during the idle window and after a clean shutdown flush.
+
+Before accepting the stack result, require `nativeToolsBound=true` and exact
+equality of `bootstrapManifestSha256` and every `binarySha256` entry between
+`native-versions-bootstrap.json` and `local-stack-resources.json`. A mismatch is
+`INCOMPLETE_NATIVE_PREREQ`, not a resource result.
 
 If it fails, classify **LOCAL ECONOMICS = REDESIGN_REQUIRED**. Do not start the
 heavy distributed stack and do not raise the resource budget merely to pass.

@@ -27,9 +27,11 @@ repository-pinned Dapr 1.18.3 all-components/default archive and NATS Server 2.1
 archive into an ignored private directory. JetStream is compiled behind Dapr's
 `allcomponents` build tag, so the bootstrap intentionally uses the default/all-components
 `daprd` release asset rather than the smaller `stablecomponents` flavor. It verifies
-fixed SHA-256 digests and exact official archive sizes, extracts only the expected
-regular binaries, and records compressed/extracted byte totals in the private
-manifest. On amd64 the pinned downloads are 63,716,263 bytes for Dapr and 7,236,657
+fixed SHA-256 digests and exact official archive sizes, retains those private
+release archives, extracts only the expected regular binaries, and records
+compressed/extracted byte totals in the private manifest. The native-version checker
+reopens the retained archives and proves that each installed executable is the exact
+pinned archive member. On amd64 the pinned downloads are 63,716,263 bytes for Dapr and 7,236,657
 bytes for NATS (70,952,920 bytes / 67.67 MiB total compressed); on arm64 they total
 63,342,655 bytes / 60.41 MiB compressed. This is tooling download/disk cost, not
 runtime RSS. Prepend that run-local `bin/` to `PATH`. This is a test bootstrap,
@@ -195,7 +197,13 @@ python scripts/local_stack_probe.py \
 ```
 
 The native stack probe also observes a 60-second idle window by default so
-periodic maintenance contributes to the CPU result. For local-lite the initial budget is:
+periodic maintenance contributes to the CPU result. Its JSON records the bootstrap
+manifest SHA-256 and per-binary SHA-256 values. For an accepted measurement these
+must exactly equal the values emitted by `check_local_native_versions.py` immediately
+before the probe; `nativeToolsBound` must also be true. This binds provenance and
+resource measurement across the two evidence files.
+
+For local-lite the initial budget is:
 
 - exactly 3 steady processes;
 - peak aggregate RSS <= 384 MiB across startup and idle;
