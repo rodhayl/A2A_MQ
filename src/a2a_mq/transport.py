@@ -59,6 +59,7 @@ class DaprPublisher:
         require(parsed.scheme in {"http", "https"} and bool(parsed.netloc)
                 and not parsed.username and not parsed.password and not parsed.query
                 and not parsed.fragment and "?" not in url and "#" not in url
+                and not any(c.isspace() for c in url)
                 and parsed.path in {"", "/"}, "INVALID_DAPR_URL")
         require(type(timeout) in {int, float} and 0 < timeout <= 60, "INVALID_TIMEOUT")
         self.url, self.component = url.rstrip("/"), token(component)

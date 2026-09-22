@@ -50,7 +50,8 @@ async def test_network_and_readiness():
 
 
 @pytest.mark.parametrize("url", ["file:///tmp/x", "http://user:pass@host", "http://host/path",
-                                 "http://host/?key=x", "http://host/#x", "http://host?", "http://host#"])
+                                 "http://host/?key=x", "http://host/#x", "http://host?", "http://host#",
+                                 "http://host\n", "http://host\t"])
 def test_bad_sidecar_url(url):
     with pytest.raises(PermanentError):
         DaprPublisher(url)
