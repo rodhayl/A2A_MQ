@@ -12,6 +12,7 @@ from a2a_mq.local_runtime import (
     _bus_component,
     _dlq_component,
     _load_profile,
+    _lite_sidecar_command,
     _loopback_public_url,
     _nats_config,
     _plan,
@@ -229,3 +230,12 @@ def test_prepare_failure_leaves_no_partial_profile(tmp_path, monkeypatch):
         prepare(target)
     assert not target.exists()
     assert list(tmp_path.glob("profile.*.tmp")) == []
+
+
+def test_local_lite_sidecar_disables_actor_workflow_control_plane_by_omission(tmp_path):
+    command = _lite_sidecar_command("/tools/daprd", tmp_path)
+    assert command[0] == "/tools/daprd"
+    assert "--placement-host-address" not in command
+    assert "--scheduler-host-address" not in command
+    assert command[command.index("--dapr-listen-addresses") + 1] == "127.0.0.1"
+    assert command[command.index("--app-max-concurrency") + 1] == "2"

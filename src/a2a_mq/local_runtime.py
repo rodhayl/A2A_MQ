@@ -450,6 +450,18 @@ def _terminate(process: subprocess.Popen | None) -> None:
         process.wait(timeout=5)
 
 
+def _lite_sidecar_command(daprd: str, root: Path) -> list[str]:
+    """Run daprd without Actor/Workflow control-plane services in local-lite."""
+    return [
+        daprd, "--mode", "standalone", "--app-id", APP_ID, "--app-port", "18000",
+        "--app-protocol", "http", "--dapr-http-port", "3500", "--dapr-grpc-port", "50001",
+        "--resources-path", str((root / "components").resolve()),
+        "--dapr-listen-addresses", "127.0.0.1",
+        "--app-max-concurrency", "2", "--max-body-size", "1Mi",
+        "--enable-metrics=false", "--log-level", "warn",
+    ]
+
+
 def run(root: Path) -> int:
     """Run exactly three product processes: this Python app, daprd and nats-server."""
     profile = _load_profile(root, "local-lite")
@@ -484,15 +496,7 @@ def run(root: Path) -> int:
             "--development",
         ], cwd=root, env=child_env, check=True, stdout=subprocess.DEVNULL)
 
-        sidecar_command = [
-            daprd, "--mode", "standalone", "--app-id", APP_ID, "--app-port", "18000",
-            "--app-protocol", "http", "--dapr-http-port", "3500", "--dapr-grpc-port", "50001",
-            "--resources-path", str((root / "components").resolve()),
-            "--dapr-listen-addresses", "127.0.0.1",
-            "--placement-host-address", " ", "--scheduler-host-address", " ",
-            "--app-max-concurrency", "2", "--max-body-size", "1Mi",
-            "--enable-metrics=false", "--log-level", "warn",
-        ]
+        sidecar_command = _lite_sidecar_command(daprd, root)
         sidecar = subprocess.Popen(sidecar_command, cwd=root, env=sidecar_env)
         _wait_port("127.0.0.1", 3500, sidecar)
 
