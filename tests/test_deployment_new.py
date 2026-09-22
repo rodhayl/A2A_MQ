@@ -6,7 +6,7 @@ from types import SimpleNamespace
 import httpx
 import pytest
 
-from a2a_mq.deployment import broker_plan, component, compose, kubernetes, topology
+from a2a_mq.deployment import IMAGES, broker_plan, component, compose, kubernetes, topology
 from a2a_mq.domain import PermanentError
 from a2a_mq.provision import jetstream, rabbit
 
@@ -171,3 +171,10 @@ def test_component_urls_reject_credentials_and_ambiguous_endpoints(broker,scheme
     from a2a_mq.domain import PermanentError
     with pytest.raises(PermanentError,match="BROKER_TLS_REQUIRED"):
         component(broker,"workflow",endpoint=scheme+":"+suffix,production=True)
+
+
+def test_integrated_deployment_dapr_patch_matches_python_sdk_pin():
+    assert IMAGES["dapr"] == "daprio/daprd:1.18.3"
+    assert IMAGES["control"] == "daprio/dapr:1.18.3"
+    dockerfile = (Path(__file__).resolve().parents[1] / "deploy" / "Dockerfile.sidecar").read_text()
+    assert "ARG DAPR_IMAGE=daprio/daprd:1.18.3" in dockerfile

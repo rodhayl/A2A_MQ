@@ -49,7 +49,7 @@ reference implementation, not an arbitrary user-code or LLM execution service.
 
 ## Distributed acceptance dependencies and Compose
 
-Use Python 3.12 or 3.13 and install the direct pins:
+Use Python 3.12 or 3.13. The integrated disposable deployment and Python Workflow SDK are aligned on Dapr 1.18.3. Install the direct pins:
 
 ```sh
 python -m pip install -e '.[dev,bridge,workflow,postgres,security,mcp,observability,deployment]'

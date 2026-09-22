@@ -19,8 +19,8 @@ from urllib.parse import urlsplit
 from .configuration import https_issuer, https_origin
 from .domain import PermanentError, require, token
 
-IMAGES = {"python": "python:3.13.5-slim-bookworm", "dapr": "daprio/daprd:1.18.2",
-          "control": "daprio/dapr:1.18.2", "postgres": "postgres:17-alpine", "redis": "redis:7.4-alpine",
+IMAGES = {"python": "python:3.13.5-slim-bookworm", "dapr": "daprio/daprd:1.18.3",
+          "control": "daprio/dapr:1.18.3", "postgres": "postgres:17-alpine", "redis": "redis:7.4-alpine",
           "rabbitmq": "rabbitmq:4.1-management-alpine", "nats": "nats:2.14.6-alpine",
           "natscli": "natsio/nats-box:0.19.0", "nginx": "nginx:1.28-alpine"}
 
