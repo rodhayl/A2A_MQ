@@ -1,7 +1,7 @@
 """Acceptance evidence must fail closed, independently of optional service availability."""
 import pytest
 
-from a2a_mq.acceptance import (FULL_REQUIRED, GROUPS, full_status, junit, provenance_status,
+from a2a_mq.acceptance import (FULL_REQUIRED, GROUPS, MODEL_CREDENTIAL, full_status, junit, provenance_status,
                                test_gate as execute_gate)
 from a2a_mq.live_probe import wait_until
 
@@ -28,6 +28,21 @@ def test_bad_or_incomplete_evidence_rejected(tmp_path,xml):
     path.write_text(xml)
     with pytest.raises(ValueError):
         junit(path)
+
+
+@pytest.mark.parametrize("name", [
+    "OPENAI_API_KEY", "ANTHROPIC_API_KEY", "AZURE_OPENAI_API_KEY", "GEMINI_API_KEY",
+    "GOOGLE_API_KEY", "MISTRAL_API_KEY", "COHERE_API_KEY", "GROQ_API_KEY",
+    "DEEPSEEK_API_KEY", "TOGETHER_API_KEY", "OPENROUTER_API_KEY", "HF_TOKEN",
+    "HUGGING_FACE_TOKEN",
+])
+def test_acceptance_model_credential_guard_matches_independent_review_scope(name):
+    assert MODEL_CREDENTIAL.match(name)
+
+
+@pytest.mark.parametrize("name", ["DAPR_API_TOKEN", "APP_API_TOKEN", "VAULT_TOKEN", "A2A_JWT_KEYS_FILE"])
+def test_acceptance_model_credential_guard_does_not_block_product_credentials(name):
+    assert MODEL_CREDENTIAL.match(name) is None
 
 
 def test_missing_native_sdk_never_launches_fake_test(tmp_path,monkeypatch):

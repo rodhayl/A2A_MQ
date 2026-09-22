@@ -22,6 +22,13 @@ import xml.etree.ElementTree as ET
 from .domain import PermanentError
 
 
+MODEL_CREDENTIAL = re.compile(
+    r"^(?:OPENAI|ANTHROPIC|AZURE_OPENAI|GEMINI|GOOGLE|MISTRAL|COHERE|GROQ|"
+    r"DEEPSEEK|TOGETHER|OPENROUTER|HUGGING_FACE|HF_).*(?:KEY|TOKEN|CREDENTIAL)",
+    re.I,
+)
+
+
 GROUPS = {
     "local": {"selection":"not live and not postgres and not upstream and not mcp and not vault",
               "modules":["pytest", "pytest_asyncio", "cryptography", "jwt", "opentelemetry.sdk"]},
@@ -174,8 +181,7 @@ def main():
     env.pop('PYTEST_PLUGINS',None)
     # An environment guard is not network isolation. All implemented fixtures
     # are model-free; externally restrict egress for an independent attestation.
-    secret_names=[k for k,v in env.items() if v and k.upper() in {
-        'OPENAI_API_KEY','ANTHROPIC_API_KEY','GEMINI_API_KEY','GOOGLE_API_KEY','AZURE_OPENAI_API_KEY'}]
+    secret_names=[k for k,v in env.items() if v and MODEL_CREDENTIAL.match(k)]
     results=[]
     if secret_names:
         results.append({'name':'credential-guard','status':'FAILED','presentNames':sorted(secret_names)})
