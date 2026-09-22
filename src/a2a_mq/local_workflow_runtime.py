@@ -101,13 +101,12 @@ def run(root: Path) -> int:
         SCHEDULER_HEALTH_PORT, SCHEDULER_METRICS_PORT,
         SCHEDULER_ETCD_CLIENT_PORT, SCHEDULER_ETCD_PEER_PORT,
     ))
-    _refresh_client_tokens(root, profile)
-
     binaries = {name: _native_binary(name) for name in ("nats-server", "daprd", "placement", "scheduler")}
     missing = [name for name, value in binaries.items() if not value]
     if missing:
         raise RuntimeError("missing native prerequisite(s): " + ", ".join(missing))
 
+    _refresh_client_tokens(root, profile)
     app_env, sidecar_env, child_env = _runtime_environments(root, profile)
     os.environ.pop("APP_API_TOKEN", None)
     os.environ.pop("DAPR_API_TOKEN", None)

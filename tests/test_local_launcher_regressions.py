@@ -126,3 +126,18 @@ def test_port_preflight_happens_before_token_refresh_or_child_start(profile, mon
                         lambda *a, **k: pytest.fail("child was started before port preflight"))
     with pytest.raises(BoundaryReached, match="ports checked"):
         module.run(root)
+
+
+@pytest.mark.parametrize("module,mode", [(lite, "local-lite"), (workflow, "local-workflow")])
+def test_missing_native_prerequisites_fail_before_token_refresh_or_children(profile, monkeypatch, module, mode):
+    root, data = profile
+    data["mode"] = mode
+    (root / "profile.json").write_text(json.dumps(data))
+    monkeypatch.setattr(module, "_require_ports_free", lambda ports: None)
+    monkeypatch.setattr(module, "_native_binary", lambda name: None)
+    monkeypatch.setattr(module, "_refresh_client_tokens",
+                        lambda *a: pytest.fail("credentials refreshed despite missing native prerequisites"))
+    monkeypatch.setattr(module.subprocess, "Popen",
+                        lambda *a, **k: pytest.fail("child started despite missing native prerequisites"))
+    with pytest.raises(RuntimeError, match="missing native prerequisite"):
+        module.run(root)

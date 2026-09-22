@@ -499,16 +499,15 @@ def run(root: Path) -> int:
     root = root.absolute()
     profile = _load_profile(root, "local-lite")
     _require_ports_free((18000, 3500, 50001, DAPR_INTERNAL_GRPC_PORT, 4222))
-    # Profiles are durable, while access tokens are deliberately short-lived.
-    # Refresh generated client credentials before checking runtime prerequisites.
-    _refresh_client_tokens(root, profile)
-
     nats_server = _native_binary("nats-server")
     daprd = _native_binary("daprd")
     if not nats_server or not daprd:
         missing = [name for name, value in (("nats-server", nats_server), ("daprd", daprd)) if not value]
         raise RuntimeError("missing native prerequisite(s): " + ", ".join(missing))
 
+    # Profiles are durable, while access tokens are deliberately short-lived.
+    # Refresh only after deterministic native prerequisites have passed.
+    _refresh_client_tokens(root, profile)
     app_env, sidecar_env, child_env = _runtime_environments(root, profile)
 
     # The current process becomes the ASGI application. Only NATS and daprd are
