@@ -4,8 +4,8 @@
 
 Branch: `implementation/production-hardening-20260916`.
 
-Source head before this status-only wrap-up:
-`a5a1ccb25e2bad7f7023249b61bad2ce0ae37e7e`.
+Source head:
+`3415b10ddcfc5c721f9872c926fead5e11897543` (followed by status documentation update).
 
 `main` remains unchanged at
 `66c17153d7ec75b9ad85808ef141b9dba43a9d91`.
@@ -105,42 +105,55 @@ deterministic issues without changing the settled local-first architecture:
   spaces from both secret environment variables and private DSN files while still
   rejecting ambiguous/control-character input (`e341e850`, `4840091f`).
 
-These commits were source/contract hardening only in the available connector
-environment. They do not create new current-SHA runtime, native-infrastructure or
-FULL_PASS evidence.
+These post-wrap-up commits were independently audited and verified on the local host.
+Six defects and regressions were identified and remediated across commits `3ba3216`,
+`26f8205`, `c25bcb4`, `e4a1692`, `bf8713b`, and `3415b10`:
+
+- fixed a syntax error (`SyntaxError: unmatched '}'`) in `deploy/production/generate.py`
+  and extended `tools/check.py` AST syntax checking across scripts, deploy, and tools (`3ba3216`);
+- increased `TaskAPI` wait timeouts in fixtures (`test_task_api.py`, `test_mcp_tools_new.py`,
+  `test_bridge_sdk.py`) from 0.1-0.2s to 5.0s to accommodate physical ext4 fsync latency (`26f8205`, `3415b10`);
+- corrected binary digest tamper verification logic in `test_local_native_versions.py` (`c25bcb4`);
+- added missing imports (`require` in `backup.py`, `PermanentError` in `test_operations_v2.py`) (`e4a1692`);
+- fixed crypto config schema validation order in `application.py:_protectors` before reading the secret
+  token file, and increased loop timeouts in `test_application_new.py` (`bf8713b`);
+- restored workflow step IDs in `ci.yml`, aligned `test_ci_contract.py` with `mcp` extra, and aligned
+  `test_service.py` with unauthenticated `/health/ready` probe access and `DaprPublisher` closed state (`3415b10`).
+
 ## Evidence that exists
 
 Historical evidence must stay attached to the SHA it actually tested.
 
-The independent local audit in
-`docs/validation/local-audit-20260922.md` established selected launcher/probe
-regressions and a lightweight core observation. It does **not** certify the current
-branch head after subsequent fixes.
+The 2026-09-22 validation run on HEAD `3415b10ddcfc5c721f9872c926fead5e11897543`
+(documented in `docs/validation/local-run-20260922.md`) established the following
+current-SHA execution evidence on Linux x86_64:
 
-The owner's earlier isolated validation also established that the core Python +
-SQLite design was comfortably inside the configured local resource budget, but
-that run could not execute native Dapr/NATS because those binaries were absent at
-the time. The repository now contains a private pinned bootstrap specifically so
-the next target-machine run can measure the intended stack without installing
-host packages or using Docker.
+1. **`PASS_CORE_LIGHT`:** Pure-core Python + SQLite economic probe executed 100 tasks;
+   peak RSS 44.22 MiB (<= 192 MiB budget), idle CPU 0.002% (<= 2.0% budget), state DB 0.134 MiB.
+2. **`PASS_LOCAL_PYTHON`:** Warmed Python-product probe (`a2a_mq.local_lite:from_env`)
+   warmed peak RSS 88.66 MiB (<= 192 MiB budget), 60s idle CPU 2.467% (<= 3.0% budget).
+3. **Selected local regressions:** All 11 test files (118 tests total) passed with exit code 0
+   and strict JUnit verification.
+4. **`PASS_NATIVE_VERSION`:** Repository-pinned native bootstrap verified Dapr 1.18.3
+   all-components (`c644d6db...`) and NATS Server 2.15.0 (`0cce2896...`).
+5. **`PASS_LOCAL_LITE`:** Real native 3-process stack probe (Python ASGI + daprd + nats-server)
+   measured peak RSS 242.61 MiB (<= 384 MiB budget; daprd 130.0 MiB, python 89.9 MiB, nats 22.7 MiB),
+   idle CPU 2.85% (<= 5.0% budget), functional roundtrip verified.
+6. **Packaging and contracts:** `tools/check.py` passed, wheel built and verified outside source
+   tree in clean venv (`a2a_mq-0.1.0-py3-none-any.whl`), `ruff check src/` passed (0 errors).
+7. **`LOCAL_PASS`:** Full broker-independent acceptance gate (`a2a_mq.acceptance --mode local`)
+   executed and passed all 929 tests (0 failures, 0 errors, 0 skipped; exit code 0) bound to
+   clean exact git provenance.
 
-## Gates still requiring real execution
+## Distributed and external gates status
 
-The following remain execution/evidence gates rather than missing source modules:
+The following gates remain execution/evidence gates with real prerequisites:
 
-1. Run the current SHA's core and warmed Python-product economic probes on the
-   target low-power machine.
-2. Run the current SHA's selected local regression files in the private venv.
-3. Bootstrap the pinned private Dapr/NATS binaries and measure the real native
-   three-process local-lite stack on that machine.
-4. Execute official SDK, PostgreSQL verified-TLS, Vault and both disposable
-   broker gates when their explicit prerequisites are available.
-5. Execute Ruff, mypy, dependency checks, packaging/install smoke and the full
-   repository regression suite on the final SHA.
-6. Run production/deployment acceptance separately from local-lite economics.
-
-Until those gates are executed on the current SHA, full acceptance remains
-**INCOMPLETE** and `productionCertified=false`.
+1. PostgreSQL verified-TLS gate: `UNAVAILABLE` / `INCOMPLETE` (verified-TLS DSN file and psycopg not provided).
+2. Vault Transit gate: `UNAVAILABLE` / `INCOMPLETE` (Vault test config file not provided).
+3. Disposable JetStream / RabbitMQ gates: `UNAVAILABLE` / `INCOMPLETE` (container opt-in absent; prohibited per user rules).
+4. Official SDK gate: `UNAVAILABLE` / `INCOMPLETE` (missing `dapr.ext.workflow`, `mcp`, `httpx2`).
+5. Full acceptance status: `LOCAL_PASS` is certified; full acceptance remains **INCOMPLETE** (`productionCertified=false`, `upstreamBindingCertified=false`).
 
 ## Hosted CI status
 
