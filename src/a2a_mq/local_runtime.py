@@ -396,13 +396,18 @@ def _read(path: Path) -> str:
 
 
 def _runtime_environments(root: Path, profile: dict) -> tuple[dict[str, str], dict[str, str], dict[str, str]]:
-    """Return app, sidecar and unprivileged child environments with least-privilege secrets."""
-    base = os.environ.copy()
-    base.pop("APP_API_TOKEN", None)
-    base.pop("DAPR_API_TOKEN", None)
-    base["PYTHONNOUSERSITE"] = "1"
+    """Return app, sidecar and helper environments with least-privilege secrets."""
+    app = os.environ.copy()
+    app.pop("APP_API_TOKEN", None)
+    app.pop("DAPR_API_TOKEN", None)
+    app["PYTHONNOUSERSITE"] = "1"
 
-    app = base.copy()
+    safe_names = {"PATH", "HOME", "TMPDIR", "TMP", "TEMP", "LANG", "TZ",
+                  "SSL_CERT_FILE", "SSL_CERT_DIR"}
+    child = {name: value for name, value in os.environ.items()
+             if name in safe_names or name.startswith("LC_")}
+    child["PYTHONNOUSERSITE"] = "1"
+
     app.update({
         "APP_API_TOKEN_FILE": str((root / "app-api-token").resolve()),
         "DAPR_API_TOKEN_FILE": str((root / "dapr-api-token").resolve()),
@@ -420,12 +425,12 @@ def _runtime_environments(root: Path, profile: dict) -> tuple[dict[str, str], di
         "DAPR_GRPC_PORT": "50001",
     })
 
-    sidecar = base.copy()
+    sidecar = child.copy()
     sidecar.update({
         "APP_API_TOKEN": _read(root / "app-api-token"),
         "DAPR_API_TOKEN": _read(root / "dapr-api-token"),
     })
-    return app, sidecar, base
+    return app, sidecar, child
 
 
 def _native_binary(name: str) -> str | None:
