@@ -1,7 +1,8 @@
 """Acceptance evidence must fail closed, independently of optional service availability."""
 import pytest
 
-from a2a_mq.acceptance import FULL_REQUIRED, GROUPS, full_status, junit, test_gate as execute_gate
+from a2a_mq.acceptance import (FULL_REQUIRED, GROUPS, full_status, junit, provenance_status,
+                               test_gate as execute_gate)
 from a2a_mq.live_probe import wait_until
 
 
@@ -46,6 +47,24 @@ def test_aggregate_keeps_all_missing_gates(statuses,expected):
     results.extend({'name':'extra-'+str(i),'status':status} for i,status in enumerate(statuses))
     assert full_status(results,'full')==expected
     assert full_status([{'name':'local','status':'PASSED'}],'local')=='LOCAL_PASS'
+
+
+@pytest.mark.parametrize("head,status", [
+    (None, ""),
+    ("a" * 39, ""),
+    ("A" * 40, ""),
+    ("a" * 40, " M src/a2a_mq/task_api.py"),
+    ("a" * 40, None),
+])
+def test_passing_acceptance_requires_clean_exact_git_provenance(head,status):
+    assert provenance_status("LOCAL_PASS", head, status) == "INCOMPLETE"
+    assert provenance_status("FULL_PASS", head, status) == "INCOMPLETE"
+
+
+def test_clean_git_provenance_preserves_pass_and_failure():
+    assert provenance_status("LOCAL_PASS", "a" * 40, "") == "LOCAL_PASS"
+    assert provenance_status("FULL_PASS", "b" * 40, "") == "FULL_PASS"
+    assert provenance_status("FAILED", None, None) == "FAILED"
 
 
 async def test_live_deadline_does_not_accept_false_condition():

@@ -13,6 +13,7 @@ import importlib.util
 import json
 import os
 from pathlib import Path
+import re
 import subprocess
 import sys
 import time
@@ -141,6 +142,16 @@ def full_status(results,requested):
     return 'FULL_PASS' if requested=='full' else requested.upper()+'_PASS'
 
 
+
+def provenance_status(status, git_head, git_status):
+    """Bind a passing verdict to one clean, exact Git commit."""
+    if status == "FAILED":
+        return status
+    clean = isinstance(git_status, str) and git_status == ""
+    exact = isinstance(git_head, str) and re.fullmatch(r"[0-9a-f]{40}", git_head) is not None
+    return status if clean and exact else "INCOMPLETE"
+
+
 def main():
     p=argparse.ArgumentParser(description=__doc__)
     p.add_argument('--mode',choices=['local','sdk','postgres','vault','full'],default='full')
@@ -202,6 +213,7 @@ def main():
             report[key]=subprocess.check_output(command,cwd=root,text=True,timeout=5).strip()
         except (OSError,subprocess.SubprocessError):
             report[key]=None
+    report['status']=provenance_status(report['status'],report['gitHead'],report['gitStatus'])
     (output/'verdict.json').write_text(json.dumps(report,indent=2)+'\n')
     hashes={path.name:hashlib.sha256(path.read_bytes()).hexdigest() for path in output.iterdir() if path.is_file()}
     (output/'sha256.json').write_text(json.dumps(hashes,indent=2)+'\n')
