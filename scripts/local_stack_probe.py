@@ -98,17 +98,28 @@ def _tree_bytes(path: Path) -> int:
     return total
 
 
-def _ready(url: str, deadline: float, process: subprocess.Popen) -> None:
+def _sample_total_rss(root_pid: int) -> tuple[int, int]:
+    pids = _descendants(root_pid)
+    return sum(_rss(pid) for pid in pids), len(pids)
+
+
+def _ready(url: str, deadline: float, process: subprocess.Popen) -> tuple[int, int]:
+    peak_rss = 0
+    peak_process_count = 0
     while time.monotonic() < deadline:
         if process.poll() is not None:
             raise RuntimeError(f"local runtime exited during startup with {process.returncode}")
+        rss, count = _sample_total_rss(process.pid)
+        peak_rss = max(peak_rss, rss)
+        peak_process_count = max(peak_process_count, count)
         try:
             request = Request(url, headers={"Cache-Control": "no-cache"})
             with urlopen(request, timeout=.5) as response:
                 if response.status == 200:
                     payload = json.loads(response.read())
                     if payload.get("status") == "ready":
-                        return
+                        rss, count = _sample_total_rss(process.pid)
+                        return max(peak_rss, rss), max(peak_process_count, count)
         except (URLError, HTTPError, TimeoutError, ValueError, OSError):
             pass
         time.sleep(.1)
@@ -256,7 +267,9 @@ def main() -> int:
         )
         try:
             try:
-                _ready("http://127.0.0.1:18000/health/ready", started + startup_timeout, process)
+                startup_peak_rss, startup_peak_process_count = _ready(
+                    "http://127.0.0.1:18000/health/ready", started + startup_timeout, process
+                )
                 startup = time.monotonic() - started
                 pids = _descendants(process.pid)
                 children = _identities(pids)
@@ -265,7 +278,14 @@ def main() -> int:
 
                 before = {pid: _cpu_ticks(pid) for pid in children}
                 wall = time.monotonic()
-                time.sleep(args.idle_seconds)
+                idle_peak_rss = 0
+                idle_peak_process_count = 0
+                idle_deadline = wall + args.idle_seconds
+                while time.monotonic() < idle_deadline:
+                    rss_sample, count_sample = _sample_total_rss(process.pid)
+                    idle_peak_rss = max(idle_peak_rss, rss_sample)
+                    idle_peak_process_count = max(idle_peak_process_count, count_sample)
+                    time.sleep(min(.1, max(0.0, idle_deadline - time.monotonic())))
                 elapsed = max(time.monotonic() - wall, .001)
                 after = {pid: _cpu_ticks(pid) for pid in children}
                 all_alive = _all_alive(process, children)
@@ -273,7 +293,8 @@ def main() -> int:
                 cpu_percent = sum(max(0, after.get(pid, 0) - before.get(pid, 0))
                                   for pid in children) / hz / elapsed * 100
                 rss = {pid: _rss(pid) for pid in children}
-                total_rss = sum(rss.values())
+                steady_total_rss = sum(rss.values())
+                peak_total_rss = max(startup_peak_rss, idle_peak_rss, steady_total_rss)
                 state_bytes = _tree_bytes(args.profile / "state") + _tree_bytes(args.profile / "nats")
                 role_rss = {role: _mib(sum(rss.get(pid, 0) for pid in pids))
                             for role, pids in roles.items()}
@@ -282,7 +303,7 @@ def main() -> int:
                     "allAlive": all_alive,
                     "exactProcessCount": len(children) == expected_count,
                     **{f"one{role.title()}": len(roles[role]) == 1 for role in expected_roles},
-                    "rss": _mib(total_rss) <= max_rss,
+                    "rss": _mib(peak_total_rss) <= max_rss,
                     "idleCpu": cpu_percent <= max_cpu,
                     "startup": startup <= max_startup,
                     "state": _mib(state_bytes) <= max_state,
@@ -305,7 +326,12 @@ def main() -> int:
                         "allAliveAfterIdle": all_alive,
                         "processes": {str(pid): commands[pid] for pid in children},
                         "rssByRoleMiB": role_rss,
-                        "totalRssMiB": _mib(total_rss),
+                        "steadyTotalRssMiB": _mib(steady_total_rss),
+                        "peakTotalRssMiB": _mib(peak_total_rss),
+                        "startupPeakRssMiB": _mib(startup_peak_rss),
+                        "idlePeakRssMiB": _mib(idle_peak_rss),
+                        "startupPeakProcessCount": startup_peak_process_count,
+                        "idlePeakProcessCount": idle_peak_process_count,
                         "idleCpuPercentOneCore": round(cpu_percent, 3),
                         "startupSeconds": round(startup, 3),
                         "runtimeStateMiB": _mib(state_bytes),

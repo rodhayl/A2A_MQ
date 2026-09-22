@@ -98,3 +98,11 @@ def test_stack_probe_all_alive_requires_root_and_original_children(monkeypatch):
 
     monkeypatch.setattr(probe, "_same_process", lambda pid, started: True)
     assert probe._all_alive(Process(), {1: 10, 2: 20}) is True
+
+
+def test_stack_probe_samples_aggregate_descendant_rss(monkeypatch):
+    probe = _module()
+    monkeypatch.setattr(probe, "_descendants", lambda root: [root, 2, 3])
+    rss = {1: 100, 2: 200, 3: 300}
+    monkeypatch.setattr(probe, "_rss", lambda pid: rss[pid])
+    assert probe._sample_total_rss(1) == (600, 3)
