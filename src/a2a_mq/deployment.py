@@ -370,6 +370,13 @@ def kubernetes(config: dict) -> list[dict]:
         raise PermanentError("EXPLICIT_EGRESS_REQUIRED") from None
     require(all(n.prefixlen > 0 for n in networks), "EXPLICIT_EGRESS_REQUIRED")
     redis_host = _redis_hosts(config["redisHost"])
+    redis_ports = {urlsplit("//" + entry).port or 6379 for entry in redis_host.split(",")}
+    broker = _broker_endpoint(
+        config["brokerEndpoint"], "tls" if config["broker"] == "jetstream" else "amqps"
+    )
+    broker_port = broker.port or (4222 if config["broker"] == "jetstream" else 5671)
+    egress_ports = {80, 443, 5432, 6379, 4222, 5671, 50001, 50002, 50005, 50006,
+                    broker_port, *redis_ports}
     docs, roles = [{"apiVersion": "v1", "kind": "Namespace", "metadata": {"name": namespace}}], topology(namespace)
     host = _ingress_host(urlsplit(public).hostname)
     for name, role in roles.items():
@@ -409,8 +416,10 @@ def kubernetes(config: dict) -> list[dict]:
         if config.get("cryptoConfigMap"):
             env["A2A_CRYPTO_CONFIG"] = "/credentials/crypto.json"
         if config.get("otlpEndpoint"):
-            env["A2A_OTLP_ENDPOINT"] = https_origin(config["otlpEndpoint"], "OTLP_HTTPS_REQUIRED")
+            otlp = https_origin(config["otlpEndpoint"], "OTLP_HTTPS_REQUIRED")
+            env["A2A_OTLP_ENDPOINT"] = otlp
             env["A2A_OTLP_CA_FILE"] = "/broker-ca/ca.crt"
+            egress_ports.add(urlsplit(otlp).port or 443)
         if config["broker"] == "rabbitmq" and role["subscribe"]:
             env["A2A_SUBSCRIPTION_QUEUE"] = appid + "-v1"
         security = {"runAsNonRoot": True, "runAsUser": 10001, "runAsGroup": 10001,
@@ -465,7 +474,7 @@ def kubernetes(config: dict) -> list[dict]:
             "egress": [{"to": [{"namespaceSelector": {"matchLabels": {"kubernetes.io/metadata.name": "kube-system"}}}],
                         "ports": [{"protocol": "UDP", "port": 53}, {"protocol": "TCP", "port": 53}]},
                        {"to": [{"ipBlock": {"cidr": str(n)}} for n in networks],
-                        "ports": [{"protocol": "TCP", "port": p} for p in (443, 4222, 5671, 5432, 6379, 50002, 50005, 50006, 50001, 80)]}]}})
+                        "ports": [{"protocol": "TCP", "port": p} for p in sorted(egress_ports)]}]}})
     docs.append({"apiVersion": "networking.k8s.io/v1", "kind": "Ingress", "metadata": {"name": "a2amq", "namespace": namespace,
         "annotations": {"nginx.ingress.kubernetes.io/ssl-redirect": "true", "nginx.ingress.kubernetes.io/proxy-buffering": "off",
                         "nginx.ingress.kubernetes.io/proxy-read-timeout": "3700", "nginx.ingress.kubernetes.io/enable-access-log": "false"}},

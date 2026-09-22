@@ -136,6 +136,18 @@ def test_production_redis_host_accepts_bounded_host_port_list():
     assert values['enableTLS']=='true'
 
 
+def test_network_policy_includes_configured_service_ports():
+    docs=kubernetes({**config(),
+        'brokerEndpoint':'tls://nats.internal:7443',
+        'redisHost':'redis-a.internal:6379,redis-b.internal:6380',
+        'otlpEndpoint':'https://collector.internal:4318'})
+    policy=next(item for item in docs if item['kind']=='NetworkPolicy')
+    ports={entry['port'] for rule in policy['spec']['egress']
+           for entry in rule.get('ports',[]) if entry.get('protocol')=='TCP'}
+    assert {7443,6380,4318} <= ports
+    assert {5432,50001,50002,50005,50006} <= ports
+
+
 def test_kubernetes_names_and_ingress_host_accept_dns_safe_values():
     docs=kubernetes({**config(),'namespace':'tenant-1','cryptoConfigMap':'crypto-1'})
     namespace=next(item for item in docs if item['kind']=='Namespace')
