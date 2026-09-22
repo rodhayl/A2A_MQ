@@ -201,13 +201,21 @@ def test_verified_bootstrap_rejects_tampered_binary_or_archive_provenance(tmp_pa
     path.write_text(json.dumps(manifest))
     path.chmod(0o600)
 
-    daprd.write_bytes(b"tampered")
+    daprd.write_bytes(b"tampr")
     try:
         check._verified_bootstrap(path, str(daprd), str(nats))
     except ValueError as exc:
         assert "digest mismatch" in str(exc)
     else:
         raise AssertionError("tampered binary accepted")
+
+    daprd.write_bytes(b"tampered")
+    try:
+        check._verified_bootstrap(path, str(daprd), str(nats))
+    except ValueError as exc:
+        assert "binary size provenance mismatch" in str(exc)
+    else:
+        raise AssertionError("tampered binary size accepted")
 
     daprd.write_bytes(b"daprd")
     manifest["binaries"]["daprd"]["archiveSha256"] = "0" * 64
