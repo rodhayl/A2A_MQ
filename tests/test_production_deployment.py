@@ -52,3 +52,18 @@ def test_image_must_be_immutable_digest():
         deploy.generate(namespace="a2amq", tenant="demo", broker="jetstream",
                         image="registry.example/a2amq:latest", public_url="https://agent.example",
                         issuer="https://issuer.example", jwt_kid="key-1", public_key=PUBLIC_KEY)
+
+
+def test_postgres_dsn_uses_secret_env_not_unreadable_root_owned_volume():
+    items = manifests()
+    deployments = [item for item in items if item["kind"] == "Deployment"]
+    for deployment in deployments:
+        pod = deployment["spec"]["template"]["spec"]
+        container = pod["containers"][0]
+        env = {entry["name"]: entry for entry in container["env"]}
+        assert "A2A_POSTGRES_DSN_FILE" not in env
+        assert env["A2A_POSTGRES_DSN"]["valueFrom"]["secretKeyRef"] == {
+            "name": "a2amq-postgres", "key": "dsn"
+        }
+        assert not any(volume.get("name") == "postgres" for volume in pod["volumes"])
+        assert not any(mount.get("name") == "postgres" for mount in container["volumeMounts"])

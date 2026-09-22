@@ -46,7 +46,7 @@ def deployment(*, namespace: str, role: str, app_id: str, image: str,
     variables = [
         env("A2A_TENANT", tenant),
         env("A2A_PUBSUB_COMPONENT", component),
-        env("A2A_POSTGRES_DSN_FILE", "/run/secrets/postgres/dsn"),
+        secret_env("A2A_POSTGRES_DSN", "a2amq-postgres", "dsn"),
         env("DAPR_HTTP_ENDPOINT", "http://127.0.0.1:3500"),
         secret_env("DAPR_API_TOKEN", "dapr-api-token"),
     ]
@@ -67,9 +67,8 @@ def deployment(*, namespace: str, role: str, app_id: str, image: str,
     else:
         variables += [env("A2A_DLQ_CONSUMER", "operations"),
                       secret_env("APP_API_TOKEN", "app-api-token")]
-    volumes = [{"name": "postgres", "secret": {"secretName": "a2amq-postgres",
-                                                   "items": [{"key": "dsn", "path": "dsn"}]}}]
-    mounts = [{"name": "postgres", "mountPath": "/run/secrets/postgres", "readOnly": True}]
+    volumes: list[dict] = []
+    mounts: list[dict] = []
     if role == "api":
         volumes.append({"name": "jwt", "configMap": {"name": "a2amq-jwt-public-key",
                                                          "items": [{"key": "public.pem", "path": "public.pem"}]}})
