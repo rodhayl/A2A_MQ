@@ -6,6 +6,7 @@ from types import SimpleNamespace
 import httpx
 import pytest
 
+import a2a_mq.deployment as deployment
 from a2a_mq.deployment import IMAGES, broker_plan, component, compose, kubernetes, topology
 from a2a_mq.domain import PermanentError
 from a2a_mq.provision import jetstream, rabbit
@@ -54,6 +55,26 @@ def test_real_local_generation_private_secrets_no_runtime_start(tmp_path,broker)
     assert services['nats' if broker=='jetstream' else 'redis']['depends_on']['volume-init']['condition']=='service_completed_successfully'
     with pytest.raises(PermanentError,match='OUTPUT_ALREADY_EXISTS'):
         compose(root,broker=broker,source_root=Path.cwd())
+
+
+def test_failed_compose_generation_leaves_no_partial_secret_tree(tmp_path,monkeypatch):
+    root=tmp_path/'failed'
+    source=Path(__file__).resolve().parents[1]
+    original=deployment._write
+    calls=0
+
+    def fail_after_first_write(*args,**kwargs):
+        nonlocal calls
+        calls+=1
+        if calls==2:
+            raise RuntimeError('fixture generation failed')
+        return original(*args,**kwargs)
+
+    monkeypatch.setattr(deployment,'_write',fail_after_first_write)
+    with pytest.raises(RuntimeError,match='fixture generation failed'):
+        deployment.compose(root,broker='jetstream',source_root=source)
+    assert not root.exists()
+    assert not list(tmp_path.glob('failed.*.tmp'))
 
 
 def config(broker='jetstream'):

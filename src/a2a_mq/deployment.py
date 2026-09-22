@@ -14,6 +14,7 @@ import os
 from pathlib import Path
 import re
 import secrets
+import shutil
 from urllib.parse import urlsplit
 
 from .configuration import https_issuer, https_origin
@@ -172,7 +173,7 @@ def _local_keys(root):
                                                serialization.PublicFormat.SubjectPublicKeyInfo).decode()})
 
 
-def compose(output: Path, *, broker: str, source_root: Path, images: dict | None = None):
+def _compose_into(output: Path, *, broker: str, source_root: Path, images: dict | None = None):
     require(not output.exists(), "OUTPUT_ALREADY_EXISTS")
     images = {**IMAGES, **(images or {})}
     require(set(images) == set(IMAGES) and all(isinstance(v, str) and v and ":latest" not in v
@@ -308,6 +309,23 @@ proxy_buffering off; proxy_read_timeout 3700s; proxy_set_header Connection ""; }
         "ownerUid": uid, "publicUrl": "https://localhost:18443", "source": str(source_root.resolve()),
         "roles": roles, "ports": ports, "requiresLiveValidation": True})
     return output / "compose.yaml"
+
+
+
+def compose(output: Path, *, broker: str, source_root: Path, images: dict | None = None):
+    """Generate a disposable fixture atomically so failed builds retain no credentials."""
+    final = output.absolute()
+    require(not final.exists(), "OUTPUT_ALREADY_EXISTS")
+    staging = final.with_name(final.name + "." + secrets.token_hex(8) + ".tmp")
+    require(not staging.exists(), "OUTPUT_ALREADY_EXISTS")
+    try:
+        generated = _compose_into(staging, broker=broker, source_root=source_root, images=images)
+        relative = generated.relative_to(staging)
+        os.replace(staging, final)
+        return final / relative
+    except BaseException:
+        shutil.rmtree(staging, ignore_errors=True)
+        raise
 
 
 K8S_DNS_LABEL = re.compile(r"^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$")
