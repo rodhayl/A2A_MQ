@@ -15,7 +15,6 @@ import subprocess
 import sys
 import time
 
-from .domain import require
 from .local_runtime import (
     APP_ID,
     CLIENT_TOKEN_REFRESH_SECONDS,
