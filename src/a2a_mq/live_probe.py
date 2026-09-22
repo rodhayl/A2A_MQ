@@ -9,6 +9,7 @@ import argparse
 import asyncio
 import json
 from pathlib import Path
+import shutil
 import socket
 import ssl
 import subprocess
@@ -38,6 +39,15 @@ class ComposeRun:
         self.commands.append({"command": list(args[:4]), "returnCode": result.returncode})
         require(result.returncode == 0, "COMPOSE_COMMAND_FAILED")
         return result.stdout if capture else b""
+
+    def scrub_secrets(self):
+        """Remove generated disposable credentials after containers are stopped."""
+        path = self.root / "secrets"
+        if path.is_symlink() or not path.is_dir():
+            raise RuntimeError("disposable secret directory unavailable or unsafe")
+        shutil.rmtree(path)
+        if path.exists():
+            raise RuntimeError("disposable secret cleanup failed")
 
     def inspect(self, query):
         code = ("import json; from a2a_mq.configuration import Settings,store; "
@@ -284,11 +294,19 @@ def main():
     except Exception as error:
         report['errorType']=type(error).__name__
     finally:
+        cleaned = False
         if report['status']=='PASSED' or not args.keep_failed:
             try:
                 fixture.run('down','--volumes','--remove-orphans',timeout=120)
+                cleaned = True
             except Exception:
                 report['cleanupFailed']=True
+                report['status']='FAILED'
+        if cleaned:
+            try:
+                fixture.scrub_secrets()
+            except Exception:
+                report['secretCleanupFailed']=True
                 report['status']='FAILED'
         report['commands']=fixture.commands
         (args.output/'live-verdict.json').write_text(json.dumps(report,indent=2)+'\n')

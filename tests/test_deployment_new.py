@@ -220,6 +220,26 @@ def test_component_urls_reject_credentials_and_ambiguous_endpoints(broker,scheme
         component(broker,"workflow",endpoint=scheme+":"+suffix,production=True)
 
 
+def test_disposable_live_fixture_scrubs_generated_secrets(tmp_path):
+    from a2a_mq.live_probe import ComposeRun
+
+    fixture = object.__new__(ComposeRun)
+    fixture.root = tmp_path
+    secrets = tmp_path / "secrets"
+    secrets.mkdir(mode=0o700)
+    for name in ("jwt-private.pem", "postgres-password", "tls.key", "api-app"):
+        path = secrets / name
+        path.write_text("disposable-secret")
+        path.chmod(0o600)
+    public = tmp_path / "live-verdict.json"
+    public.write_text("{}")
+
+    fixture.scrub_secrets()
+
+    assert not secrets.exists()
+    assert public.exists()
+
+
 def test_integrated_deployment_dapr_patch_matches_python_sdk_pin():
     assert IMAGES["dapr"] == "daprio/daprd:1.18.3"
     assert IMAGES["control"] == "daprio/dapr:1.18.3"
