@@ -16,6 +16,7 @@ from a2a_mq.local_runtime import (
     _nats_config,
     _plan,
     _private_replace,
+    prepare,
     _read,
     _runtime_environments,
     _resiliency_resource,
@@ -208,3 +209,23 @@ def test_local_child_environments_keep_app_tokens_sidecar_only(tmp_path, monkeyp
     assert sidecar["DAPR_API_TOKEN"] == "d" * 32
     assert app["APP_API_TOKEN_FILE"].endswith("app-api-token")
     assert app["DAPR_API_TOKEN_FILE"].endswith("dapr-api-token")
+
+
+def test_prepare_failure_leaves_no_partial_profile(tmp_path, monkeypatch):
+    target = tmp_path / "profile"
+    import a2a_mq.local_runtime as local_runtime
+
+    original = local_runtime._private_write
+    calls = {"count": 0}
+
+    def fail_second_write(path, value):
+        calls["count"] += 1
+        if calls["count"] == 2:
+            raise RuntimeError("injected prepare failure")
+        return original(path, value)
+
+    monkeypatch.setattr(local_runtime, "_private_write", fail_second_write)
+    with pytest.raises(RuntimeError, match="injected prepare failure"):
+        prepare(target)
+    assert not target.exists()
+    assert list(tmp_path.glob("profile.*.tmp")) == []

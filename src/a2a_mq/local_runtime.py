@@ -297,76 +297,85 @@ def _loopback_public_url(value: str) -> str:
 def prepare(root: Path, *, tenant: str = "demo", source: str = "local-worker",
             public_url: str = "http://127.0.0.1:18000", mcp: bool = False,
             mode: str = "local-lite") -> dict:
-    require(not root.exists(), "OUTPUT_ALREADY_EXISTS")
+    final_root = root.absolute()
+    require(not final_root.exists(), "OUTPUT_ALREADY_EXISTS")
     require(mode in {"local-lite", "local-workflow"}, "INVALID_LOCAL_PROFILE")
     tenant, source = token(tenant), token(source)
     public_url = _loopback_public_url(public_url)
-    root.mkdir(parents=True, mode=0o700)
-    for name in ("components", "examples", "state", "nats"):
-        (root / name).mkdir(mode=0o700)
-
-    app_token = secrets.token_hex(32)
-    dapr_token = secrets.token_hex(32)
-    nats_token = secrets.token_hex(32)
-    _private_write(root / "app-api-token", app_token)
-    _private_write(root / "dapr-api-token", dapr_token)
-    _private_write(root / "nats-token", nats_token)
-
-    nats_store = (root / "nats").resolve()
-    _private_write(root / "nats.conf", _nats_config(nats_store, nats_token))
-    _private_write(root / "components/bus.yaml", _bus_component(tenant, source, nats_token))
-    _private_write(root / "components/bus-dlq.yaml", _dlq_component(tenant, nats_token))
-    _private_write(root / "components/resiliency.yaml", _resiliency_resource())
-    plan = _plan(tenant, source)
-    _json_write(root / "broker-plan.json", plan)
-
+    staging = final_root.with_name(final_root.name + "." + secrets.token_hex(8) + ".tmp")
+    require(not staging.exists(), "OUTPUT_ALREADY_EXISTS")
+    staging.mkdir(parents=True, mode=0o700)
+    root = staging
     try:
-        import jwt
-        from cryptography.hazmat.primitives import serialization
-        from cryptography.hazmat.primitives.asymmetric import rsa
-    except ImportError:
-        raise RuntimeError("local runtime extra is required: pip install -e '.[local]'") from None
-    key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
-    private = key.private_bytes(serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8,
-                                serialization.NoEncryption()).decode()
-    public = key.public_key().public_bytes(serialization.Encoding.PEM,
-                                           serialization.PublicFormat.SubjectPublicKeyInfo).decode()
-    _private_write(root / "jwt-private.pem", private)
-    _json_write(root / "jwt-keys.json", {"local": public}, private=True)
-    now = datetime.now(timezone.utc)
-    scopes = "a2a:send a2a:read a2a:cancel a2a:operate a2a:replay a2a:approve"
-    issuer = "https://local-a2amq.invalid"
-    base_claims = {"iss": issuer, "sub": "local-owner", "tenant": tenant, "scope": scopes,
-                   "iat": int(now.timestamp()), "nbf": int(now.timestamp()),
-                   "exp": int((now + timedelta(seconds=CLIENT_TOKEN_LIFETIME_SECONDS)).timestamp())}
-    token_a2a = jwt.encode({**base_claims, "aud": public_url}, key, algorithm="RS256",
-                           headers={"kid": "local", "typ": "JWT"})
-    _private_write(root / "client.jwt", token_a2a)
-    if mcp:
-        token_mcp = jwt.encode({**base_claims, "aud": public_url.rstrip("/") + "/mcp"}, key,
-                               algorithm="RS256", headers={"kid": "local", "typ": "JWT"})
-        _private_write(root / "client-mcp.jwt", token_mcp)
-
-    workflow_state = _workflow_state_component(
-        (root / "state/dapr-workflow.db").resolve(),
-        app_id=APP_ID if mode == "local-workflow" else "a2amq-workflow",
-    )
-    if mode == "local-workflow":
-        _private_write(root / "components/workflow-state.yaml", workflow_state)
-        for name in ("scheduler", "scheduler-identity"):
-            (root / "state" / name).mkdir(mode=0o700)
-        process_budget = ["a2a-mq", "daprd", "nats-server", "placement", "scheduler"]
-    else:
-        # Documentation/example only; local-lite never loads an actor state component.
-        _private_write(root / "examples/workflow-state.yaml", workflow_state)
-        process_budget = ["a2a-mq", "daprd", "nats-server"]
-
-    config = {"mode": mode, "tenant": tenant, "source": source,
-              "publicUrl": public_url, "issuer": issuer,
-              "mcp": mcp, "appId": APP_ID, "appPort": 18000, "daprHttpPort": 3500,
-              "daprGrpcPort": 50001, "processBudget": process_budget}
-    _json_write(root / "profile.json", config)
-    return config
+        for name in ("components", "examples", "state", "nats"):
+            (root / name).mkdir(mode=0o700)
+    
+        app_token = secrets.token_hex(32)
+        dapr_token = secrets.token_hex(32)
+        nats_token = secrets.token_hex(32)
+        _private_write(root / "app-api-token", app_token)
+        _private_write(root / "dapr-api-token", dapr_token)
+        _private_write(root / "nats-token", nats_token)
+    
+        nats_store = (final_root / "nats").resolve()
+        _private_write(root / "nats.conf", _nats_config(nats_store, nats_token))
+        _private_write(root / "components/bus.yaml", _bus_component(tenant, source, nats_token))
+        _private_write(root / "components/bus-dlq.yaml", _dlq_component(tenant, nats_token))
+        _private_write(root / "components/resiliency.yaml", _resiliency_resource())
+        plan = _plan(tenant, source)
+        _json_write(root / "broker-plan.json", plan)
+    
+        try:
+            import jwt
+            from cryptography.hazmat.primitives import serialization
+            from cryptography.hazmat.primitives.asymmetric import rsa
+        except ImportError:
+            raise RuntimeError("local runtime extra is required: pip install -e '.[local]'") from None
+        key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+        private = key.private_bytes(serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8,
+                                    serialization.NoEncryption()).decode()
+        public = key.public_key().public_bytes(serialization.Encoding.PEM,
+                                               serialization.PublicFormat.SubjectPublicKeyInfo).decode()
+        _private_write(root / "jwt-private.pem", private)
+        _json_write(root / "jwt-keys.json", {"local": public}, private=True)
+        now = datetime.now(timezone.utc)
+        scopes = "a2a:send a2a:read a2a:cancel a2a:operate a2a:replay a2a:approve"
+        issuer = "https://local-a2amq.invalid"
+        base_claims = {"iss": issuer, "sub": "local-owner", "tenant": tenant, "scope": scopes,
+                       "iat": int(now.timestamp()), "nbf": int(now.timestamp()),
+                       "exp": int((now + timedelta(seconds=CLIENT_TOKEN_LIFETIME_SECONDS)).timestamp())}
+        token_a2a = jwt.encode({**base_claims, "aud": public_url}, key, algorithm="RS256",
+                               headers={"kid": "local", "typ": "JWT"})
+        _private_write(root / "client.jwt", token_a2a)
+        if mcp:
+            token_mcp = jwt.encode({**base_claims, "aud": public_url.rstrip("/") + "/mcp"}, key,
+                                   algorithm="RS256", headers={"kid": "local", "typ": "JWT"})
+            _private_write(root / "client-mcp.jwt", token_mcp)
+    
+        workflow_state = _workflow_state_component(
+            (final_root / "state/dapr-workflow.db").resolve(),
+            app_id=APP_ID if mode == "local-workflow" else "a2amq-workflow",
+        )
+        if mode == "local-workflow":
+            _private_write(root / "components/workflow-state.yaml", workflow_state)
+            for name in ("scheduler", "scheduler-identity"):
+                (root / "state" / name).mkdir(mode=0o700)
+            process_budget = ["a2a-mq", "daprd", "nats-server", "placement", "scheduler"]
+        else:
+            # Documentation/example only; local-lite never loads an actor state component.
+            _private_write(root / "examples/workflow-state.yaml", workflow_state)
+            process_budget = ["a2a-mq", "daprd", "nats-server"]
+    
+        config = {"mode": mode, "tenant": tenant, "source": source,
+                  "publicUrl": public_url, "issuer": issuer,
+                  "mcp": mcp, "appId": APP_ID, "appPort": 18000, "daprHttpPort": 3500,
+                  "daprGrpcPort": 50001, "processBudget": process_budget}
+        _json_write(root / "profile.json", config)
+        os.replace(root, final_root)
+        return config
+    except BaseException:
+        shutil.rmtree(root, ignore_errors=True)
+        raise
 
 
 def _wait_port(host: str, port: int, process: subprocess.Popen, timeout: float = 15) -> None:
