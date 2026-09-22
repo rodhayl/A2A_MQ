@@ -268,3 +268,55 @@ def test_verified_bootstrap_rejects_wrong_archive_size_provenance(tmp_path, monk
     path.chmod(0o600)
     with __import__("pytest").raises(ValueError, match="archive size provenance mismatch"):
         check._verified_bootstrap(path, str(daprd), str(nats))
+
+
+def test_verified_workflow_bootstrap_binds_control_plane_binaries(tmp_path, monkeypatch):
+    import hashlib
+    import json
+
+    check = _module()
+    root = tmp_path / "tools"
+    root.mkdir(mode=0o700)
+    bin_dir = root / "bin"
+    bin_dir.mkdir(mode=0o700)
+    names = ("daprd", "nats-server", "placement", "scheduler")
+    paths = {}
+    for name in names:
+        path = bin_dir / name
+        path.write_bytes(name.encode())
+        path.chmod(0o700)
+        paths[name] = path
+    monkeypatch.setattr(check, "_arch", lambda: "amd64")
+    archive_sha = {**check.EXPECTED_ARCHIVES["amd64"], **check.EXPECTED_CONTROL_ARCHIVES["amd64"]}
+    archive_bytes = {**check.EXPECTED_ARCHIVE_BYTES["amd64"],
+                     **check.EXPECTED_CONTROL_ARCHIVE_BYTES["amd64"]}
+    manifest = {
+        "platform": "linux", "arch": "amd64", "runtimeProfile": "local-workflow",
+        "daprVersion": check.EXPECTED_DAPRD, "daprFlavor": check.EXPECTED_DAPR_FLAVOR,
+        "natsVersion": check.EXPECTED_NATS,
+        "binaries": {
+            name: {
+                "archiveSha256": archive_sha[name],
+                "archiveBytes": archive_bytes[name],
+                "binarySha256": hashlib.sha256(paths[name].read_bytes()).hexdigest(),
+                "binaryBytes": paths[name].stat().st_size,
+            } for name in names
+        },
+        "archiveBytesTotal": sum(archive_bytes.values()),
+        "binaryBytesTotal": sum(path.stat().st_size for path in paths.values()),
+    }
+    manifest_path = root / "manifest.json"
+    manifest_path.write_text(json.dumps(manifest))
+    manifest_path.chmod(0o600)
+
+    verified = check._verified_bootstrap(
+        manifest_path, str(paths["daprd"]), str(paths["nats-server"]),
+        str(paths["placement"]), str(paths["scheduler"])
+    )
+    assert verified["runtimeProfile"] == "local-workflow"
+
+    with __import__("pytest").raises(ValueError, match="supplied together"):
+        check._verified_bootstrap(
+            manifest_path, str(paths["daprd"]), str(paths["nats-server"]),
+            str(paths["placement"]), None
+        )

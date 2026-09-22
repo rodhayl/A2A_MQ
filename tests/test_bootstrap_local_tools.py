@@ -80,3 +80,23 @@ def test_unsupported_host_leaves_no_bootstrap_output(tmp_path, monkeypatch):
     with pytest.raises(SystemExit, match="Linux only"):
         bootstrap.main()
     assert not output.exists()
+
+
+def test_workflow_bootstrap_pins_official_dapr_control_plane_assets():
+    bootstrap = _module()
+    expected = {
+        "amd64": {
+            "placement": ("1a697e769d9bb4b7eab883ee7d8776a243e2f2580bae6a001e8ff7fca12604ad", 14382449),
+            "scheduler": ("aa55eae2a8c38ef70e6d3f418a9d88e6b106d7fa56f8f4950c10e79ba7577e6f", 18464040),
+        },
+        "arm64": {
+            "placement": ("be5fb143920f188109907e8930dffd504e808b3d40a1ab74e710a28cd5ec194f", 12651936),
+            "scheduler": ("49384218a253edeb9a95a551c886e25ea13011aec47ca2b8c4eedf747638492a", 16329382),
+        },
+    }
+    for arch, assets in expected.items():
+        for name, (digest, size) in assets.items():
+            asset = bootstrap.ASSETS[arch][name]
+            assert asset["sha256"] == digest
+            assert asset["bytes"] == size
+            assert asset["url"].endswith(f"{name}_linux_{arch}.tar.gz")

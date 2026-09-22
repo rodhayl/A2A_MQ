@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Verify exact native local-lite binary versions before resource acceptance."""
+"""Verify exact native local binary provenance before resource acceptance."""
 from __future__ import annotations
 
 import argparse
@@ -28,6 +28,20 @@ EXPECTED_ARCHIVES = {
 EXPECTED_ARCHIVE_BYTES = {
     "amd64": {"daprd": 63716263, "nats-server": 7236657},
     "arm64": {"daprd": 56814528, "nats-server": 6528127},
+}
+EXPECTED_CONTROL_ARCHIVES = {
+    "amd64": {
+        "placement": "1a697e769d9bb4b7eab883ee7d8776a243e2f2580bae6a001e8ff7fca12604ad",
+        "scheduler": "aa55eae2a8c38ef70e6d3f418a9d88e6b106d7fa56f8f4950c10e79ba7577e6f",
+    },
+    "arm64": {
+        "placement": "be5fb143920f188109907e8930dffd504e808b3d40a1ab74e710a28cd5ec194f",
+        "scheduler": "49384218a253edeb9a95a551c886e25ea13011aec47ca2b8c4eedf747638492a",
+    },
+}
+EXPECTED_CONTROL_ARCHIVE_BYTES = {
+    "amd64": {"placement": 14382449, "scheduler": 18464040},
+    "arm64": {"placement": 12651936, "scheduler": 16329382},
 }
 SEMVER = re.compile(r"(?<![0-9])v?(\d+\.\d+\.\d+)(?![0-9])")
 
@@ -112,7 +126,11 @@ def _sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
-def _verified_bootstrap(path: Path, daprd: str, nats_server: str) -> dict:
+def _verified_bootstrap(path: Path, daprd: str, nats_server: str,
+                        placement: str | None = None, scheduler: str | None = None) -> dict:
+    workflow = placement is not None or scheduler is not None
+    if workflow and (placement is None or scheduler is None):
+        raise ValueError("workflow control-plane binaries must be supplied together")
     manifest = _bootstrap_manifest(path)
     arch = _arch()
     root = path.absolute().parent
@@ -131,9 +149,21 @@ def _verified_bootstrap(path: Path, daprd: str, nats_server: str) -> dict:
     }
     provided = {"daprd": Path(daprd).expanduser().absolute(),
                 "nats-server": Path(nats_server).expanduser().absolute()}
+    archive_digests = dict(EXPECTED_ARCHIVES[arch])
+    archive_bytes = dict(EXPECTED_ARCHIVE_BYTES[arch])
+    if workflow:
+        if placement is None or scheduler is None:
+            raise ValueError("workflow control-plane binaries must be supplied together")
+        expected_paths.update({"placement": bin_dir / "placement", "scheduler": bin_dir / "scheduler"})
+        provided.update({"placement": Path(placement).expanduser().absolute(),
+                         "scheduler": Path(scheduler).expanduser().absolute()})
+        archive_digests.update(EXPECTED_CONTROL_ARCHIVES[arch])
+        archive_bytes.update(EXPECTED_CONTROL_ARCHIVE_BYTES[arch])
     binaries = manifest.get("binaries")
+    profile = manifest.get("runtimeProfile", "local-lite")
     if (manifest.get("platform") != "linux" or manifest.get("arch") != arch
-            or not isinstance(binaries, dict)):
+            or profile != ("local-workflow" if workflow else "local-lite")
+            or not isinstance(binaries, dict) or set(binaries) != set(expected_paths)):
         raise ValueError("bootstrap provenance mismatch")
 
     for name, expected_path in expected_paths.items():
@@ -143,9 +173,9 @@ def _verified_bootstrap(path: Path, daprd: str, nats_server: str) -> dict:
         record = binaries.get(name)
         if not isinstance(record, dict):
             raise ValueError("bootstrap binary provenance missing")
-        if record.get("archiveSha256") != EXPECTED_ARCHIVES[arch][name]:
+        if record.get("archiveSha256") != archive_digests[name]:
             raise ValueError("bootstrap archive provenance mismatch")
-        if record.get("archiveBytes") != EXPECTED_ARCHIVE_BYTES[arch][name]:
+        if record.get("archiveBytes") != archive_bytes[name]:
             raise ValueError("bootstrap archive size provenance mismatch")
         if record.get("binaryBytes") != actual_path.stat().st_size:
             raise ValueError("bootstrap binary size provenance mismatch")
@@ -154,7 +184,7 @@ def _verified_bootstrap(path: Path, daprd: str, nats_server: str) -> dict:
             raise ValueError("bootstrap binary digest invalid")
         if _sha256(actual_path) != binary_sha:
             raise ValueError("bootstrap binary digest mismatch")
-    expected_archive_total = sum(EXPECTED_ARCHIVE_BYTES[arch].values())
+    expected_archive_total = sum(archive_bytes.values())
     if manifest.get("archiveBytesTotal") != expected_archive_total:
         raise ValueError("bootstrap archive total provenance mismatch")
     binary_total = sum(Path(path).stat().st_size for path in provided.values())
@@ -167,6 +197,8 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--daprd", required=True)
     parser.add_argument("--nats-server", required=True)
+    parser.add_argument("--placement")
+    parser.add_argument("--scheduler")
     parser.add_argument("--bootstrap-manifest", type=Path, required=True)
     parser.add_argument("--json", dest="json_path", type=Path, required=True)
     args = parser.parse_args()
@@ -179,17 +211,23 @@ def main() -> int:
     try:
         daprd, daprd_raw = _version(args.daprd, ("--version",))
         nats, nats_raw = _version(args.nats_server, ("-v",))
-        manifest = _verified_bootstrap(args.bootstrap_manifest, args.daprd, args.nats_server)
+        manifest = _verified_bootstrap(args.bootstrap_manifest, args.daprd, args.nats_server,
+                                       args.placement, args.scheduler)
+        workflow = args.placement is not None or args.scheduler is not None
         exact = (daprd == EXPECTED_DAPRD and nats == EXPECTED_NATS
+                 and (not workflow or manifest.get("runtimeProfile") == "local-workflow")
                  and manifest.get("daprVersion") == EXPECTED_DAPRD
                  and manifest.get("natsVersion") == EXPECTED_NATS
                  and manifest.get("daprFlavor") == EXPECTED_DAPR_FLAVOR)
         result = {
             "verdict": "PASS_NATIVE_VERSION" if exact else "INCOMPLETE_NATIVE_VERSION",
             "expected": {"daprd": EXPECTED_DAPRD, "daprFlavor": EXPECTED_DAPR_FLAVOR,
-                         "nats-server": EXPECTED_NATS},
+                         "nats-server": EXPECTED_NATS,
+                         **({"placement": EXPECTED_DAPRD, "scheduler": EXPECTED_DAPRD} if workflow else {})},
             "observed": {"daprd": daprd, "daprFlavor": manifest.get("daprFlavor"),
-                         "nats-server": nats},
+                         "nats-server": nats,
+                         **({"placement": manifest.get("daprVersion"),
+                             "scheduler": manifest.get("daprVersion")} if workflow else {})},
             "versionOutput": {"daprd": daprd_raw, "nats-server": nats_raw},
         }
         code = 0 if exact else 2

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Download pinned local-lite native binaries into a private validation directory."""
+"""Download pinned local native binaries into a private validation directory."""
 from __future__ import annotations
 
 import argparse
@@ -31,6 +31,18 @@ ASSETS = {
             "bytes": 7236657,
             "max_bytes": 20 * 1024 * 1024,
         },
+        "placement": {
+            "url": "https://github.com/dapr/dapr/releases/download/v1.18.3/placement_linux_amd64.tar.gz",
+            "sha256": "1a697e769d9bb4b7eab883ee7d8776a243e2f2580bae6a001e8ff7fca12604ad",
+            "bytes": 14382449,
+            "max_bytes": 32 * 1024 * 1024,
+        },
+        "scheduler": {
+            "url": "https://github.com/dapr/dapr/releases/download/v1.18.3/scheduler_linux_amd64.tar.gz",
+            "sha256": "aa55eae2a8c38ef70e6d3f418a9d88e6b106d7fa56f8f4950c10e79ba7577e6f",
+            "bytes": 18464040,
+            "max_bytes": 32 * 1024 * 1024,
+        },
     },
     "arm64": {
         "daprd": {
@@ -44,6 +56,18 @@ ASSETS = {
             "sha256": "cdc208f5a3f42963a52b6ab06ef65626bb870315dc936e26ba571780c6351112",
             "bytes": 6528127,
             "max_bytes": 20 * 1024 * 1024,
+        },
+        "placement": {
+            "url": "https://github.com/dapr/dapr/releases/download/v1.18.3/placement_linux_arm64.tar.gz",
+            "sha256": "be5fb143920f188109907e8930dffd504e808b3d40a1ab74e710a28cd5ec194f",
+            "bytes": 12651936,
+            "max_bytes": 32 * 1024 * 1024,
+        },
+        "scheduler": {
+            "url": "https://github.com/dapr/dapr/releases/download/v1.18.3/scheduler_linux_arm64.tar.gz",
+            "sha256": "49384218a253edeb9a95a551c886e25ea13011aec47ca2b8c4eedf747638492a",
+            "bytes": 16329382,
+            "max_bytes": 32 * 1024 * 1024,
         },
     },
 }
@@ -129,6 +153,8 @@ def _extract_binary(archive: Path, destination: Path, basename: str,
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--workflow", action="store_true",
+                        help="also bootstrap pinned Placement and Scheduler for the optional Workflow tier")
     args = parser.parse_args()
     root = args.output.resolve()
     if root.exists():
@@ -140,13 +166,19 @@ def main() -> int:
     try:
         bin_dir = root / "bin"
         bin_dir.mkdir(mode=0o700)
+        selected = ["daprd", "nats-server"]
+        if args.workflow:
+            selected.extend(["placement", "scheduler"])
         manifest = {
             "platform": "linux", "arch": arch, "daprVersion": DAPR_VERSION,
-            "daprFlavor": "allcomponents", "natsVersion": NATS_VERSION, "binaries": {},
+            "daprFlavor": "allcomponents", "natsVersion": NATS_VERSION,
+            "runtimeProfile": "local-workflow" if args.workflow else "local-lite",
+            "binaries": {},
         }
         with tempfile.TemporaryDirectory(prefix="archives-", dir=root) as temp:
             temp_dir = Path(temp)
-            for name, spec in ASSETS[arch].items():
+            for name in selected:
+                spec = ASSETS[arch][name]
                 archive = temp_dir / f"{name}.tar.gz"
                 archive_bytes = _download(
                     spec["url"], archive, spec["sha256"], spec["bytes"], spec["max_bytes"]
