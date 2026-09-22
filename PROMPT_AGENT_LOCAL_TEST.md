@@ -19,8 +19,10 @@ steady state is exactly one Python A2A-MQ process + one native `daprd` + one nat
 - Start with only `requirements/core-probe.txt`. Install the broader
   `requirements/local-validation.txt` only after the pure-core resource gate passes.
 - Do not install `daprd`, `nats-server`, PostgreSQL, Redis, Vault, RabbitMQ or
-  telemetry services. If native `daprd` or `nats-server` is absent, record the
-  native local-lite gate as INCOMPLETE and continue broker-free validation.
+  telemetry services into the host. If `daprd` or `nats-server` is absent,
+  complete the core/Python/regression gates first, then Phase 2 is explicitly
+  authorized to use `scripts/bootstrap_local_tools.py` inside this run's
+  `$STATE/tools` only. PostgreSQL/Redis/Vault/RabbitMQ/collectors remain deferred.
 - Run one test command/file at a time. No xdist, coverage, load tests or parallel
   tool agents.
 - Never convert missing prerequisites, skips, xfails, empty selections or timeouts

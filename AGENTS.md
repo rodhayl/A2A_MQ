@@ -35,9 +35,12 @@ that tier rather than adding a second scheduler to local-lite. Do not make the
 five-process Workflow tier the default without separate resource evidence.
 
 Before broad local testing, create the isolated venv and run the core resource probe
-from PROMPT_AGENT_LOCAL_TEST.md. If it passes and native daprd/nats-server already
-exist, run the real three-process local stack probe. Do not install host binaries or
-services as part of validation.
+from PROMPT_AGENT_LOCAL_TEST.md. After the core/Python/selected regressions pass,
+run the real three-process local stack probe. Existing exact native binaries may be
+used; otherwise the repository's pinned bootstrap may place daprd/nats-server only
+inside the current ignored `.local-validation` run directory and must pass the
+native-version check first. Never install host binaries or services as part of
+validation.
 
 ## Low-resource validation
 

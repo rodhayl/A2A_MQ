@@ -77,12 +77,19 @@ rerun the affected files and make a focused local commit. No cosmetic refactorin
 
 ## Native economics remains a separate conditional gate
 
-Only after the core and selected tests pass, follow the existing native phase in
-`PROMPT_AGENT_LOCAL_TEST.md` under the owner's authorization and resource limits.
-Do not install host binaries. Reuse already permitted private tools; a missing or
-unapproved download stays `INCOMPLETE_NATIVE_PREREQ`. Do not launch Workflow,
-containers, databases or collectors as a workaround. Run only one local-lite
-stack, and stop/reap only its owned processes afterward.
+Only after the core and selected tests pass, follow Phase 2 in
+`PROMPT_AGENT_LOCAL_TEST.md`. The owner has authorized the repository's pinned
+private bootstrap for this validation: if exact native binaries are not already
+available, run `scripts/bootstrap_local_tools.py` into this run's
+`$STATE/tools` only, prepend that private `bin/` to PATH, and require
+`scripts/check_local_native_versions.py` to return `PASS_NATIVE_VERSION` before
+starting the stack. This is not a host installation and must not write outside the
+ignored run directory. A platform/download/checksum/version failure remains
+`INCOMPLETE_NATIVE_PREREQ` or `INCOMPLETE_NATIVE_VERSION`.
+
+Do not launch Workflow, containers, PostgreSQL, Redis, Vault, RabbitMQ, collectors
+or any alternative service as a workaround. Run only one local-lite stack and
+stop/reap only its owned processes afterward.
 
 For a real stack run, record actual binary versions, startup/idle peak RSS,
 PID/start-time identities, CPU and flushed disk footprint. Missing readings or
