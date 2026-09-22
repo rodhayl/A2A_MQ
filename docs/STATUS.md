@@ -87,6 +87,27 @@ The current branch also includes focused fixes around:
 - capacity reservation before durable stream admission;
 - SQLite backup destination symlink-race protection.
 
+### Post-wrap-up source hardening
+
+A follow-up source audit after the status wrap-up found and fixed additional
+deterministic issues without changing the settled local-first architecture:
+
+- integrated Kubernetes pods no longer retain unnecessary runtime ServiceAccount
+  credentials, and injected Dapr sidecars disable the unused built-in Kubernetes
+  secret-store API (`37d7974f`);
+- task snapshot streams terminate cleanly at both `INPUT_REQUIRED` and
+  `AUTH_REQUIRED` pauses rather than timing out while awaiting approval
+  (`a1d18e97`);
+- formal acceptance PASS verdicts are bound to a clean exact Git commit, and an
+  unsafe/unreadable PostgreSQL gate file now fails closed with structured evidence
+  (`03ff8ddf`, `21fb5406`);
+- the alternate production environment accepts normal libpq conninfo containing
+  spaces from both secret environment variables and private DSN files while still
+  rejecting ambiguous/control-character input (`e341e850`, `4840091f`).
+
+These commits were source/contract hardening only in the available connector
+environment. They do not create new current-SHA runtime, native-infrastructure or
+FULL_PASS evidence.
 ## Evidence that exists
 
 Historical evidence must stay attached to the SHA it actually tested.
