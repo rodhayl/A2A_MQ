@@ -239,7 +239,7 @@ cat "$EVIDENCE/local-stack-resources.json"
 
 Initial stack budget:
 
-- exactly 3 steady product processes (startup helpers may transiently raise the observed peak process count);
+- exactly 3 product processes throughout the post-readiness idle window (startup helpers may transiently raise only the startup peak process count);
 - peak aggregate RSS <= 384 MiB across startup and the idle sampling window;
 - aggregate idle CPU <= 5% of one core;
 - readiness <= 15 seconds;

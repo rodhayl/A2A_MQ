@@ -106,3 +106,10 @@ def test_stack_probe_samples_aggregate_descendant_rss(monkeypatch):
     rss = {1: 100, 2: 200, 3: 300}
     monkeypatch.setattr(probe, "_rss", lambda pid: rss[pid])
     assert probe._sample_total_rss(1) == (600, 3)
+
+
+def test_stack_probe_policy_requires_stable_idle_process_count():
+    probe = _module()
+    for mode in ("local-lite", "local-workflow"):
+        policy = probe._profile_policy({"mode": mode})
+        assert len(policy["expectedRoles"]) in {3, 5}

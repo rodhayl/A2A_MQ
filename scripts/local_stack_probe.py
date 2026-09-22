@@ -302,6 +302,7 @@ def main() -> int:
                 checks = {
                     "allAlive": all_alive,
                     "exactProcessCount": len(children) == expected_count,
+                    "stableIdleProcessCount": idle_peak_process_count == expected_count,
                     **{f"one{role.title()}": len(roles[role]) == 1 for role in expected_roles},
                     "rss": _mib(peak_total_rss) <= max_rss,
                     "idleCpu": cpu_percent <= max_cpu,
