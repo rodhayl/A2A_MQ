@@ -68,6 +68,8 @@ def test_api_factory_rejects_unsafe_identity_urls_before_storage(monkeypatch,env
     "http://10.0.0.5:3500",
     "http://user@127.0.0.1:3500",
     "http://127.0.0.1:3500/path",
+    "http://127.0.0.1:3500?",
+    "http://127.0.0.1:3500#",
     "http://127.0.0.1:70000",
 ])
 def test_production_dapr_endpoint_is_colocated(value):

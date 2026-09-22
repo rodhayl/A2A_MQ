@@ -95,7 +95,9 @@ class Settings:
             url = urlsplit(self.dapr_http)
             require(url.scheme in {"http", "https"} and url.hostname in {"127.0.0.1", "localhost", "::1"}
                     and url.path in {"", "/"} and not url.username and not url.password
-                    and not url.query and not url.fragment, "COLOCATED_DAPR_REQUIRED")
+                    and not url.query and not url.fragment
+                    and "?" not in self.dapr_http and "#" not in self.dapr_http,
+                    "COLOCATED_DAPR_REQUIRED")
             if url.port is not None:
                 require(1 <= url.port <= 65535, "INVALID_DAPR_PORT")
         except ValueError:

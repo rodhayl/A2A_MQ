@@ -49,7 +49,8 @@ async def test_network_and_readiness():
         assert not await bus.ready()
 
 
-@pytest.mark.parametrize("url", ["file:///tmp/x", "http://user:pass@host", "http://host/path", "http://host/?key=x", "http://host/#x"])
+@pytest.mark.parametrize("url", ["file:///tmp/x", "http://user:pass@host", "http://host/path",
+                                 "http://host/?key=x", "http://host/#x", "http://host?", "http://host#"])
 def test_bad_sidecar_url(url):
     with pytest.raises(PermanentError):
         DaprPublisher(url)

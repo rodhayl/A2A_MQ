@@ -18,6 +18,7 @@ def rabbit(url, password_file, plan, *, development=False, client=None):
     parsed = urlsplit(url)
     require(parsed.scheme == ("http" if development else "https") and parsed.hostname
             and not parsed.username and not parsed.password and not parsed.query and not parsed.fragment
+            and "?" not in url and "#" not in url
             and parsed.path in {"", "/"}, "PROVISION_TLS_REQUIRED")
     password = FileToken(password_file)()
     owns = client is None
@@ -64,7 +65,8 @@ def rabbit(url, password_file, plan, *, development=False, client=None):
 async def jetstream(url, password_file, plan, *, development=False, connect=None):
     parsed = urlsplit(url)
     require(parsed.scheme == ("nats" if development else "tls") and parsed.hostname
-            and not parsed.username and not parsed.password and not parsed.query and not parsed.fragment,
+            and not parsed.username and not parsed.password and not parsed.query and not parsed.fragment
+            and "?" not in url and "#" not in url,
             "PROVISION_TLS_REQUIRED")
     if connect is None:
         import nats
