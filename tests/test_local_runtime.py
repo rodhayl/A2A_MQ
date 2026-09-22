@@ -20,6 +20,7 @@ from a2a_mq.local_runtime import (
     prepare,
     _read,
     _runtime_environments,
+    _server_exit_code,
     _resiliency_resource,
     _workflow_state_component,
 )
@@ -243,3 +244,13 @@ def test_local_lite_sidecar_disables_actor_workflow_control_plane_by_omission(tm
     assert "--scheduler-host-address" not in command
     assert command[command.index("--dapr-listen-addresses") + 1] == "127.0.0.1"
     assert command[command.index("--app-max-concurrency") + 1] == "2"
+
+
+def test_local_launcher_never_reports_failed_uvicorn_startup_as_success():
+    class Server:
+        def __init__(self, started):
+            self.started = started
+
+    assert _server_exit_code(Server(True)) == 0
+    assert _server_exit_code(Server(False)) == 1
+    assert _server_exit_code(object()) == 1

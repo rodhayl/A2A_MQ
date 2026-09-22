@@ -453,6 +453,11 @@ def _terminate(process: subprocess.Popen | None) -> None:
         process.wait(timeout=5)
 
 
+def _server_exit_code(server) -> int:
+    """Never report success when ASGI startup failed before becoming ready to serve."""
+    return 0 if bool(getattr(server, "started", False)) else 1
+
+
 def _lite_sidecar_command(daprd: str, root: Path) -> list[str]:
     """Run daprd without Actor/Workflow control-plane services in local-lite."""
     return [
@@ -530,7 +535,7 @@ def run(root: Path) -> int:
                         next_token_refresh = now + CLIENT_TOKEN_REFRESH_SECONDS
                     await asyncio.sleep(SUPERVISOR_INTERVAL_SECONDS)
                 await task
-                return 0
+                return _server_exit_code(server)
             finally:
                 if not task.done():
                     server.should_exit = True

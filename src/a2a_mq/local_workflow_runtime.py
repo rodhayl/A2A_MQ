@@ -22,6 +22,7 @@ from .local_runtime import (
     _load_profile,
     _native_binary,
     _runtime_environments,
+    _server_exit_code,
     _refresh_client_tokens,
     _terminate,
     _wait_port,
@@ -178,7 +179,7 @@ def run(root: Path) -> int:
                         next_token_refresh = now + CLIENT_TOKEN_REFRESH_SECONDS
                     await asyncio.sleep(SUPERVISOR_INTERVAL_SECONDS)
                 await task
-                return 0
+                return _server_exit_code(server)
             finally:
                 if not task.done():
                     server.should_exit = True
