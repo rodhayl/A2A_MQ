@@ -420,6 +420,7 @@ def _runtime_environments(root: Path, profile: dict) -> tuple[dict[str, str], di
         "A2A_ENABLE_MCP": "1" if profile.get("mcp") else "0",
         "A2A_CONCURRENCY": "2",
         "A2A_DATABASE_CAPACITY": "4",
+        "DAPR_HTTP_ENDPOINT": "http://127.0.0.1:3500",
         "DAPR_GRPC_PORT": "50001",
     })
 
@@ -434,7 +435,7 @@ def _runtime_environments(root: Path, profile: dict) -> tuple[dict[str, str], di
 def _native_binary(name: str) -> str | None:
     found = shutil.which(name)
     if found:
-        return found
+        return str(Path(found).absolute())
     if name in {"daprd", "placement", "scheduler"}:
         candidate = Path.home() / ".dapr" / "bin" / name
         if candidate.is_file() and os.access(candidate, os.X_OK):
@@ -472,6 +473,7 @@ def _lite_sidecar_command(daprd: str, root: Path) -> list[str]:
 
 def run(root: Path) -> int:
     """Run exactly three product processes: this Python app, daprd and nats-server."""
+    root = root.absolute()
     profile = _load_profile(root, "local-lite")
     # Profiles are durable, while access tokens are deliberately short-lived.
     # Refresh generated client credentials before checking runtime prerequisites.
@@ -502,7 +504,7 @@ def run(root: Path) -> int:
             "--password-file", str(root / "nats-token"),
             "--plan", str(root / "broker-plan.json"),
             "--development",
-        ], cwd=root, env=child_env, check=True, stdout=subprocess.DEVNULL)
+        ], cwd=root, env=child_env, check=True, stdout=subprocess.DEVNULL, timeout=30)
 
         sidecar_command = _lite_sidecar_command(daprd, root)
         sidecar = subprocess.Popen(sidecar_command, cwd=root, env=sidecar_env)

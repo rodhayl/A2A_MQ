@@ -127,6 +127,7 @@ def test_local_profile_mode_is_fail_closed_before_runtime_start(tmp_path):
 def test_local_profile_rejects_group_access_and_atomic_secret_refresh(tmp_path):
     root = tmp_path / "profile"
     root.mkdir(mode=0o770)
+    root.chmod(0o770)  # Exercise unsafe permissions even under the private-run umask.
     (root / "profile.json").write_text("{}")
     with pytest.raises(PermanentError, match="UNSAFE_LOCAL_PROFILE"):
         _load_profile(root, "local-lite")

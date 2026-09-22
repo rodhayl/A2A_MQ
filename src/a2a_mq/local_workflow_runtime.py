@@ -90,6 +90,7 @@ def _scheduler_command(binary: str, root: Path) -> list[str]:
 
 
 def run(root: Path) -> int:
+    root = root.absolute()
     profile = _load_profile(root, "local-workflow")
     _refresh_client_tokens(root, profile)
 
@@ -114,7 +115,7 @@ def run(root: Path) -> int:
             "--password-file", str(root / "nats-token"),
             "--plan", str(root / "broker-plan.json"),
             "--development",
-        ], cwd=root, env=child_env, check=True, stdout=subprocess.DEVNULL)
+        ], cwd=root, env=child_env, check=True, stdout=subprocess.DEVNULL, timeout=30)
 
         placement = subprocess.Popen(_placement_command(binaries["placement"]), cwd=root, env=child_env)
         _wait_port("127.0.0.1", PLACEMENT_PORT, placement)
