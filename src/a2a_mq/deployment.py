@@ -310,19 +310,43 @@ proxy_buffering off; proxy_read_timeout 3700s; proxy_set_header Connection ""; }
     return output / "compose.yaml"
 
 
+K8S_DNS_LABEL = re.compile(r"^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$")
+K8S_DNS_HOST = re.compile(
+    r"^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)*$"
+)
+
+
+def _k8s_label(value: str) -> str:
+    require(isinstance(value, str) and K8S_DNS_LABEL.fullmatch(value) is not None,
+            "INVALID_KUBERNETES_NAME")
+    return value
+
+
+def _ingress_host(value: str | None) -> str:
+    require(isinstance(value, str) and 0 < len(value) <= 253
+            and K8S_DNS_HOST.fullmatch(value) is not None, "INVALID_INGRESS_HOST")
+    try:
+        ipaddress.ip_address(value)
+    except ValueError:
+        return value
+    raise PermanentError("INVALID_INGRESS_HOST")
+
+
 def kubernetes(config: dict) -> list[dict]:
     """App-side production resources. Secrets/infrastructure are deliberately external."""
     required = {"namespace", "image", "broker", "brokerEndpoint", "publicUrl", "issuer", "redisHost", "egressCIDRs"}
     require(isinstance(config, dict) and required <= set(config) <= required | {"cryptoConfigMap", "otlpEndpoint"}, "INVALID_PRODUCTION_CONFIG")
-    namespace = token(config["namespace"])
-    require(re.fullmatch(r"[^\s]+@sha256:[0-9a-f]{64}", config["image"]) is not None, "DIGEST_PINNED_IMAGE_REQUIRED")
+    namespace = _k8s_label(config["namespace"])
+    require(isinstance(config["image"], str)
+            and re.fullmatch(r"[^\s]+@sha256:[0-9a-f]{64}", config["image"]) is not None,
+            "DIGEST_PINNED_IMAGE_REQUIRED")
     public = https_origin(config["publicUrl"])
     https_issuer(config["issuer"])
     require(isinstance(config["egressCIDRs"], list) and config["egressCIDRs"], "EXPLICIT_EGRESS_REQUIRED")
     networks = [ipaddress.ip_network(c) for c in config["egressCIDRs"]]
     require(all(n.prefixlen > 0 for n in networks), "EXPLICIT_EGRESS_REQUIRED")
     docs, roles = [{"apiVersion": "v1", "kind": "Namespace", "metadata": {"name": namespace}}], topology(namespace)
-    host = urlsplit(public).hostname
+    host = _ingress_host(urlsplit(public).hostname)
     for name, role in roles.items():
         appid = "a2amq-" + name
         bus = component(config["broker"], name, tenant=namespace, endpoint=config["brokerEndpoint"], production=True)
@@ -339,7 +363,7 @@ def kubernetes(config: dict) -> list[dict]:
             {"configMap": {"name": "a2amq-identity", "items": [{"key": "keys.json", "path": "keys.json"}]}}]
         copied_names = ["app", "dapr", "postgres-dsn", "keys.json"]
         if config.get("cryptoConfigMap"):
-            token(config["cryptoConfigMap"])
+            _k8s_label(config["cryptoConfigMap"])
             projected.extend([
                 {"secret": {"name": appid + "-vault-token", "items": [{"key": "token", "path": "vault-token"}]}},
                 {"configMap": {"name": config["cryptoConfigMap"], "items": [{"key": "crypto.json", "path": "crypto.json"}]}}])

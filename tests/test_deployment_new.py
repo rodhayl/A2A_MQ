@@ -108,12 +108,26 @@ def test_integrated_service_accounts_have_no_runtime_secret_rbac():
 
 
 @pytest.mark.parametrize('change,code',[({'image':'a2amq:latest'},'DIGEST_PINNED_IMAGE_REQUIRED'),
+    ({'image':None},'DIGEST_PINNED_IMAGE_REQUIRED'),
     ({'brokerEndpoint':'nats://plain:4222'},'BROKER_TLS_REQUIRED'),
     ({'egressCIDRs':['0.0.0.0/0']},'EXPLICIT_EGRESS_REQUIRED'),
-    ({'publicUrl':'http://api'},'PUBLIC_HTTPS_URL_REQUIRED')])
+    ({'publicUrl':'http://api'},'PUBLIC_HTTPS_URL_REQUIRED'),
+    ({'namespace':'tenant-'},'INVALID_KUBERNETES_NAME'),
+    ({'namespace':'x'*64},'INVALID_KUBERNETES_NAME'),
+    ({'publicUrl':'https://127.0.0.1'},'INVALID_INGRESS_HOST'),
+    ({'publicUrl':'https://bad_host.example'},'INVALID_INGRESS_HOST'),
+    ({'cryptoConfigMap':'bad-'},'INVALID_KUBERNETES_NAME')])
 def test_production_rejects_unsafe_defaults(change,code):
     with pytest.raises(PermanentError,match=code):
         kubernetes({**config(),**change})
+
+
+def test_kubernetes_names_and_ingress_host_accept_dns_safe_values():
+    docs=kubernetes({**config(),'namespace':'tenant-1','cryptoConfigMap':'crypto-1'})
+    namespace=next(item for item in docs if item['kind']=='Namespace')
+    ingress=next(item for item in docs if item['kind']=='Ingress')
+    assert namespace['metadata']['name']=='tenant-1'
+    assert ingress['spec']['rules'][0]['host']=='api.example'
 
 
 def test_optional_vault_otlp_wiring():
