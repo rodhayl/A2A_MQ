@@ -108,8 +108,25 @@ python -m pip install -e '.[local,local-workflow]'
 python -m pip check
 ```
 
-The host must already provide native `daprd`, `nats-server`, `placement` and
-`scheduler`. No validation task is authorized to install them.
+For a reproducible validation run, bootstrap the optional control plane into the
+same private tools directory rather than relying on host Placement/Scheduler:
+
+```bash
+python scripts/bootstrap_local_tools.py --workflow --output .local-validation/workflow-tools
+export PATH="$PWD/.local-validation/workflow-tools/bin:$PATH"
+python scripts/check_local_native_versions.py \
+  --daprd .local-validation/workflow-tools/bin/daprd \
+  --nats-server .local-validation/workflow-tools/bin/nats-server \
+  --placement .local-validation/workflow-tools/bin/placement \
+  --scheduler .local-validation/workflow-tools/bin/scheduler \
+  --bootstrap-manifest .local-validation/workflow-tools/manifest.json \
+  --json .local-validation/workflow-native-versions.json
+```
+
+The Workflow bootstrap uses the separately published official Dapr 1.18.3
+Placement/Scheduler release archives and records their archive and extracted-binary
+SHA-256 provenance. It does not install anything into the host. Local-lite omits
+those assets unless `--workflow` is explicitly selected.
 
 Prepare and run:
 

@@ -319,15 +319,19 @@ Record any mismatch as a product defect.
 
 The optional Workflow implementation is part of the source review and
 `tests/test_local_workflow.py`, but do not launch it automatically on this weak
-machine. Its Python extra is `.[local,local-workflow]`; its native profile requires
-pre-existing `daprd`, `nats-server`, `placement` and `scheduler`.
+machine. Its Python extra is `.[local,local-workflow]`.
 
-Only when the owner explicitly asks to evaluate Workflow-local economics, prepare
-`a2amq-local-workflow` and run the same `scripts/local_stack_probe.py`. That
-profile has its own initial gate: exactly 5 processes, <=640 MiB RSS, <=8% of one
-CPU core idle, <=25 s readiness and <=64 MiB runtime state. A failure does not
-invalidate the cheaper local-lite tier; it means the optional Workflow tier needs
-redesign or should remain disabled on that host.
+Only when the owner explicitly asks to evaluate Workflow-local economics, create a
+fresh private tools directory with `bootstrap_local_tools.py --workflow`, prepend
+its `bin/` to PATH, and require `check_local_native_versions.py` to pass with
+all four explicit paths: `daprd`, `nats-server`, `placement`, and `scheduler`.
+Do not substitute host Placement/Scheduler for that acceptance run.
+
+Then prepare `a2amq-local-workflow` and run the same
+`scripts/local_stack_probe.py`. That profile has its own initial gate: exactly
+5 processes, <=640 MiB RSS, <=8% of one CPU core idle, <=25 s readiness and <=64 MiB
+runtime state. A failure does not invalidate the cheaper local-lite tier; it means
+the optional Workflow tier needs redesign or should remain disabled on that host.
 
 ## Deferred gates
 
