@@ -165,3 +165,54 @@ def test_role_aggregation_preserves_per_role_costs():
     assert probe._by_role(roles, {1: 10, 2: 20, 3: 30}) == {
         "app": 10, "daprd": 20, "nats": 30, "placement": 0, "scheduler": 0,
     }
+
+
+def test_stack_probe_private_tools_binding(tmp_path):
+    probe = _module()
+    root = tmp_path / "tools"
+    root.mkdir(mode=0o700)
+    bin_dir = root / "bin"
+    bin_dir.mkdir(mode=0o700)
+    for name in ("daprd", "nats-server", "placement", "scheduler"):
+        path = bin_dir / name
+        path.write_text("#!/bin/sh\n")
+        path.chmod(0o700)
+
+    resolved = probe._validated_tools_bin(
+        root, ("app", "daprd", "nats", "placement", "scheduler")
+    )
+    assert resolved == bin_dir
+
+    roles = {"app": [1], "daprd": [2], "nats": [3], "placement": [4], "scheduler": [5]}
+    commands = {
+        1: "/usr/bin/python -m a2a_mq.local_workflow_runtime",
+        2: str(bin_dir / "daprd"),
+        3: str(bin_dir / "nats-server") + " -c nats.conf",
+        4: str(bin_dir / "placement") + " --port=50005",
+        5: str(bin_dir / "scheduler") + " --port=50006",
+    }
+    assert probe._native_tools_match(
+        roles, commands, bin_dir, ("app", "daprd", "nats", "placement", "scheduler")
+    )
+
+    commands[5] = "/usr/local/bin/scheduler --port=50006"
+    assert not probe._native_tools_match(
+        roles, commands, bin_dir, ("app", "daprd", "nats", "placement", "scheduler")
+    )
+
+
+def test_stack_probe_rejects_nonprivate_or_symlinked_tools(tmp_path):
+    probe = _module()
+    root = tmp_path / "tools"
+    root.mkdir(mode=0o755)
+    (root / "bin").mkdir(mode=0o700)
+    with __import__("pytest").raises(probe.MeasurementUnavailable, match="not private"):
+        probe._validated_tools_bin(root, ("app", "daprd", "nats"))
+
+    root.chmod(0o700)
+    target = root / "real-bin"
+    target.mkdir(mode=0o700)
+    (root / "bin").rmdir()
+    (root / "bin").symlink_to(target)
+    with __import__("pytest").raises(probe.MeasurementUnavailable, match="unavailable or unsafe"):
+        probe._validated_tools_bin(root, ("app", "daprd", "nats"))

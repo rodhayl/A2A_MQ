@@ -257,6 +257,48 @@ def _roles(root_pid: int, commands: dict[int, str]) -> dict[str, list[int]]:
     return roles
 
 
+def _validated_tools_bin(root: Path, expected_roles: tuple[str, ...]) -> Path:
+    """Validate a private bootstrap directory before placing its bin first on PATH."""
+    root = root.expanduser().absolute()
+    bin_dir = root / "bin"
+    try:
+        if root.is_symlink() or bin_dir.is_symlink() or not root.is_dir() or not bin_dir.is_dir():
+            raise MeasurementUnavailable("native tools directory unavailable or unsafe")
+        if root.stat().st_mode & 0o077 or bin_dir.stat().st_mode & 0o077:
+            raise MeasurementUnavailable("native tools directory is not private")
+        names = {"daprd": "daprd", "nats": "nats-server",
+                 "placement": "placement", "scheduler": "scheduler"}
+        for role in expected_roles:
+            if role == "app":
+                continue
+            path = bin_dir / names[role]
+            info = path.stat()
+            if path.is_symlink() or not stat.S_ISREG(info.st_mode) or not os.access(path, os.X_OK):
+                raise MeasurementUnavailable(f"native tool unavailable or unsafe: {names[role]}")
+    except (OSError, KeyError):
+        raise MeasurementUnavailable("native tools directory unavailable or unsafe") from None
+    return bin_dir
+
+
+def _native_tools_match(roles: dict[str, list[int]], commands: dict[int, str],
+                        bin_dir: Path, expected_roles: tuple[str, ...]) -> bool:
+    names = {"daprd": "daprd", "nats": "nats-server",
+             "placement": "placement", "scheduler": "scheduler"}
+    for role in expected_roles:
+        if role == "app":
+            continue
+        pids = roles.get(role, [])
+        if len(pids) != 1:
+            return False
+        try:
+            argv = shlex.split(commands[pids[0]])
+        except ValueError:
+            return False
+        if not argv or Path(argv[0]).resolve() != (bin_dir / names[role]).resolve():
+            return False
+    return True
+
+
 def _by_role(roles: dict[str, list[int]], values: dict[int, int | float]) -> dict[str, float]:
     """Aggregate one per-PID measurement without hiding unclassified descendants."""
     return {role: sum(values.get(pid, 0) for pid in pids) for role, pids in roles.items()}
@@ -278,6 +320,8 @@ def main() -> int:
     parser.add_argument("--profile", required=True, type=Path)
     parser.add_argument("--json", dest="json_path", required=True, type=Path)
     parser.add_argument("--log", required=True, type=Path)
+    parser.add_argument("--tools-dir", type=Path,
+                        help="private bootstrap root whose bin directory must supply native children")
     parser.add_argument("--startup-timeout", type=float)
     parser.add_argument("--idle-seconds", type=float, default=60)
     parser.add_argument("--max-total-rss-mib", type=float)
@@ -306,6 +350,7 @@ def main() -> int:
     policy = _profile_policy(profile)
     expected_roles = policy["expectedRoles"]
     expected_count = len(expected_roles)
+    tools_bin = _validated_tools_bin(args.tools_dir, expected_roles) if args.tools_dir else None
     max_rss = policy["maxTotalRssMiB"] if args.max_total_rss_mib is None else args.max_total_rss_mib
     max_cpu = policy["maxIdleCpuPercent"] if args.max_idle_cpu_percent is None else args.max_idle_cpu_percent
     max_startup = policy["maxStartupSeconds"] if args.max_startup_seconds is None else args.max_startup_seconds
@@ -324,9 +369,13 @@ def main() -> int:
         process = None
         try:
             try:
+                child_env = None
+                if tools_bin is not None:
+                    child_env = os.environ.copy()
+                    child_env["PATH"] = str(tools_bin) + os.pathsep + child_env.get("PATH", "")
                 process = subprocess.Popen(
                     [sys.executable, "-m", policy["module"], "run", str(args.profile.resolve())],
-                    stdout=log, stderr=subprocess.STDOUT, cwd=Path.cwd(),
+                    stdout=log, stderr=subprocess.STDOUT, cwd=Path.cwd(), env=child_env,
                 )
                 stage = "startup"
                 startup_peak_rss, startup_peak_process_count = _ready(
@@ -393,6 +442,8 @@ def main() -> int:
                     "exactProcessCount": len(children) == expected_count,
                     "stableIdleProcessCount": idle_peak_process_count == expected_count,
                     **{f"one{role.title()}": len(roles[role]) == 1 for role in expected_roles},
+                    **({"nativeToolsBound": _native_tools_match(
+                        roles, commands, tools_bin, expected_roles)} if tools_bin is not None else {}),
                     "rss": peak_total_rss <= max_rss * 1024**2,
                     "idleCpu": cpu_percent <= max_cpu,
                     "startup": startup <= max_startup,
@@ -414,6 +465,7 @@ def main() -> int:
                     "observed": {
                         "processCount": len(children),
                         "processes": {str(pid): commands[pid] for pid in children},
+                        "nativeToolsBin": str(tools_bin) if tools_bin is not None else None,
                         "rssByRoleMiB": role_rss,
                         "idlePeakRssByRoleMiB": idle_peak_role_rss,
                         "idleCpuByRolePercentOneCore": role_cpu,
