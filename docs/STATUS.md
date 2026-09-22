@@ -5,7 +5,7 @@
 Branch: `implementation/production-hardening-20260916`.
 
 Executable/source hardening currently reaches
-`70ad2ece35fbaced9fb02d600dde46dadc5fe992`.
+`9dafa7d5e2917027fe8d2741569f68ff022de075`.
 This status update itself changes documentation only.
 
 The most recent exact SHA with executed `LOCAL_PASS` evidence remains
@@ -192,6 +192,38 @@ Further source/harness hardening after `70ad2ece` includes:
 These changes are source/harness hardening only. They have not inherited the
 historical `LOCAL_PASS`, resource observations or any external gate result and
 require focused/current-SHA execution.
+
+### Latest source audit after `1f63ca73`
+
+A further connector-based source audit preserved all existing branch commits and
+added narrowly scoped fixes through `9dafa7d5`:
+
+- the alternate production operations surface now replays central-DLQ Dapr
+  CloudEvents through the same validation/two-phase replay contract as
+  `CentralDLQ.replay_dlq`, and the legacy `OperationsManager` exposes the same
+  split replay interface (`22683c86`);
+- operational metrics expose a thread-safe snapshot required by the central-DLQ
+  metrics endpoint (`12e967e1`);
+- MCP, A2A bridge, Dapr HTTP transport and broker provisioner entrypoints reject
+  malformed hosts, invalid ports and whitespace before third-party SDK/client
+  construction (`29eda348`, `16d37ccf`, `58a87775`);
+- disposable Compose generation is fail-clean and no-overwrite: failed generation
+  removes its own partial credential tree, dangling output symlinks are preserved,
+  and a concurrently occupied destination is never replaced
+  (`c4c06fa0`, `9bb3081b`, `9dafa7d5`).
+
+The corresponding regression tests were added/extended in
+`test_operations_v2.py`, `test_mcp_adapter.py`, `test_mcp_tools_new.py`,
+`test_bridge_sdk.py`, `test_transport.py` and `test_deployment_new.py`.
+This audit environment could inspect and push the private repository through the
+GitHub connector but could not clone it in the execution container because DNS
+resolution for `github.com` failed. Therefore these latest commits are
+**source-reviewed but not locally executed here**; they require the focused and
+exact-SHA gates in `PROMPT_AGENT_LOCAL_FOLLOWUP.md`.
+
+Hosted Actions for these commits still created the three expected jobs but each
+job completed with zero steps and no runner execution. That remains platform-side
+pre-runner failure evidence, not a repository test result.
 
 ## Evidence that exists
 

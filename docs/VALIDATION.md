@@ -28,6 +28,14 @@ That evidence remains attached to `3415b10`. Later source/harness hardening on
 this branch does not inherit the verdict. Read [current status](STATUS.md) for the
 current source SHA and the exact rerun boundary.
 
+The latest connector-based source audit reaches `9dafa7d5` before its
+documentation-only status update. It added focused regressions for alternate
+operations/DLQ replay and metrics, malformed external/internal service URLs, and
+fail-clean/no-overwrite disposable Compose generation. Those changes were reviewed
+against their call sites but were **not executed in the connector environment**
+because no private checkout could be materialized there. The next local run must
+execute those focused regressions before assigning any PASS to the latest source.
+
 The optional five-process local Workflow tier still has no equivalent native
 resource/restart acceptance evidence. Distributed PostgreSQL verified-TLS, Vault,
 official SDK and dual-broker/full-stack gates also remain separate and incomplete.

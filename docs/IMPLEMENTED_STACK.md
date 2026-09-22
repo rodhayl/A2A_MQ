@@ -255,9 +255,12 @@ CA ConfigMaps, identity keys and Kubernetes Secrets. Inspect generated Secret/ke
 references to match your infrastructure. No certificates/passwords are fabricated
 for a production manifest. Validate it against the target cluster before applying.
 
-Resources include per-role scopes, workload service accounts/least-privilege secret
-reads, image digest enforcement, resource limits, topology spreading, selected
-replicas/disruption budgets, read-only root filesystems and network restrictions.
+Resources include per-role scopes, workload service accounts with token
+automount disabled, projected app credentials, image digest enforcement, resource
+limits, topology spreading, selected replicas/disruption budgets, read-only root
+filesystems and network restrictions. Dapr component `secretKeyRef` values are
+resolved by the Kubernetes Dapr control plane; application ServiceAccounts are not
+granted direct Secret-read RBAC by this renderer.
 These are application resources, not a newly implemented HA database/control plane.
 A rendered manifest is not proof of server-side ACLs, TLS rotation or live failover.
 
@@ -318,8 +321,9 @@ collision with the concurrently introduced, differently shaped `a2amq_dlq` table
 There is no inferred archive migration between the two formats.
 
 Existing `production.py`, `production_env.py`, their deploy profiles, MCP adapter
-and operator interfaces remain available and unchanged. The new `application`
-profile is explicit and opt-in. Choose one orchestration/deployment profile for
+and operator interfaces remain available; later hardening has modified several of
+them without removing the separate composition root. The `application` profile
+is explicit and opt-in. Choose one orchestration/deployment profile for
 a logical pool; do not independently start both against the same broker/workflow
 identities. Reusing helper code does not authorize mixed-profile duplicate workers.
 

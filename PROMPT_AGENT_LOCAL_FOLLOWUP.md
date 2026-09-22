@@ -5,7 +5,11 @@ Start a NEW conversation in `rodhayl/A2A_MQ` on branch
 `docs/STATUS.md`, `docs/VALIDATION.md`,
 `docs/validation/local-run-20260922.md` and this file before changing code.
 
-Record the actual starting SHA. The exact-SHA historical `LOCAL_PASS` belongs to
+Record the actual starting SHA. The latest source-hardening baseline before the
+documentation-only handoff is
+`9dafa7d5e2917027fe8d2741569f68ff022de075`. If the branch is later than that,
+inspect the intervening diff before changing code. The exact-SHA historical
+`LOCAL_PASS` belongs to
 `3415b10ddcfc5c721f9872c926fead5e11897543`; do not attribute it to a later
 HEAD without rerunning acceptance.
 
@@ -31,8 +35,13 @@ At minimum run focused regressions covering:
 - `tests/test_application_new.py`
 - `tests/test_acceptance_new.py`
 - `tests/test_ci_contract.py`
+- `tests/test_operations_v2.py`
+- `tests/test_deployment_new.py`
+- `tests/test_transport.py`
+- `tests/test_mcp_tools_new.py`
+- `tests/test_mcp_adapter.py` and `tests/test_bridge_sdk.py` once their pinned
+  SDK dependencies are present
 - `tests/test_native_adapters_new.py` once pinned SDK dependencies are present
-- directly affected MCP/A2A tests
 - any additional tests required by defects you find
 
 Important contracts now expected in source:
@@ -52,6 +61,13 @@ Important contracts now expected in source:
 - MCP 2.2 explicitly sets its token-resource validation mode because our
   JWT verifier already enforces exact audience;
 - official A2A regression covers cross-owner cancel and subscribe on live tasks;
+- the alternate operations API replays archived central-DLQ Dapr CloudEvents via
+  the validated replay-candidate/prepare/publish/mark contract and exports central
+  metrics without an AttributeError;
+- public/service URL boundaries reject invalid ports, missing hosts and whitespace
+  before entering MCP/A2A/httpx/NATS client construction;
+- disposable Compose generation never overwrites an existing output path and
+  removes its own partial credential tree after generation failure;
 - CI wheel smoke must not rely on PYTHONPATH under `python -I`.
 
 If a focused test fails, reproduce/root-cause/fix it before broad validation.
