@@ -22,11 +22,13 @@ ASSETS = {
         "daprd": {
             "url": "https://github.com/dapr/dapr/releases/download/v1.18.3/daprd_linux_amd64.tar.gz",
             "sha256": "f5d1683b672d83bd88b8e79624d695779b72f856f7eb365ae1ea06354f2cb96c",
+            "bytes": 63716263,
             "max_bytes": 80 * 1024 * 1024,
         },
         "nats-server": {
             "url": "https://github.com/nats-io/nats-server/releases/download/v2.15.0/nats-server-v2.15.0-linux-amd64.tar.gz",
             "sha256": "5d2c51caca950333aba84911df7d377f826f3a59ec36061c6539105084f65c92",
+            "bytes": 7236657,
             "max_bytes": 20 * 1024 * 1024,
         },
     },
@@ -34,11 +36,13 @@ ASSETS = {
         "daprd": {
             "url": "https://github.com/dapr/dapr/releases/download/v1.18.3/daprd_linux_arm64.tar.gz",
             "sha256": "7fbffc5ffd18bb78cd7685c129d4f7ec337c8f92a0855790a6570571b2e62953",
+            "bytes": 56814528,
             "max_bytes": 80 * 1024 * 1024,
         },
         "nats-server": {
             "url": "https://github.com/nats-io/nats-server/releases/download/v2.15.0/nats-server-v2.15.0-linux-arm64.tar.gz",
             "sha256": "cdc208f5a3f42963a52b6ab06ef65626bb870315dc936e26ba571780c6351112",
+            "bytes": 6528127,
             "max_bytes": 20 * 1024 * 1024,
         },
     },
@@ -63,14 +67,19 @@ def _sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
-def _download(url: str, destination: Path, expected: str, max_bytes: int) -> None:
+def _download(url: str, destination: Path, expected: str,
+              expected_bytes: int, max_bytes: int) -> int:
     request = Request(url, headers={"User-Agent": "a2a-mq-local-bootstrap/1"})
     digest = hashlib.sha256()
     written = 0
     with urlopen(request, timeout=60) as response, destination.open("xb") as out:
         length = response.headers.get("Content-Length")
-        if length and int(length) > max_bytes:
-            raise RuntimeError("download exceeds configured size limit")
+        if length:
+            declared = int(length)
+            if declared != expected_bytes:
+                raise RuntimeError("archive size mismatch")
+            if declared > max_bytes:
+                raise RuntimeError("download exceeds configured size limit")
         while True:
             chunk = response.read(1024 * 1024)
             if not chunk:
@@ -82,9 +91,13 @@ def _download(url: str, destination: Path, expected: str, max_bytes: int) -> Non
             out.write(chunk)
         out.flush()
         os.fsync(out.fileno())
+    if written != expected_bytes:
+        destination.unlink(missing_ok=True)
+        raise RuntimeError("archive size mismatch")
     if digest.hexdigest() != expected:
         destination.unlink(missing_ok=True)
         raise RuntimeError("archive checksum mismatch")
+    return written
 
 
 def _extract_binary(archive: Path, destination: Path, basename: str,
@@ -133,14 +146,21 @@ def main() -> int:
             temp_dir = Path(temp)
             for name, spec in ASSETS[arch].items():
                 archive = temp_dir / f"{name}.tar.gz"
-                _download(spec["url"], archive, spec["sha256"], spec["max_bytes"])
+                archive_bytes = _download(
+                    spec["url"], archive, spec["sha256"], spec["bytes"], spec["max_bytes"]
+                )
                 binary = bin_dir / name
                 _extract_binary(archive, binary, name)
+                binary_bytes = binary.stat().st_size
                 manifest["binaries"][name] = {
                     "archiveSha256": spec["sha256"],
+                    "archiveBytes": archive_bytes,
                     "binarySha256": _sha256(binary),
+                    "binaryBytes": binary_bytes,
                     "url": spec["url"],
                 }
+        manifest["archiveBytesTotal"] = sum(item["archiveBytes"] for item in manifest["binaries"].values())
+        manifest["binaryBytesTotal"] = sum(item["binaryBytes"] for item in manifest["binaries"].values())
         manifest_path = root / "manifest.json"
         manifest_path.write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8")
         manifest_path.chmod(0o600)

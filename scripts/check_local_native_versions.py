@@ -25,6 +25,10 @@ EXPECTED_ARCHIVES = {
         "nats-server": "cdc208f5a3f42963a52b6ab06ef65626bb870315dc936e26ba571780c6351112",
     },
 }
+EXPECTED_ARCHIVE_BYTES = {
+    "amd64": {"daprd": 63716263, "nats-server": 7236657},
+    "arm64": {"daprd": 56814528, "nats-server": 6528127},
+}
 SEMVER = re.compile(r"(?<![0-9])v?(\d+\.\d+\.\d+)(?![0-9])")
 
 
@@ -141,11 +145,21 @@ def _verified_bootstrap(path: Path, daprd: str, nats_server: str) -> dict:
             raise ValueError("bootstrap binary provenance missing")
         if record.get("archiveSha256") != EXPECTED_ARCHIVES[arch][name]:
             raise ValueError("bootstrap archive provenance mismatch")
+        if record.get("archiveBytes") != EXPECTED_ARCHIVE_BYTES[arch][name]:
+            raise ValueError("bootstrap archive size provenance mismatch")
+        if record.get("binaryBytes") != actual_path.stat().st_size:
+            raise ValueError("bootstrap binary size provenance mismatch")
         binary_sha = record.get("binarySha256")
         if not isinstance(binary_sha, str) or not re.fullmatch(r"[0-9a-f]{64}", binary_sha):
             raise ValueError("bootstrap binary digest invalid")
         if _sha256(actual_path) != binary_sha:
             raise ValueError("bootstrap binary digest mismatch")
+    expected_archive_total = sum(EXPECTED_ARCHIVE_BYTES[arch].values())
+    if manifest.get("archiveBytesTotal") != expected_archive_total:
+        raise ValueError("bootstrap archive total provenance mismatch")
+    binary_total = sum(Path(path).stat().st_size for path in provided.values())
+    if manifest.get("binaryBytesTotal") != binary_total:
+        raise ValueError("bootstrap binary total provenance mismatch")
     return manifest
 
 

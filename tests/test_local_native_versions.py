@@ -132,13 +132,19 @@ def test_verified_bootstrap_binds_manifest_to_private_run_binaries(tmp_path, mon
         "binaries": {
             "daprd": {
                 "archiveSha256": check.EXPECTED_ARCHIVES["amd64"]["daprd"],
+                "archiveBytes": check.EXPECTED_ARCHIVE_BYTES["amd64"]["daprd"],
                 "binarySha256": hashlib.sha256(daprd.read_bytes()).hexdigest(),
+                "binaryBytes": daprd.stat().st_size,
             },
             "nats-server": {
                 "archiveSha256": check.EXPECTED_ARCHIVES["amd64"]["nats-server"],
+                "archiveBytes": check.EXPECTED_ARCHIVE_BYTES["amd64"]["nats-server"],
                 "binarySha256": hashlib.sha256(nats.read_bytes()).hexdigest(),
+                "binaryBytes": nats.stat().st_size,
             },
         },
+        "archiveBytesTotal": sum(check.EXPECTED_ARCHIVE_BYTES["amd64"].values()),
+        "binaryBytesTotal": daprd.stat().st_size + nats.stat().st_size,
     }
     path = root / "manifest.json"
     path.write_text(json.dumps(manifest))
@@ -174,14 +180,20 @@ def test_verified_bootstrap_rejects_tampered_binary_or_archive_provenance(tmp_pa
     monkeypatch.setattr(check, "_arch", lambda: "amd64")
     manifest = {
         "platform": "linux", "arch": "amd64",
+        "archiveBytesTotal": sum(check.EXPECTED_ARCHIVE_BYTES["amd64"].values()),
+        "binaryBytesTotal": daprd.stat().st_size + nats.stat().st_size,
         "binaries": {
             "daprd": {
                 "archiveSha256": check.EXPECTED_ARCHIVES["amd64"]["daprd"],
+                "archiveBytes": check.EXPECTED_ARCHIVE_BYTES["amd64"]["daprd"],
                 "binarySha256": hashlib.sha256(daprd.read_bytes()).hexdigest(),
+                "binaryBytes": daprd.stat().st_size,
             },
             "nats-server": {
                 "archiveSha256": check.EXPECTED_ARCHIVES["amd64"]["nats-server"],
+                "archiveBytes": check.EXPECTED_ARCHIVE_BYTES["amd64"]["nats-server"],
                 "binarySha256": hashlib.sha256(nats.read_bytes()).hexdigest(),
+                "binaryBytes": nats.stat().st_size,
             },
         },
     }
@@ -206,3 +218,45 @@ def test_verified_bootstrap_rejects_tampered_binary_or_archive_provenance(tmp_pa
         assert "archive provenance mismatch" in str(exc)
     else:
         raise AssertionError("wrong archive provenance accepted")
+
+
+def test_verified_bootstrap_rejects_wrong_archive_size_provenance(tmp_path, monkeypatch):
+    import hashlib
+    import json
+
+    check = _module()
+    root = tmp_path / "tools"
+    root.mkdir(mode=0o700)
+    bin_dir = root / "bin"
+    bin_dir.mkdir(mode=0o700)
+    daprd = bin_dir / "daprd"
+    nats = bin_dir / "nats-server"
+    daprd.write_bytes(b"daprd")
+    nats.write_bytes(b"nats")
+    daprd.chmod(0o700)
+    nats.chmod(0o700)
+    monkeypatch.setattr(check, "_arch", lambda: "amd64")
+    manifest = {
+        "platform": "linux", "arch": "amd64",
+        "archiveBytesTotal": sum(check.EXPECTED_ARCHIVE_BYTES["amd64"].values()),
+        "binaryBytesTotal": daprd.stat().st_size + nats.stat().st_size,
+        "binaries": {
+            "daprd": {
+                "archiveSha256": check.EXPECTED_ARCHIVES["amd64"]["daprd"],
+                "archiveBytes": check.EXPECTED_ARCHIVE_BYTES["amd64"]["daprd"] + 1,
+                "binarySha256": hashlib.sha256(daprd.read_bytes()).hexdigest(),
+                "binaryBytes": daprd.stat().st_size,
+            },
+            "nats-server": {
+                "archiveSha256": check.EXPECTED_ARCHIVES["amd64"]["nats-server"],
+                "archiveBytes": check.EXPECTED_ARCHIVE_BYTES["amd64"]["nats-server"],
+                "binarySha256": hashlib.sha256(nats.read_bytes()).hexdigest(),
+                "binaryBytes": nats.stat().st_size,
+            },
+        },
+    }
+    path = root / "manifest.json"
+    path.write_text(json.dumps(manifest))
+    path.chmod(0o600)
+    with __import__("pytest").raises(ValueError, match="archive size provenance mismatch"):
+        check._verified_bootstrap(path, str(daprd), str(nats))

@@ -111,7 +111,8 @@ system PATH, start services, or use Docker/PostgreSQL/Redis/Vault/RabbitMQ as a
 workaround. Run one local-lite stack and reap only its owned processes.
 
 Record actual startup/idle peak RSS, stable PID/start-time topology, aggregate CPU,
-flushed disk footprint, binary versions and the private-tool disk size. Missing
+flushed disk footprint, binary versions, manifest archiveBytesTotal/binaryBytesTotal,
+and the private-tool disk size. Missing
 measurements or process death cannot pass. Never substitute rough Dapr/NATS
 estimates for measurements or remove Dapr on that basis.
 

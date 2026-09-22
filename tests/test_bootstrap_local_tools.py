@@ -53,11 +53,18 @@ def test_sha256_helper(tmp_path):
 def test_bootstrap_uses_allcomponents_daprd_assets_for_jetstream():
     bootstrap = _module()
     expected = {
-        "amd64": "f5d1683b672d83bd88b8e79624d695779b72f856f7eb365ae1ea06354f2cb96c",
-        "arm64": "7fbffc5ffd18bb78cd7685c129d4f7ec337c8f92a0855790a6570571b2e62953",
+        "amd64": ("f5d1683b672d83bd88b8e79624d695779b72f856f7eb365ae1ea06354f2cb96c", 63716263),
+        "arm64": ("7fbffc5ffd18bb78cd7685c129d4f7ec337c8f92a0855790a6570571b2e62953", 56814528),
     }
-    for arch, digest in expected.items():
+    for arch, (digest, size) in expected.items():
         asset = bootstrap.ASSETS[arch]["daprd"]
         assert asset["sha256"] == digest
+        assert asset["bytes"] == size
         assert asset["url"].endswith(f"daprd_linux_{arch}.tar.gz")
         assert "stablecomponents" not in asset["url"]
+
+
+def test_bootstrap_pins_exact_nats_archive_sizes():
+    bootstrap = _module()
+    assert bootstrap.ASSETS["amd64"]["nats-server"]["bytes"] == 7236657
+    assert bootstrap.ASSETS["arm64"]["nats-server"]["bytes"] == 6528127
