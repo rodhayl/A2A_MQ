@@ -1,8 +1,8 @@
 """Acceptance evidence must fail closed, independently of optional service availability."""
 import pytest
 
-from a2a_mq.acceptance import (FULL_REQUIRED, GROUPS, MODEL_CREDENTIAL, full_status, git_snapshot, junit,
-                               package_gate, provenance_status,
+from a2a_mq.acceptance import (FULL_REQUIRED, GROUPS, MODEL_CREDENTIAL, evidence_hashes, full_status,
+                               git_snapshot, junit, package_gate, provenance_status,
                                test_gate as execute_gate)
 from a2a_mq.live_probe import wait_until
 
@@ -235,6 +235,30 @@ def test_package_gate_uses_external_git_archive_and_isolated_import(tmp_path,mon
     assert calls[1][1] == output and str(root) not in calls[1][0][-1]
     assert calls[-1][0][1:3] == ["-I","-c"]
     assert calls[-1][2]["A2AMQ_WHEEL_TARGET"].startswith(str(output))
+
+
+def test_evidence_manifest_hashes_nested_files_and_rejects_symlinks(tmp_path):
+    import hashlib
+
+    nested=tmp_path/"broker"/"logs"
+    nested.mkdir(parents=True)
+    payload=nested/"run.log"
+    payload.write_bytes(b"evidence")
+    (tmp_path/"verdict.json").write_text("{}")
+    (tmp_path/"sha256.json").write_text("stale")
+    hashes,unsafe=evidence_hashes(tmp_path)
+    assert unsafe == []
+    assert hashes["broker/logs/run.log"] == hashlib.sha256(b"evidence").hexdigest()
+    assert "verdict.json" in hashes
+    assert "sha256.json" not in hashes
+
+    target=tmp_path/"outside"
+    target.write_text("secret")
+    link=tmp_path/"broker"/"unsafe-link"
+    link.symlink_to(target)
+    hashes,unsafe=evidence_hashes(tmp_path)
+    assert "broker/unsafe-link" in unsafe
+    assert "broker/unsafe-link" not in hashes
 
 
 def test_sdk_gate_requires_mcp_v2_http_client_dependency():

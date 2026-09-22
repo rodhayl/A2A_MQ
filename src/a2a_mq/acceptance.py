@@ -192,6 +192,23 @@ def package_gate(root, output, env, timeout):
     return result
 
 
+def evidence_hashes(root):
+    """Hash every regular evidence file recursively and report unsafe path types."""
+    hashes={}
+    unsafe=[]
+    for path in sorted(root.rglob("*")):
+        relative=path.relative_to(root).as_posix()
+        if relative == "sha256.json":
+            continue
+        if path.is_symlink():
+            unsafe.append(relative)
+        elif path.is_file():
+            hashes[relative]=hashlib.sha256(path.read_bytes()).hexdigest()
+        elif not path.is_dir():
+            unsafe.append(relative)
+    return hashes, unsafe
+
+
 def full_status(results,requested):
     required = FULL_REQUIRED if requested == "full" else frozenset({requested})
     names = [r.get("name") for r in results]
@@ -295,8 +312,16 @@ def main():
     report['initialGitTree']=None if initial_git is None else initial_git['tree']
     report['gitStatus']="" if final_git is not None else None
     report['status']=provenance_status(report['status'],initial_git,final_git)
-    (output/'verdict.json').write_text(json.dumps(report,indent=2)+'\n')
-    hashes={path.name:hashlib.sha256(path.read_bytes()).hexdigest() for path in output.iterdir() if path.is_file()}
+    verdict_path=output/'verdict.json'
+    verdict_path.write_text(json.dumps(report,indent=2)+'\n')
+    hashes,unsafe=evidence_hashes(output)
+    if unsafe:
+        if report['status'] != 'FAILED':
+            report['status']='INCOMPLETE'
+        report['evidenceError']='UNSAFE_EVIDENCE_PATHS'
+        report['unsafeEvidencePaths']=unsafe
+        verdict_path.write_text(json.dumps(report,indent=2)+'\n')
+        hashes,_=evidence_hashes(output)
     (output/'sha256.json').write_text(json.dumps(hashes,indent=2)+'\n')
     print(json.dumps({'status':report['status'],'results':results},indent=2))
     raise SystemExit(0 if report['status'].endswith('_PASS') else 2 if report['status']=='INCOMPLETE' else 1)
