@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 from pathlib import Path
+import platform
 import re
 import subprocess
 import stat
@@ -13,6 +15,16 @@ import stat
 EXPECTED_DAPRD = "1.18.3"
 EXPECTED_NATS = "2.15.0"
 EXPECTED_DAPR_FLAVOR = "allcomponents"
+EXPECTED_ARCHIVES = {
+    "amd64": {
+        "daprd": "f5d1683b672d83bd88b8e79624d695779b72f856f7eb365ae1ea06354f2cb96c",
+        "nats-server": "5d2c51caca950333aba84911df7d377f826f3a59ec36061c6539105084f65c92",
+    },
+    "arm64": {
+        "daprd": "7fbffc5ffd18bb78cd7685c129d4f7ec337c8f92a0855790a6570571b2e62953",
+        "nats-server": "cdc208f5a3f42963a52b6ab06ef65626bb870315dc936e26ba571780c6351112",
+    },
+}
 SEMVER = re.compile(r"(?<![0-9])v?(\d+\.\d+\.\d+)(?![0-9])")
 
 
@@ -74,6 +86,69 @@ def _bootstrap_manifest(path: Path) -> dict:
     return value
 
 
+def _arch() -> str:
+    if platform.system() != "Linux":
+        raise ValueError("bootstrap provenance supports Linux only")
+    machine = platform.machine().lower()
+    mapping = {"x86_64": "amd64", "amd64": "amd64", "aarch64": "arm64", "arm64": "arm64"}
+    try:
+        return mapping[machine]
+    except KeyError:
+        raise ValueError("unsupported bootstrap architecture") from None
+
+
+def _sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    try:
+        with path.open("rb") as stream:
+            for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+                digest.update(chunk)
+    except OSError as exc:
+        raise ValueError("native binary hash unavailable") from exc
+    return digest.hexdigest()
+
+
+def _verified_bootstrap(path: Path, daprd: str, nats_server: str) -> dict:
+    manifest = _bootstrap_manifest(path)
+    arch = _arch()
+    root = path.absolute().parent
+    bin_dir = root / "bin"
+    if root.is_symlink() or bin_dir.is_symlink() or not bin_dir.is_dir():
+        raise ValueError("bootstrap root unavailable or unsafe")
+    try:
+        if root.stat().st_mode & 0o077 or bin_dir.stat().st_mode & 0o077:
+            raise ValueError("bootstrap root permissions are not private")
+    except OSError as exc:
+        raise ValueError("bootstrap root unavailable or unsafe") from exc
+
+    expected_paths = {
+        "daprd": bin_dir / "daprd",
+        "nats-server": bin_dir / "nats-server",
+    }
+    provided = {"daprd": Path(daprd).expanduser().absolute(),
+                "nats-server": Path(nats_server).expanduser().absolute()}
+    binaries = manifest.get("binaries")
+    if (manifest.get("platform") != "linux" or manifest.get("arch") != arch
+            or not isinstance(binaries, dict)):
+        raise ValueError("bootstrap provenance mismatch")
+
+    for name, expected_path in expected_paths.items():
+        actual_path = provided[name]
+        if actual_path != expected_path or actual_path.is_symlink():
+            raise ValueError("native binary is not the bootstrap-owned executable")
+        record = binaries.get(name)
+        if not isinstance(record, dict):
+            raise ValueError("bootstrap binary provenance missing")
+        if record.get("archiveSha256") != EXPECTED_ARCHIVES[arch][name]:
+            raise ValueError("bootstrap archive provenance mismatch")
+        binary_sha = record.get("binarySha256")
+        if not isinstance(binary_sha, str) or not re.fullmatch(r"[0-9a-f]{64}", binary_sha):
+            raise ValueError("bootstrap binary digest invalid")
+        if _sha256(actual_path) != binary_sha:
+            raise ValueError("bootstrap binary digest mismatch")
+    return manifest
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--daprd", required=True)
@@ -90,7 +165,7 @@ def main() -> int:
     try:
         daprd, daprd_raw = _version(args.daprd, ("--version",))
         nats, nats_raw = _version(args.nats_server, ("-v",))
-        manifest = _bootstrap_manifest(args.bootstrap_manifest)
+        manifest = _verified_bootstrap(args.bootstrap_manifest, args.daprd, args.nats_server)
         exact = (daprd == EXPECTED_DAPRD and nats == EXPECTED_NATS
                  and manifest.get("daprVersion") == EXPECTED_DAPRD
                  and manifest.get("natsVersion") == EXPECTED_NATS

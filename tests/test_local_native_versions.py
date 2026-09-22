@@ -105,3 +105,104 @@ def test_bootstrap_manifest_rejects_symlink_and_oversize(tmp_path):
         assert "unsafe" in str(exc)
     else:
         raise AssertionError("oversized manifest accepted")
+
+
+def test_verified_bootstrap_binds_manifest_to_private_run_binaries(tmp_path, monkeypatch):
+    import hashlib
+    import json
+
+    check = _module()
+    root = tmp_path / "tools"
+    root.mkdir(mode=0o700)
+    bin_dir = root / "bin"
+    bin_dir.mkdir(mode=0o700)
+    daprd = bin_dir / "daprd"
+    nats = bin_dir / "nats-server"
+    daprd.write_bytes(b"daprd fixture")
+    nats.write_bytes(b"nats fixture")
+    daprd.chmod(0o700)
+    nats.chmod(0o700)
+    monkeypatch.setattr(check, "_arch", lambda: "amd64")
+    manifest = {
+        "platform": "linux",
+        "arch": "amd64",
+        "daprVersion": check.EXPECTED_DAPRD,
+        "daprFlavor": check.EXPECTED_DAPR_FLAVOR,
+        "natsVersion": check.EXPECTED_NATS,
+        "binaries": {
+            "daprd": {
+                "archiveSha256": check.EXPECTED_ARCHIVES["amd64"]["daprd"],
+                "binarySha256": hashlib.sha256(daprd.read_bytes()).hexdigest(),
+            },
+            "nats-server": {
+                "archiveSha256": check.EXPECTED_ARCHIVES["amd64"]["nats-server"],
+                "binarySha256": hashlib.sha256(nats.read_bytes()).hexdigest(),
+            },
+        },
+    }
+    path = root / "manifest.json"
+    path.write_text(json.dumps(manifest))
+    path.chmod(0o600)
+    assert check._verified_bootstrap(path, str(daprd), str(nats))["daprFlavor"] == "allcomponents"
+
+    other = tmp_path / "other-daprd"
+    other.write_bytes(daprd.read_bytes())
+    other.chmod(0o700)
+    try:
+        check._verified_bootstrap(path, str(other), str(nats))
+    except ValueError as exc:
+        assert "bootstrap-owned" in str(exc)
+    else:
+        raise AssertionError("unrelated same-content daprd accepted")
+
+
+def test_verified_bootstrap_rejects_tampered_binary_or_archive_provenance(tmp_path, monkeypatch):
+    import hashlib
+    import json
+
+    check = _module()
+    root = tmp_path / "tools"
+    root.mkdir(mode=0o700)
+    bin_dir = root / "bin"
+    bin_dir.mkdir(mode=0o700)
+    daprd = bin_dir / "daprd"
+    nats = bin_dir / "nats-server"
+    daprd.write_bytes(b"daprd")
+    nats.write_bytes(b"nats")
+    daprd.chmod(0o700)
+    nats.chmod(0o700)
+    monkeypatch.setattr(check, "_arch", lambda: "amd64")
+    manifest = {
+        "platform": "linux", "arch": "amd64",
+        "binaries": {
+            "daprd": {
+                "archiveSha256": check.EXPECTED_ARCHIVES["amd64"]["daprd"],
+                "binarySha256": hashlib.sha256(daprd.read_bytes()).hexdigest(),
+            },
+            "nats-server": {
+                "archiveSha256": check.EXPECTED_ARCHIVES["amd64"]["nats-server"],
+                "binarySha256": hashlib.sha256(nats.read_bytes()).hexdigest(),
+            },
+        },
+    }
+    path = root / "manifest.json"
+    path.write_text(json.dumps(manifest))
+    path.chmod(0o600)
+
+    daprd.write_bytes(b"tampered")
+    try:
+        check._verified_bootstrap(path, str(daprd), str(nats))
+    except ValueError as exc:
+        assert "digest mismatch" in str(exc)
+    else:
+        raise AssertionError("tampered binary accepted")
+
+    daprd.write_bytes(b"daprd")
+    manifest["binaries"]["daprd"]["archiveSha256"] = "0" * 64
+    path.write_text(json.dumps(manifest))
+    try:
+        check._verified_bootstrap(path, str(daprd), str(nats))
+    except ValueError as exc:
+        assert "archive provenance mismatch" in str(exc)
+    else:
+        raise AssertionError("wrong archive provenance accepted")
