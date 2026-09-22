@@ -11,7 +11,6 @@ import platform
 import shutil
 import stat
 import tarfile
-import tempfile
 from urllib.request import Request, urlopen
 
 DAPR_VERSION = "1.18.3"
@@ -166,6 +165,8 @@ def main() -> int:
     try:
         bin_dir = root / "bin"
         bin_dir.mkdir(mode=0o700)
+        archive_dir = root / "archives"
+        archive_dir.mkdir(mode=0o700)
         selected = ["daprd", "nats-server"]
         if args.workflow:
             selected.extend(["placement", "scheduler"])
@@ -175,24 +176,23 @@ def main() -> int:
             "runtimeProfile": "local-workflow" if args.workflow else "local-lite",
             "binaries": {},
         }
-        with tempfile.TemporaryDirectory(prefix="archives-", dir=root) as temp:
-            temp_dir = Path(temp)
-            for name in selected:
-                spec = ASSETS[arch][name]
-                archive = temp_dir / f"{name}.tar.gz"
-                archive_bytes = _download(
-                    spec["url"], archive, spec["sha256"], spec["bytes"], spec["max_bytes"]
-                )
-                binary = bin_dir / name
-                _extract_binary(archive, binary, name)
-                binary_bytes = binary.stat().st_size
-                manifest["binaries"][name] = {
-                    "archiveSha256": spec["sha256"],
-                    "archiveBytes": archive_bytes,
-                    "binarySha256": _sha256(binary),
-                    "binaryBytes": binary_bytes,
-                    "url": spec["url"],
-                }
+        for name in selected:
+            spec = ASSETS[arch][name]
+            archive = archive_dir / f"{name}.tar.gz"
+            archive_bytes = _download(
+                spec["url"], archive, spec["sha256"], spec["bytes"], spec["max_bytes"]
+            )
+            archive.chmod(0o600)
+            binary = bin_dir / name
+            _extract_binary(archive, binary, name)
+            binary_bytes = binary.stat().st_size
+            manifest["binaries"][name] = {
+                "archiveSha256": spec["sha256"],
+                "archiveBytes": archive_bytes,
+                "binarySha256": _sha256(binary),
+                "binaryBytes": binary_bytes,
+                "url": spec["url"],
+            }
         manifest["archiveBytesTotal"] = sum(item["archiveBytes"] for item in manifest["binaries"].values())
         manifest["binaryBytesTotal"] = sum(item["binaryBytes"] for item in manifest["binaries"].values())
         manifest_path = root / "manifest.json"

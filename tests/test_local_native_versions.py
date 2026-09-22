@@ -107,6 +107,33 @@ def test_bootstrap_manifest_rejects_symlink_and_oversize(tmp_path):
         raise AssertionError("oversized manifest accepted")
 
 
+def test_verified_archive_member_binds_exact_tarball_and_member(tmp_path):
+    import hashlib
+    from io import BytesIO
+    import tarfile
+
+    check = _module()
+    archive = tmp_path / "daprd.tar.gz"
+    payload = b"official-binary"
+    with tarfile.open(archive, "w:gz") as bundle:
+        info = tarfile.TarInfo("release/daprd")
+        info.size = len(payload)
+        bundle.addfile(info, BytesIO(payload))
+    expected = hashlib.sha256(archive.read_bytes()).hexdigest()
+    assert check._verified_archive_member(
+        archive, expected, archive.stat().st_size, "daprd"
+    ) == (len(payload), hashlib.sha256(payload).hexdigest())
+
+    with archive.open("ab") as stream:
+        stream.write(b"tamper")
+    try:
+        check._verified_archive_member(archive, expected, archive.stat().st_size - 6, "daprd")
+    except ValueError as exc:
+        assert "size mismatch" in str(exc) or "digest mismatch" in str(exc)
+    else:
+        raise AssertionError("tampered archive accepted")
+
+
 def test_verified_bootstrap_binds_manifest_to_private_run_binaries(tmp_path, monkeypatch):
     import hashlib
     import json
@@ -116,6 +143,8 @@ def test_verified_bootstrap_binds_manifest_to_private_run_binaries(tmp_path, mon
     root.mkdir(mode=0o700)
     bin_dir = root / "bin"
     bin_dir.mkdir(mode=0o700)
+    archive_dir = root / "archives"
+    archive_dir.mkdir(mode=0o700)
     daprd = bin_dir / "daprd"
     nats = bin_dir / "nats-server"
     daprd.write_bytes(b"daprd fixture")
@@ -123,6 +152,12 @@ def test_verified_bootstrap_binds_manifest_to_private_run_binaries(tmp_path, mon
     daprd.chmod(0o700)
     nats.chmod(0o700)
     monkeypatch.setattr(check, "_arch", lambda: "amd64")
+    fingerprints = {
+        "daprd": (daprd.stat().st_size, hashlib.sha256(daprd.read_bytes()).hexdigest()),
+        "nats-server": (nats.stat().st_size, hashlib.sha256(nats.read_bytes()).hexdigest()),
+    }
+    monkeypatch.setattr(check, "_verified_archive_member",
+                        lambda archive, expected, size, name: fingerprints[name])
     manifest = {
         "platform": "linux",
         "arch": "amd64",
@@ -171,6 +206,8 @@ def test_verified_bootstrap_rejects_tampered_binary_or_archive_provenance(tmp_pa
     root.mkdir(mode=0o700)
     bin_dir = root / "bin"
     bin_dir.mkdir(mode=0o700)
+    archive_dir = root / "archives"
+    archive_dir.mkdir(mode=0o700)
     daprd = bin_dir / "daprd"
     nats = bin_dir / "nats-server"
     daprd.write_bytes(b"daprd")
@@ -178,6 +215,12 @@ def test_verified_bootstrap_rejects_tampered_binary_or_archive_provenance(tmp_pa
     daprd.chmod(0o700)
     nats.chmod(0o700)
     monkeypatch.setattr(check, "_arch", lambda: "amd64")
+    official = {
+        "daprd": (daprd.stat().st_size, hashlib.sha256(daprd.read_bytes()).hexdigest()),
+        "nats-server": (nats.stat().st_size, hashlib.sha256(nats.read_bytes()).hexdigest()),
+    }
+    monkeypatch.setattr(check, "_verified_archive_member",
+                        lambda archive, expected, size, name: official[name])
     manifest = {
         "platform": "linux", "arch": "amd64",
         "archiveBytesTotal": sum(check.EXPECTED_ARCHIVE_BYTES["amd64"].values()),
@@ -202,12 +245,15 @@ def test_verified_bootstrap_rejects_tampered_binary_or_archive_provenance(tmp_pa
     path.chmod(0o600)
 
     daprd.write_bytes(b"tampr")
+    manifest["binaries"]["daprd"]["binarySha256"] = hashlib.sha256(daprd.read_bytes()).hexdigest()
+    manifest["binaries"]["daprd"]["binaryBytes"] = daprd.stat().st_size
+    path.write_text(json.dumps(manifest))
     try:
         check._verified_bootstrap(path, str(daprd), str(nats))
     except ValueError as exc:
         assert "digest mismatch" in str(exc)
     else:
-        raise AssertionError("tampered binary accepted")
+        raise AssertionError("tampered binary plus colluding manifest accepted")
 
     daprd.write_bytes(b"tampered")
     try:
@@ -218,6 +264,8 @@ def test_verified_bootstrap_rejects_tampered_binary_or_archive_provenance(tmp_pa
         raise AssertionError("tampered binary size accepted")
 
     daprd.write_bytes(b"daprd")
+    manifest["binaries"]["daprd"]["binarySha256"] = hashlib.sha256(daprd.read_bytes()).hexdigest()
+    manifest["binaries"]["daprd"]["binaryBytes"] = daprd.stat().st_size
     manifest["binaries"]["daprd"]["archiveSha256"] = "0" * 64
     path.write_text(json.dumps(manifest))
     try:
@@ -237,6 +285,8 @@ def test_verified_bootstrap_rejects_wrong_archive_size_provenance(tmp_path, monk
     root.mkdir(mode=0o700)
     bin_dir = root / "bin"
     bin_dir.mkdir(mode=0o700)
+    archive_dir = root / "archives"
+    archive_dir.mkdir(mode=0o700)
     daprd = bin_dir / "daprd"
     nats = bin_dir / "nats-server"
     daprd.write_bytes(b"daprd")
@@ -279,6 +329,8 @@ def test_verified_workflow_bootstrap_binds_control_plane_binaries(tmp_path, monk
     root.mkdir(mode=0o700)
     bin_dir = root / "bin"
     bin_dir.mkdir(mode=0o700)
+    archive_dir = root / "archives"
+    archive_dir.mkdir(mode=0o700)
     names = ("daprd", "nats-server", "placement", "scheduler")
     paths = {}
     for name in names:
@@ -287,6 +339,12 @@ def test_verified_workflow_bootstrap_binds_control_plane_binaries(tmp_path, monk
         path.chmod(0o700)
         paths[name] = path
     monkeypatch.setattr(check, "_arch", lambda: "amd64")
+    fingerprints = {
+        name: (paths[name].stat().st_size, hashlib.sha256(paths[name].read_bytes()).hexdigest())
+        for name in names
+    }
+    monkeypatch.setattr(check, "_verified_archive_member",
+                        lambda archive, expected, size, name: fingerprints[name])
     archive_sha = {**check.EXPECTED_ARCHIVES["amd64"], **check.EXPECTED_CONTROL_ARCHIVES["amd64"]}
     archive_bytes = {**check.EXPECTED_ARCHIVE_BYTES["amd64"],
                      **check.EXPECTED_CONTROL_ARCHIVE_BYTES["amd64"]}

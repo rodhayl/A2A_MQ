@@ -11,6 +11,7 @@ import platform
 import re
 import subprocess
 import stat
+import tarfile
 
 EXPECTED_DAPRD = "1.18.3"
 EXPECTED_NATS = "2.15.0"
@@ -126,6 +127,50 @@ def _sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
+def _verified_archive_member(archive: Path, expected_sha256: str,
+                             expected_bytes: int, basename: str) -> tuple[int, str]:
+    """Bind an installed binary to the exact member of one pinned release archive."""
+    try:
+        flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0)
+        fd = os.open(archive, flags)
+        with os.fdopen(fd, "rb") as stream:
+            info = os.fstat(stream.fileno())
+            if not stat.S_ISREG(info.st_mode) or info.st_size != expected_bytes:
+                raise ValueError("bootstrap archive size mismatch")
+            digest = hashlib.sha256()
+            for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+                digest.update(chunk)
+            if digest.hexdigest() != expected_sha256:
+                raise ValueError("bootstrap archive digest mismatch")
+            stream.seek(0)
+            with tarfile.open(fileobj=stream, mode="r:gz") as bundle:
+                members = [member for member in bundle.getmembers()
+                           if Path(member.name).name == basename]
+                if len(members) != 1 or not members[0].isfile():
+                    raise ValueError("bootstrap archive member mismatch")
+                member = members[0]
+                if member.size <= 0 or member.size > 256 * 1024 * 1024:
+                    raise ValueError("bootstrap archive member size invalid")
+                source = bundle.extractfile(member)
+                if source is None:
+                    raise ValueError("bootstrap archive member unavailable")
+                member_digest = hashlib.sha256()
+                total = 0
+                try:
+                    for chunk in iter(lambda: source.read(1024 * 1024), b""):
+                        total += len(chunk)
+                        if total > member.size:
+                            raise ValueError("bootstrap archive member size mismatch")
+                        member_digest.update(chunk)
+                finally:
+                    source.close()
+                if total != member.size:
+                    raise ValueError("bootstrap archive member size mismatch")
+                return total, member_digest.hexdigest()
+    except (OSError, tarfile.TarError) as exc:
+        raise ValueError("bootstrap archive unavailable or invalid") from exc
+
+
 def _verified_bootstrap(path: Path, daprd: str, nats_server: str,
                         placement: str | None = None, scheduler: str | None = None) -> dict:
     workflow = placement is not None or scheduler is not None
@@ -135,10 +180,13 @@ def _verified_bootstrap(path: Path, daprd: str, nats_server: str,
     arch = _arch()
     root = path.absolute().parent
     bin_dir = root / "bin"
-    if root.is_symlink() or bin_dir.is_symlink() or not bin_dir.is_dir():
+    archive_dir = root / "archives"
+    if (root.is_symlink() or bin_dir.is_symlink() or archive_dir.is_symlink()
+            or not bin_dir.is_dir() or not archive_dir.is_dir()):
         raise ValueError("bootstrap root unavailable or unsafe")
     try:
-        if root.stat().st_mode & 0o077 or bin_dir.stat().st_mode & 0o077:
+        if (root.stat().st_mode & 0o077 or bin_dir.stat().st_mode & 0o077
+                or archive_dir.stat().st_mode & 0o077):
             raise ValueError("bootstrap root permissions are not private")
     except OSError as exc:
         raise ValueError("bootstrap root unavailable or unsafe") from exc
@@ -177,12 +225,15 @@ def _verified_bootstrap(path: Path, daprd: str, nats_server: str,
             raise ValueError("bootstrap archive provenance mismatch")
         if record.get("archiveBytes") != archive_bytes[name]:
             raise ValueError("bootstrap archive size provenance mismatch")
-        if record.get("binaryBytes") != actual_path.stat().st_size:
+        member_bytes, member_sha = _verified_archive_member(
+            archive_dir / f"{name}.tar.gz", archive_digests[name], archive_bytes[name], name
+        )
+        if record.get("binaryBytes") != member_bytes or actual_path.stat().st_size != member_bytes:
             raise ValueError("bootstrap binary size provenance mismatch")
         binary_sha = record.get("binarySha256")
         if not isinstance(binary_sha, str) or not re.fullmatch(r"[0-9a-f]{64}", binary_sha):
             raise ValueError("bootstrap binary digest invalid")
-        if _sha256(actual_path) != binary_sha:
+        if binary_sha != member_sha or _sha256(actual_path) != member_sha:
             raise ValueError("bootstrap binary digest mismatch")
     expected_archive_total = sum(archive_bytes.values())
     if manifest.get("archiveBytesTotal") != expected_archive_total:
