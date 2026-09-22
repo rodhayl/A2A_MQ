@@ -119,9 +119,12 @@ def _ready(url: str, deadline: float, process: subprocess.Popen) -> tuple[int, i
     while time.monotonic() < deadline:
         if process.poll() is not None:
             raise RuntimeError(f"local runtime exited during startup with {process.returncode}")
-        rss, count = _sample_total_rss(process.pid)
-        peak_rss = max(peak_rss, rss)
-        peak_process_count = max(peak_process_count, count)
+        try:
+            rss, count = _sample_total_rss(process.pid)
+            peak_rss = max(peak_rss, rss)
+            peak_process_count = max(peak_process_count, count)
+        except MeasurementUnavailable:
+            pass
         try:
             request = Request(url, headers={"Cache-Control": "no-cache"})
             with urlopen(request, timeout=.5) as response:
