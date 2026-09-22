@@ -296,7 +296,8 @@ def _loopback_public_url(value: str) -> str:
                 and parsed.port == 18000
                 and parsed.path in {"", "/"} and not parsed.username and not parsed.password
                 and not parsed.query and not parsed.fragment
-                and "?" not in value and "#" not in value, "LOCAL_LOOPBACK_URL_REQUIRED")
+                and "?" not in value and "#" not in value
+                and not any(c.isspace() for c in value), "LOCAL_LOOPBACK_URL_REQUIRED")
     except (TypeError, ValueError):
         require(False, "LOCAL_LOOPBACK_URL_REQUIRED")
     return value.rstrip("/")

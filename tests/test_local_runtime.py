@@ -90,6 +90,8 @@ def test_builtin_launcher_url_matches_its_fixed_loopback_listener():
         "http://0.0.0.0:18000",
         "http://127.0.0.1:18000?",
         "http://127.0.0.1:18000#",
+        "http://127.0.0.1:18000\n",
+        "http://127.0.0.1:18000\t",
     ):
         with pytest.raises(PermanentError) as exc:
             _loopback_public_url(invalid)

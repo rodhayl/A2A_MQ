@@ -59,7 +59,8 @@ def _loopback_url(value: str) -> str:
                 and parsed.hostname in {"127.0.0.1", "localhost", "::1"}
                 and parsed.path in {"", "/"} and not parsed.username and not parsed.password
                 and not parsed.query and not parsed.fragment
-                and "?" not in value and "#" not in value, "LOCAL_LOOPBACK_URL_REQUIRED")
+                and "?" not in value and "#" not in value
+                and not any(c.isspace() for c in value), "LOCAL_LOOPBACK_URL_REQUIRED")
         if parsed.port is not None:
             require(1 <= parsed.port <= 65535, "LOCAL_LOOPBACK_URL_REQUIRED")
     except (TypeError, ValueError):

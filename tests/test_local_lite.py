@@ -99,6 +99,8 @@ def test_local_lite_loopback_urls_reject_empty_query_fragment_delimiters(tmp_pat
         ("public_url", "http://127.0.0.1:18000#"),
         ("dapr_http", "http://127.0.0.1:3500?"),
         ("dapr_http", "http://127.0.0.1:3500#"),
+        ("public_url", "http://127.0.0.1:18000\n"),
+        ("dapr_http", "http://127.0.0.1:3500\t"),
     ):
         with pytest.raises(PermanentError, match="LOCAL_LOOPBACK_URL_REQUIRED"):
             LocalLiteSettings(**base, **{field: value})
