@@ -60,6 +60,7 @@ class ProtectedPublisher:
     async def publish(self, envelope: Envelope) -> None:
         protector = self.routes.get(envelope.route)
         require(protector is not None, "ENCRYPTION_ROUTE_NOT_AUTHORIZED")
+        assert protector is not None
         raw = await self.database.call(self.cache.get, envelope, protector.receiver)
         if raw is None:
             candidate = await protector.seal(envelope)

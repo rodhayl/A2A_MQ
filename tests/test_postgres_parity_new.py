@@ -35,7 +35,7 @@ def test_real_postgres_parallel_admission_control_and_projection():
         p=Principal('acceptance',tenant,frozenset({'a2a:admin'}))
         request={'message':{'messageId':'one-request','role':'ROLE_USER','parts':[{'text':'pg-parity'}]}}
         with ThreadPoolExecutor(max_workers=4) as pool:
-            tasks=list(pool.map(lambda l:l.submit(p,request),ledgers[:4]))
+            tasks=list(pool.map(lambda item:item.submit(p,request),ledgers[:4]))
         assert len({t['id'] for t in tasks})==1
         t=tasks[0]
         ledger=ledgers[0]

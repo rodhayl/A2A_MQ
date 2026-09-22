@@ -1,11 +1,11 @@
 """Pinned MCP v2 registration contract; HTTP auth is delegated to the official SDK."""
 import pytest
 
-pytestmark = pytest.mark.mcp
-
 from a2a_mq.domain import PermanentError
 from a2a_mq.identity import Principal
 from a2a_mq.mcp_adapter import create_mcp, streamable_http_app
+
+pytestmark = pytest.mark.mcp
 
 
 class Verifier:

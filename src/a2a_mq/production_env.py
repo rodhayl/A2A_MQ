@@ -23,6 +23,7 @@ def _value(env: Mapping[str, str], name: str, *, default: str | None = None,
     value = env.get(name, default)
     require(isinstance(value, str) and 0 < len(value) <= maximum and "\x00" not in value,
             "MISSING_OR_INVALID_CONFIG")
+    assert isinstance(value, str)
     return value
 
 
@@ -68,7 +69,7 @@ def _postgres_dsn(env: Mapping[str, str]) -> str:
     require(not (direct and path), "AMBIGUOUS_SECRET_CONFIG")
     if path:
         value = read_file(path, secret=True, limit=8192).strip()
-        require(value and not any(c in value for c in "\x00\r\n"), "INVALID_POSTGRES_DSN")
+        require(bool(value) and not any(c in value for c in "\x00\r\n"), "INVALID_POSTGRES_DSN")
         return value
     if direct:
         require(isinstance(direct, str) and 0 < len(direct) <= 8192

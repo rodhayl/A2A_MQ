@@ -8,6 +8,7 @@ def text_parts(message: dict) -> list[str]:
     require(isinstance(message, dict) and message.get("role") == "ROLE_USER", "INVALID_MESSAGE")
     parts = message.get("parts")
     require(isinstance(parts, list) and 1 <= len(parts) <= 32, "INVALID_PARTS")
+    assert isinstance(parts, list)
     require(all(isinstance(p, dict) and isinstance(p.get("text"), str)
                 and not set(p) & {"raw", "url", "data"} for p in parts), "TEXT_PARTS_REQUIRED")
     values = [p["text"] for p in parts]
@@ -16,7 +17,10 @@ def text_parts(message: dict) -> list[str]:
 
 
 def options(request: dict) -> dict:
-    text_parts(request.get("message"))
+    msg = request.get("message")
+    require(isinstance(msg, dict), "INVALID_MESSAGE")
+    assert isinstance(msg, dict)
+    text_parts(msg)
     metadata = request.get("metadata", {})
     require(isinstance(metadata, dict), "INVALID_METADATA")
     config = metadata.get("a2amq", {})

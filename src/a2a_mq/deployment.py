@@ -15,6 +15,7 @@ from pathlib import Path
 import re
 import secrets
 import shutil
+from typing import Any
 from urllib.parse import urlsplit
 
 from .configuration import https_issuer, https_origin
@@ -42,7 +43,7 @@ def topology(tenant="demo", source="workflow-worker"):
 
 def _broker_endpoint(endpoint, scheme):
     """Keep credentials/query data out of generated component ConfigMaps."""
-    require(isinstance(endpoint, str) and endpoint
+    require(isinstance(endpoint, str) and bool(endpoint)
             and all(32 < ord(c) < 127 for c in endpoint), "BROKER_TLS_REQUIRED")
     try:
         parsed = urlsplit(endpoint)
@@ -341,6 +342,7 @@ def _k8s_label(value: str) -> str:
 def _ingress_host(value: str | None) -> str:
     require(isinstance(value, str) and 0 < len(value) <= 253
             and K8S_DNS_HOST.fullmatch(value) is not None, "INVALID_INGRESS_HOST")
+    assert isinstance(value, str)
     try:
         ipaddress.ip_address(value)
     except ValueError:
@@ -376,7 +378,7 @@ def kubernetes(config: dict) -> list[dict]:
             "DIGEST_PINNED_IMAGE_REQUIRED")
     public = https_origin(config["publicUrl"])
     https_issuer(config["issuer"])
-    require(isinstance(config["egressCIDRs"], list) and config["egressCIDRs"]
+    require(isinstance(config["egressCIDRs"], list) and bool(config["egressCIDRs"])
             and len(config["egressCIDRs"]) <= 64
             and all(isinstance(c, str) for c in config["egressCIDRs"]),
             "EXPLICIT_EGRESS_REQUIRED")
@@ -393,7 +395,8 @@ def kubernetes(config: dict) -> list[dict]:
     broker_port = broker.port or (4222 if config["broker"] == "jetstream" else 5671)
     egress_ports = {80, 443, 5432, 6379, 4222, 5671, 50001, 50002, 50005, 50006,
                     broker_port, *redis_ports}
-    docs, roles = [{"apiVersion": "v1", "kind": "Namespace", "metadata": {"name": namespace}}], topology(namespace)
+    docs: list[dict[str, Any]] = [{"apiVersion": "v1", "kind": "Namespace", "metadata": {"name": namespace}}]
+    roles = topology(namespace)
     host = _ingress_host(urlsplit(public).hostname)
     for name, role in roles.items():
         appid = "a2amq-" + name

@@ -121,9 +121,9 @@ class LocalLiteSettings:
         require(type(self.max_active) is int and 1 <= self.max_active <= 10000, "INVALID_QUOTA")
         require(type(self.max_records) is int and self.max_active <= self.max_records <= 1000000,
                 "INVALID_QUOTA")
-        for value, low, high in ((self.callback_timeout, .01, 300), (self.rpc_timeout, .01, 60),
+        for timeout_val, low, high in ((self.callback_timeout, .01, 300), (self.rpc_timeout, .01, 60),
                                  (self.relay_interval, .01, 10)):
-            require(type(value) in {int, float} and low <= value <= high, "INVALID_TIMEOUT")
+            require(type(timeout_val) in {int, float} and low <= timeout_val <= high, "INVALID_TIMEOUT")
 
     @property
     def command_route(self) -> str:
@@ -257,10 +257,11 @@ def create_app(settings: LocalLiteSettings):
     async def accept(envelope: Envelope):
         await database.call(ledger.accept, envelope)
 
-    running = {"value": False, "jobs": []}
+    running = {"value": False}
+    running_jobs: list[asyncio.Task] = []
 
     async def ready_value() -> bool:
-        if not running["value"] or any(job.done() for job in running["jobs"]):
+        if not running["value"] or any(job.done() for job in running_jobs):
             return False
         try:
             await database.call(store.list_tasks, limit=1)
@@ -299,7 +300,7 @@ def create_app(settings: LocalLiteSettings):
                                          profile="local-lite", allow_insecure_loopback=True)
 
     async def live(request):
-        failed = running["value"] and any(job.done() for job in running["jobs"])
+        failed = running["value"] and any(job.done() for job in running_jobs)
         return JSONResponse({"status": "failed" if failed else "alive"}, status_code=503 if failed else 200,
                             headers={"Cache-Control": "no-store"})
 
@@ -352,7 +353,9 @@ def create_app(settings: LocalLiteSettings):
                                     name="a2amq-local-admission-repair"),
                 asyncio.create_task(replay.run(stop), name="a2amq-local-replay"),
             ]
-            running["jobs"], running["value"] = jobs, True
+            running_jobs.clear()
+            running_jobs.extend(jobs)
+            running["value"] = True
             try:
                 yield
             finally:
@@ -362,7 +365,7 @@ def create_app(settings: LocalLiteSettings):
                     if not job.done():
                         job.cancel()
                 await asyncio.gather(*jobs, return_exceptions=True)
-                running["jobs"] = []
+                running_jobs.clear()
 
     app = Starlette(routes=routes, lifespan=lifespan)
     app.state.a2amq_api = api

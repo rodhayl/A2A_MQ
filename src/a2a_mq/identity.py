@@ -37,6 +37,7 @@ _CURRENT: ContextVar[Principal | None] = ContextVar("a2amq_principal", default=N
 def current_principal() -> Principal:
     principal = _CURRENT.get()
     require(principal is not None, "UNAUTHENTICATED")
+    assert principal is not None
     return principal
 
 
@@ -59,7 +60,7 @@ class JWTVerifier:
             from cryptography.hazmat.primitives.asymmetric.rsa import RSAPublicKey
         except ImportError:
             raise PermanentError("SECURITY_EXTRA_REQUIRED") from None
-        verified = {}
+        verified: dict[str, RSAPublicKey] = {}
         for kid, pem in keys.items():
             token(kid)
             try:
@@ -67,6 +68,7 @@ class JWTVerifier:
             except (ValueError, TypeError):
                 raise PermanentError("INVALID_IDENTITY_KEY") from None
             require(isinstance(key, RSAPublicKey) and key.key_size >= 2048, "INVALID_IDENTITY_KEY")
+            assert isinstance(key, RSAPublicKey)
             verified[kid] = key
         self.keys = MappingProxyType(verified)
         self.issuer, self.audience = issuer, audience
@@ -82,8 +84,12 @@ class JWTVerifier:
             header = jwt.get_unverified_header(encoded)
             require(header.get("alg") == "RS256" and header.get("typ") in {None, "JWT", "at+jwt"}
                     and not any(k in header for k in ("crit", "jku", "jwk", "x5u")), "UNAUTHENTICATED")
-            key = self.keys.get(header.get("kid"))
+            kid = header.get("kid")
+            require(isinstance(kid, str), "UNAUTHENTICATED")
+            assert isinstance(kid, str)
+            key = self.keys.get(kid)
             require(key is not None, "UNAUTHENTICATED")
+            assert key is not None
             claims = jwt.decode(encoded, key=key, algorithms=["RS256"], issuer=self.issuer,
                                 audience=self.audience, leeway=self.leeway,
                                 options={"require": ["exp", "iat", "nbf", "iss", "aud", "sub", "tenant", "scope"]})

@@ -58,7 +58,7 @@ class _Connection:
 
 def scope_lock(scope: StoreScope) -> tuple[int, int]:
     raw = hashlib.sha256((scope.tenant + "\x00" + scope.consumer).encode()).digest()
-    return tuple(int.from_bytes(raw[i:i + 4], "big", signed=True) for i in (0, 4))
+    return (int.from_bytes(raw[0:4], "big", signed=True), int.from_bytes(raw[4:8], "big", signed=True))
 
 
 class PostgresStore(SQLiteStore):
@@ -159,4 +159,5 @@ def open_store(*, tenant: str, consumer: str, path: str | None = None,
     require(bool(path) != bool(dsn), "EXACTLY_ONE_STORAGE_BACKEND_REQUIRED")
     if dsn:
         return PostgresStore(dsn, tenant=tenant, consumer=consumer, allow_insecure=allow_insecure)
+    assert path is not None
     return SQLiteStore(path, tenant=tenant, consumer=consumer)

@@ -6,7 +6,7 @@ from uuid import uuid4
 
 import pytest
 
-from a2a_mq.domain import command, PermanentError, RetryableError
+from a2a_mq.domain import command, PermanentError
 from a2a_mq.postgres import _Connection, _Row, open_store, scope_lock, PostgresStore
 from a2a_mq.reference import echo_events
 from a2a_mq.storage import StoreScope

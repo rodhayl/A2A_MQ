@@ -48,7 +48,7 @@ def rabbitmq_component(*, component: str, consumer: str, app_ids: tuple[str, ...
                        secret: str = "rabbitmq", prefetch: int = 32) -> BrokerProfile:
     """RabbitMQ: durable queues, manual ACK, persistent publish, confirms and DLQ."""
     component, consumer, secret = token(component), token(consumer), token(secret)
-    require(app_ids and all(token(app) for app in app_ids), "INVALID_ROUTE")
+    require(bool(app_ids) and all(token(app) for app in app_ids), "INVALID_ROUTE")
     prefetch = _positive(prefetch, "INVALID_PREFETCH", 65535)
     metadata = _metadata([
         ("host", _secret(secret, "host")), ("consumerID", consumer),
@@ -69,7 +69,7 @@ def jetstream_component(*, component: str, consumer: str, app_ids: tuple[str, ..
                         max_ack_pending: int = 256, replicas: int = 3) -> BrokerProfile:
     """JetStream: explicit durable/queue identity with retained all-delivery semantics."""
     component, consumer, stream, secret = map(token, (component, consumer, stream, secret))
-    require(app_ids and all(token(app) for app in app_ids), "INVALID_ROUTE")
+    require(bool(app_ids) and all(token(app) for app in app_ids), "INVALID_ROUTE")
     max_ack_pending = _positive(max_ack_pending, "INVALID_BACKPRESSURE", 1000000)
     replicas = _positive(replicas, "INVALID_REPLICAS", 5)
     metadata = _metadata([

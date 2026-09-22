@@ -1,5 +1,4 @@
 """Dapr adapter contracts and generator decisions. Fake SDK is explicitly not a live engine."""
-import asyncio
 from concurrent.futures import ThreadPoolExecutor
 from types import SimpleNamespace
 from unittest.mock import Mock

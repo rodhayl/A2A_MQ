@@ -132,7 +132,7 @@ class SQLiteStore:
         return float(value)
 
     @contextmanager
-    def _connection(self) -> Iterator[sqlite3.Connection]:
+    def _connection(self) -> Iterator[Any]:
         try:
             db = sqlite3.connect(self.path, timeout=self.busy_timeout_ms / 1000, isolation_level=None)
         except sqlite3.OperationalError:
@@ -152,7 +152,7 @@ class SQLiteStore:
             db.close()
 
     @contextmanager
-    def _transaction(self) -> Iterator[sqlite3.Connection]:
+    def _transaction(self) -> Iterator[Any]:
         with self._connection() as db:
             try:
                 db.execute("BEGIN IMMEDIATE")

@@ -10,6 +10,7 @@ import asyncio
 from contextlib import AsyncExitStack, asynccontextmanager
 from dataclasses import asdict, dataclass
 import os
+from typing import Any
 
 from starlette.applications import Starlette
 from starlette.responses import JSONResponse
@@ -93,7 +94,7 @@ def create_app(settings: LocalWorkflowSettings):
     api = TaskAPI(ledger, database, wait_timeout=settings.callback_timeout)
     identity = verifier(settings)
 
-    status = {"running": False, "workflow_ready": False, "jobs": [], "actions": None, "runtime": None}
+    status: dict[str, Any] = {"running": False, "workflow_ready": False, "jobs": [], "actions": None, "runtime": None}
 
     async def accept(envelope: Envelope):
         if not status["running"] or not status["workflow_ready"] or status["actions"] is None:

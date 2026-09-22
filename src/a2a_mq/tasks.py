@@ -168,6 +168,7 @@ class TaskLedger:
                 "INVALID_REQUEST")
         message = request.get("message")
         require(isinstance(message, dict), "INVALID_PAYLOAD")
+        assert isinstance(message, dict)
         rid = _key(message.get("messageId"))
         if message.get("taskId"):
             return self.control(principal, message["taskId"], "input", rid, message)
@@ -299,7 +300,7 @@ class TaskLedger:
             return self._snapshot(db, Envelope(self._job(db, task_id)["wire"]), step_id, state, artifacts=artifacts, message=message)
 
     def pending(self, kinds, *, limit=50, after=None):
-        require(isinstance(kinds, tuple) and kinds and set(kinds) <= {"publish","start","input","auth","cancel"},
+        require(isinstance(kinds, tuple) and bool(kinds) and set(kinds) <= {"publish","start","input","auth","cancel"},
                 "INVALID_CONTROL")
         _page(limit)
         params = [*self.keys, *kinds]

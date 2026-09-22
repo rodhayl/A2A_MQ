@@ -69,10 +69,14 @@ def create_mcp(api: TaskAPI, verifier: JWTVerifier, *, resource_url: str,
 
     def principal() -> Principal:
         access = get_access_token()
-        require(access is not None and access.subject and isinstance(access.claims, dict), "UNAUTHENTICATED")
+        require(access is not None and bool(access.subject) and isinstance(access.claims, dict), "UNAUTHENTICATED")
+        assert access is not None
+        assert isinstance(access.claims, dict)
         tenant = access.claims.get("tenant")
         require(isinstance(tenant, str), "UNAUTHENTICATED")
-        return Principal(access.subject, tenant, frozenset(access.scopes))
+        assert isinstance(tenant, str)
+        assert isinstance(access.subject, str)
+        return Principal(access.subject, tenant, frozenset(access.scopes or ()))
 
     async def result(awaitable) -> dict[str, Any]:
         try:

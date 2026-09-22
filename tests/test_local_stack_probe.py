@@ -240,6 +240,9 @@ def test_stack_probe_private_tools_binding(tmp_path):
     root.mkdir(mode=0o700)
     bin_dir = root / "bin"
     bin_dir.mkdir(mode=0o700)
+    manifest = root / "manifest.json"
+    manifest.write_bytes(b'{"runtimeProfile":"local-workflow"}\n')
+    manifest.chmod(0o600)
     for name in ("daprd", "nats-server", "placement", "scheduler"):
         path = bin_dir / name
         path.write_text("#!/bin/sh\n")
@@ -273,6 +276,9 @@ def test_stack_probe_rejects_nonprivate_or_symlinked_tools(tmp_path):
     root = tmp_path / "tools"
     root.mkdir(mode=0o755)
     (root / "bin").mkdir(mode=0o700)
+    manifest = root / "manifest.json"
+    manifest.write_bytes(b'{"runtimeProfile":"local-lite"}\n')
+    manifest.chmod(0o600)
     with __import__("pytest").raises(probe.MeasurementUnavailable, match="not private"):
         probe._validated_tools_bin(root, ("app", "daprd", "nats"))
 

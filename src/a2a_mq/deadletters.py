@@ -60,6 +60,7 @@ class DeadLetters:
             require(isinstance(data, dict) and isinstance(data.get("reason"), str)
                     and re.fullmatch(r"[A-Z][A-Z0-9_]{0,63}", data["reason"]) is not None,
                     "INVALID_DLQ_REASON")
+            assert isinstance(data, dict)
             reason = data["reason"]
         with self.store._transaction() as db:
             row = db.execute("SELECT digest FROM a2amq_delivery_dlq WHERE tenant=? AND consumer=? AND record_id=?",
@@ -173,6 +174,7 @@ class ReplayService:
         else:
             require(ce.get("datacontenttype") == "application/vnd.a2amq.sealed+json"
                     and self.decoder is not None, "ENCRYPTED_REPLAY_DECODER_REQUIRED")
+            assert self.decoder is not None
             envelope = await self.decoder(ce)
         e = envelope.as_dict()
         require(envelope.route in self.allowed_routes and (route is None or route == envelope.route), "FORBIDDEN")

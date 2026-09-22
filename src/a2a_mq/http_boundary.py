@@ -97,14 +97,15 @@ def sanitize_sdk_logs():
             def patched(error: Exception):
                 if hasattr(error, "status_code"):
                     detail = getattr(error, "detail", str(error))
-                    headers = dict(error.headers) if getattr(error, "headers", None) else None
+                    raw_headers = getattr(error, "headers", None)
+                    headers = dict(raw_headers) if raw_headers else None
                     return JSONResponse(
                         content={"detail": detail} if isinstance(detail, str) else detail,
                         status_code=getattr(error, "status_code"),
                         headers=headers,
                     )
                 return orig(error)
-            patched._a2amq_patched = True
+            setattr(patched, "_a2amq_patched", True)
             error_handlers._create_error_response = patched
     except ImportError:
         pass

@@ -265,11 +265,13 @@ def create_workflow_worker(store, bus, *, app_token: str, source: str = "workflo
             if runtime_factory is not None:
                 runtime = runtime_factory()
             else:
+                assert dapr_workflow is not None
                 runtime = dapr_workflow.WorkflowRuntime(host=workflow_host, port=workflow_port)
             register(runtime, ledger, sdk=dapr_workflow)
             if client_factory is not None:
                 client = client_factory()
             else:
+                assert dapr_workflow is not None
                 client = dapr_workflow.DaprWorkflowClient(host=workflow_host, port=workflow_port)
             actions = DaprActions(ledger, client)
             controls = ActionRelay(ledger, database, actions=actions)

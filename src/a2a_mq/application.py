@@ -10,12 +10,12 @@ from contextlib import AsyncExitStack, asynccontextmanager
 from dataclasses import dataclass
 import logging
 import os
-from typing import Callable
+from typing import Any, Callable
 
 import httpx
 from starlette.applications import Starlette
 from starlette.responses import JSONResponse
-from starlette.routing import Mount, Route
+from starlette.routing import BaseRoute, Mount, Route
 
 from . import configuration
 from .configuration import Settings, read_file
@@ -161,9 +161,13 @@ class ServiceApplication:
     """Fail closed outside lifespan, including after a partial startup failure."""
     def __init__(self, settings: Settings, *, dependencies: Dependencies | None = None):
         self.settings, self.dependencies = settings, dependencies or Dependencies()
-        self.running, self.delegate, self.jobs = False, None, []
-        self.workflow_ready = False
-        self.bus = self.database = self.runtime = None
+        self.running: bool = False
+        self.delegate: Any = None
+        self.jobs: list[asyncio.Task] = []
+        self.workflow_ready: bool = False
+        self.bus: Any = None
+        self.database: Any = None
+        self.runtime: Any = None
         self.app = Starlette(lifespan=self.lifespan, routes=[
             Route("/health/live", self.live), Route("/health/ready", self.ready), Mount("/", self.dispatch)])
 
@@ -187,7 +191,7 @@ class ServiceApplication:
             return JSONResponse({"error": "UNAUTHORIZED"}, status_code=401)
         ok = self.running and not any(t.done() for t in self.jobs)
         ok = ok and (self.settings.role != "workflow" or self.workflow_ready)
-        if ok:
+        if ok and self.database is not None and self.bus is not None:
             try:
                 async with asyncio.timeout(self.settings.callback_timeout):
                     await self.database.call(self.database.store.list_tasks, limit=1)
@@ -281,7 +285,7 @@ class ServiceApplication:
                         return JSONResponse([])
                     empty_discovery = _AppTokenMiddleware(Starlette(routes=[
                         Route("/dapr/subscribe", no_subscriptions)]), self.app_token)
-                    routes = [Mount("/operations", ops)]
+                    routes: list[BaseRoute] = [Mount("/operations", ops)]
                     if settings.role == "api":
                         routes.append(Route("/dapr/subscribe", empty_discovery))
                     if settings.role == "api":
@@ -352,8 +356,9 @@ class ServiceApplication:
                                 return JSONResponse({"error": "STORAGE_UNAVAILABLE"}, status_code=503,
                                                     headers={"Cache-Control": "no-store"})
                             return JSONResponse({"tasks": tasks, "nextCursor": cursor}, headers={"Cache-Control": "no-store"})
+                        observer_delegate: Any = self.delegate
                         self.delegate = Starlette(routes=[Route("/internal/tasks", _AppTokenMiddleware(
-                            Starlette(routes=[Route("/internal/tasks", projected)]), self.app_token)), Mount("/", self.delegate)])
+                            Starlette(routes=[Route("/internal/tasks", projected)]), self.app_token)), Mount("/", observer_delegate)])
                 if settings.role == "operator" and settings.subscription_queue:
                     self.delegate = SubscriptionMetadata(self.delegate, settings.subscription_queue)
                 if telemetry:
@@ -386,10 +391,10 @@ class ASGIEndpoint:
 
 class SubscriptionMetadata:
     """Attach the explicit RabbitMQ quorum queue identity to programmatic discovery."""
-    def __init__(self, app, queue):
+    def __init__(self, app: Any, queue: str):
         self.app, self.queue = app, queue
 
-    async def __call__(self, scope, receive, send):
+    async def __call__(self, scope: Any, receive: Any, send: Any) -> None:
         if scope["type"] != "http" or scope["path"] != "/dapr/subscribe":
             return await self.app(scope, receive, send)
         start, chunks = None, []

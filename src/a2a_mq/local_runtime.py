@@ -76,6 +76,7 @@ def _refresh_client_tokens(root: Path, profile: dict) -> None:
 
     key = load_pem_private_key(read_file(str(root / "jwt-private.pem"), secret=True, limit=65536).encode(), password=None)
     require(isinstance(key, RSAPrivateKey), "INVALID_LOCAL_IDENTITY_KEY")
+    assert isinstance(key, RSAPrivateKey)
     now = datetime.now(timezone.utc)
     claims = {
         "iss": profile["issuer"], "sub": "local-owner", "tenant": token(profile["tenant"]),
@@ -390,7 +391,7 @@ def prepare(root: Path, *, tenant: str = "demo", source: str = "local-worker",
 
 def _require_ports_free(ports: tuple[int, ...]) -> None:
     """Fail before secrets or child processes are touched when a fixed loopback port is occupied."""
-    require(isinstance(ports, tuple) and ports, "INVALID_LOCAL_PORTS")
+    require(isinstance(ports, tuple) and bool(ports), "INVALID_LOCAL_PORTS")
     seen: set[int] = set()
     for port in ports:
         require(type(port) is int and 1 <= port <= 65535 and port not in seen, "INVALID_LOCAL_PORTS")

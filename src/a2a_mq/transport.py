@@ -77,11 +77,13 @@ class DaprPublisher:
     def _http_client(self) -> httpx.AsyncClient:
         if not self._owns_client:
             require(self.client is not None, "PUBLISHER_CLIENT_REQUIRED")
+            assert self.client is not None
             return self.client
         if self._closed:
             raise RetryableError("PUBLISHER_CLOSED")
         if self.client is None:
             self.client = httpx.AsyncClient(follow_redirects=False, trust_env=False)
+        assert self.client is not None
         return self.client
 
     async def close(self) -> None:

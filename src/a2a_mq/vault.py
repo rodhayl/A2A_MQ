@@ -32,7 +32,7 @@ class FileToken:
                 raw = stream.read(4097)
             require(0 < len(raw) <= 4096, "INVALID_SECRET")
             value = raw.decode("ascii").strip()
-            require(value and all(33 <= ord(c) <= 126 for c in value), "INVALID_SECRET")
+            require(bool(value) and all(33 <= ord(c) <= 126 for c in value), "INVALID_SECRET")
             return value
         except (OSError, UnicodeError):
             raise PermanentError("SECRET_UNAVAILABLE") from None

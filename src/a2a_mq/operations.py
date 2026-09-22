@@ -277,6 +277,7 @@ class OperationsManager:
         _admin(principal, self.store.scope.tenant)
         source_path = getattr(self.store, "path", None)
         require(isinstance(source_path, str), "SQLITE_BACKUP_ONLY")
+        assert isinstance(source_path, str)
         destination = Path(destination).absolute()
         require(destination != Path(source_path).absolute(), "INVALID_BACKUP_PATH")
         try:

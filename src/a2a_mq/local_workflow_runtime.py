@@ -105,6 +105,7 @@ def run(root: Path) -> int:
     missing = [name for name, value in binaries.items() if not value]
     if missing:
         raise RuntimeError("missing native prerequisite(s): " + ", ".join(missing))
+    found_binaries = {name: str(value) for name, value in binaries.items()}
 
     _refresh_client_tokens(root, profile)
     app_env, sidecar_env, child_env = _runtime_environments(root, profile)
@@ -113,7 +114,7 @@ def run(root: Path) -> int:
     os.environ.update(app_env)
     nats = placement = scheduler = sidecar = None
     try:
-        nats = subprocess.Popen([binaries["nats-server"], "-c", str(root / "nats.conf")],
+        nats = subprocess.Popen([found_binaries["nats-server"], "-c", str(root / "nats.conf")],
                                 cwd=root, env=child_env)
         _wait_port("127.0.0.1", 4222, nats)
 
@@ -125,14 +126,14 @@ def run(root: Path) -> int:
             "--development",
         ], cwd=root, env=child_env, check=True, stdout=subprocess.DEVNULL, timeout=30)
 
-        placement = subprocess.Popen(_placement_command(binaries["placement"]), cwd=root, env=child_env)
+        placement = subprocess.Popen(_placement_command(found_binaries["placement"]), cwd=root, env=child_env)
         _wait_port("127.0.0.1", PLACEMENT_PORT, placement)
 
-        scheduler = subprocess.Popen(_scheduler_command(binaries["scheduler"], root), cwd=root, env=child_env)
+        scheduler = subprocess.Popen(_scheduler_command(found_binaries["scheduler"], root), cwd=root, env=child_env)
         _wait_port("127.0.0.1", SCHEDULER_PORT, scheduler)
 
         sidecar_command = [
-            binaries["daprd"], "--mode", "standalone", "--app-id", APP_ID,
+            found_binaries["daprd"], "--mode", "standalone", "--app-id", APP_ID,
             "--app-port", "18000", "--app-protocol", "http",
             "--dapr-http-port", "3500", "--dapr-grpc-port", "50001",
             "--dapr-internal-grpc-port", str(DAPR_INTERNAL_GRPC_PORT),

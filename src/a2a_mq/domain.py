@@ -114,8 +114,10 @@ def now_text() -> str:
 def state_of(task: dict[str, Any]) -> str:
     status = task.get("status")
     require(isinstance(status, dict))
+    assert isinstance(status, dict)
     value = status.get("state")
     require(isinstance(value, str) and value.startswith("TASK_STATE_"))
+    assert isinstance(value, str)
     state = value.removeprefix("TASK_STATE_")
     require(state in STATES)
     return state

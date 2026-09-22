@@ -132,10 +132,12 @@ def create_operations_app(task_ops, task_database, publisher, verifier, *,
         result = await db_call(task_database, task_ops.backup_sqlite, current_principal(), target)
         return JSONResponse(result, headers={"Cache-Control": "no-store"})
 
-    async def permanent(request: Request, error: PermanentError):
+    async def permanent(request: Request, error: Exception):
+        assert isinstance(error, PermanentError)
         return JSONResponse({"error": error.code}, status_code=_code(error), headers={"Cache-Control": "no-store"})
 
-    async def retryable(request: Request, error: RetryableError):
+    async def retryable(request: Request, error: Exception):
+        assert isinstance(error, RetryableError)
         return JSONResponse({"error": error.code}, status_code=503,
                             headers={"Retry-After": "1", "Cache-Control": "no-store"})
 

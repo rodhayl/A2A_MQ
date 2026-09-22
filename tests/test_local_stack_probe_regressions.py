@@ -33,11 +33,20 @@ def measured_stack(tmp_path, monkeypatch):
     (root / "profile.json").write_text('{"mode":"local-lite"}')
     report = tmp_path / "report.json"
     tools = tmp_path / "tools"
+    manifest_sha = "a" * 64
+    binary_sha = {"daprd": "b" * 64, "nats-server": "c" * 64}
+    verification = tmp_path / "native-verification.json"
+    verification.write_text(json.dumps({
+        "verdict": "PASS_NATIVE_VERSION",
+        "bootstrapManifestSha256": manifest_sha,
+        "binarySha256": binary_sha,
+    }))
     monkeypatch.setattr(probe, "_validated_tools_bin", lambda root, roles: tools / "bin")
     monkeypatch.setattr(probe, "_native_fingerprints",
-                        lambda root, roles: ("a" * 64, {"daprd":"b" * 64, "nats-server":"c" * 64}))
+                        lambda root, roles: (manifest_sha, binary_sha))
     monkeypatch.setattr(probe, "_native_tools_match", lambda roles, commands, bin_dir, expected: True)
     monkeypatch.setattr(sys, "argv", ["probe", "--profile", str(root), "--tools-dir", str(tools),
+                                     "--native-verification", str(verification),
                                      "--json", str(report), "--log", str(tmp_path / "log.txt")])
     state = {"finished": False, "exited": None, "missing_rss": None, "missing_cpu": None, "added": False}
     class Process:

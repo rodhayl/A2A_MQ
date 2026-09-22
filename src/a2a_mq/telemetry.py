@@ -30,7 +30,8 @@ class Telemetry:
         self.tracer = tracer_provider.get_tracer("a2a_mq", "0.1.0")
         self.count = self.meter.create_counter("a2amq.operations", unit="{operation}")
         self.duration = self.meter.create_histogram("a2amq.operation.duration", unit="s")
-        self._values, self._lock = {}, Lock()
+        self._values: dict[str, float | int] = {}
+        self._lock = Lock()
         self._gauges = []
         for field, name in GAUGES.items():
             def sample(options, field=field):

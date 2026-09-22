@@ -19,7 +19,7 @@ from .vault import FileToken
 
 
 def distribution(samples):
-    require(isinstance(samples,list) and samples and all(type(v) in {int,float} and math.isfinite(v) and v>=0 for v in samples),
+    require(isinstance(samples,list) and bool(samples) and all(type(v) in {int,float} and math.isfinite(v) and v>=0 for v in samples),
             'INVALID_MEASUREMENTS')
     values=sorted(samples)
     return {'count':len(values),'medianMs':statistics.median(values),

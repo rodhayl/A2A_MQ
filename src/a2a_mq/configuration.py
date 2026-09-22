@@ -89,7 +89,7 @@ class Settings:
         require(bool(self.sqlite_path) != bool(self.postgres_dsn_file), "EXACTLY_ONE_STORAGE_BACKEND_REQUIRED")
         require(type(self.development) is bool and type(self.mcp_enabled) is bool, "INVALID_CONFIGURATION")
         require(self.development or bool(self.postgres_dsn_file), "PRODUCTION_POSTGRES_REQUIRED")
-        require(self.app_token_file and self.dapr_token_file, "TOKEN_FILES_REQUIRED")
+        require(bool(self.app_token_file) and bool(self.dapr_token_file), "TOKEN_FILES_REQUIRED")
         require(type(self.dapr_grpc_port) is int and 1 <= self.dapr_grpc_port <= 65535, "INVALID_DAPR_PORT")
         try:
             url = urlsplit(self.dapr_http)
@@ -110,9 +110,9 @@ class Settings:
         require(not self.mcp_enabled or self.role == "api", "MCP_API_ROLE_REQUIRED")
         require(type(self.max_active) is int and 1 <= self.max_active <= 1000000, "INVALID_QUOTA")
         require(type(self.max_records) is int and self.max_active <= self.max_records <= 10000000, "INVALID_QUOTA")
-        for value, low, high in ((self.callback_timeout, .01, 300), (self.rpc_timeout, .01, 60),
+        for timeout_val, low, high in ((self.callback_timeout, .01, 300), (self.rpc_timeout, .01, 60),
                                   (self.relay_interval, .01, 60)):
-            require(type(value) in {int, float} and low <= value <= high, "INVALID_TIMEOUT")
+            require(type(timeout_val) in {int, float} and low <= timeout_val <= high, "INVALID_TIMEOUT")
         require(type(self.database_capacity) is int and 1 <= self.database_capacity <= 128,
                 "INVALID_STORAGE_CAPACITY")
         require(type(self.concurrency) is int and 1 <= self.concurrency <= 128, "INVALID_CONCURRENCY")
