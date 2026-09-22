@@ -2,7 +2,7 @@
 import pytest
 
 from a2a_mq.acceptance import (FULL_REQUIRED, GROUPS, MODEL_CREDENTIAL, full_status, git_snapshot, junit,
-                               provenance_status,
+                               package_gate, provenance_status,
                                test_gate as execute_gate)
 from a2a_mq.live_probe import wait_until
 
@@ -200,6 +200,41 @@ def test_full_acceptance_requires_repository_contract_checker():
 
 def test_full_acceptance_requires_exact_commit_package_smoke():
     assert "package" in FULL_REQUIRED
+
+
+def test_package_gate_uses_external_git_archive_and_isolated_import(tmp_path,monkeypatch):
+    import io
+    from pathlib import Path
+    import tarfile
+
+    root=tmp_path/"repo"
+    root.mkdir()
+    output=tmp_path/"evidence"
+    output.mkdir()
+    calls=[]
+
+    def run(args,cwd,log,timeout,env):
+        calls.append((args,cwd,env))
+        if args[:2] == ["git","archive"]:
+            archive=Path(args[-1])
+            data=b"[build-system]\nrequires=[]\nbuild-backend='fixture'\n"
+            with tarfile.open(archive,"w") as bundle:
+                info=tarfile.TarInfo("pyproject.toml")
+                info.size=len(data)
+                bundle.addfile(info,io.BytesIO(data))
+        elif args[1:4] == ["-m","pip","wheel"]:
+            wheel_dir=Path(args[args.index("--wheel-dir")+1])
+            (wheel_dir/"a2a_mq-0.1.0-py3-none-any.whl").write_bytes(b"fixture-wheel")
+        return 0
+
+    monkeypatch.setattr("a2a_mq.acceptance.run_command",run)
+    result=package_gate(root,output,{},30)
+    assert result["status"]=="PASSED"
+    assert calls[0][0][:3] == ["git","archive","--format=tar"]
+    assert calls[0][1] == root
+    assert calls[1][1] == output and str(root) not in calls[1][0][-1]
+    assert calls[-1][0][1:3] == ["-I","-c"]
+    assert calls[-1][2]["A2AMQ_WHEEL_TARGET"].startswith(str(output))
 
 
 def test_sdk_gate_requires_mcp_v2_http_client_dependency():
