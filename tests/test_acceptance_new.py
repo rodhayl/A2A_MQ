@@ -153,6 +153,20 @@ def test_legacy_postgres_gate_uses_same_private_dsn_without_logging(tmp_path,mon
         assert "A2AMQ_POSTGRES_TEST_ALLOW_INSECURE" not in captured[0]
 
 
+def test_postgres_gate_fails_closed_when_private_dsn_cannot_be_read(tmp_path,monkeypatch):
+    from a2a_mq.domain import PermanentError
+
+    (tmp_path/"tests").mkdir()
+    (tmp_path/"tests/test_postgres_live.py").write_text("# concurrent native gate")
+    monkeypatch.setattr("a2a_mq.acceptance.present",lambda name:True)
+    monkeypatch.setattr("a2a_mq.configuration.read_file",
+                        lambda *a,**k: (_ for _ in ()).throw(PermanentError("UNSAFE_CONFIG_FILE")))
+    result=execute_gate("postgres",tmp_path,tmp_path,
+                        {"A2AMQ_POSTGRES_DSN_FILE":str(tmp_path/"dsn")},30)
+    assert result == {"name":"postgres","status":"FAILED",
+                      "configurationError":"INVALID_POSTGRES_GATE_FILE"}
+
+
 def test_sdk_gate_requires_mcp_v2_http_client_dependency():
     assert GROUPS["sdk"]["modules"] == ["a2a", "dapr.ext.workflow", "mcp", "httpx2"]
 

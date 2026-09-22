@@ -19,6 +19,8 @@ import sys
 import time
 import xml.etree.ElementTree as ET
 
+from .domain import PermanentError
+
 
 GROUPS = {
     "local": {"selection":"not live and not postgres and not upstream and not mcp and not vault",
@@ -111,7 +113,7 @@ def test_gate(name,root,output,env,timeout):
             if not dsn or "\x00" in dsn or (prior and prior != dsn):
                 return {"name":name,"status":"FAILED","configurationError":"POSTGRES_GATE_DSN_CONFLICT"}
             env = {**env, "A2A_TEST_POSTGRES_DSN":dsn}
-        except (OSError, ValueError):
+        except (OSError, ValueError, PermanentError):
             return {"name":name,"status":"FAILED","configurationError":"INVALID_POSTGRES_GATE_FILE"}
     report=output/(name+'.junit.xml')
     args=[sys.executable,'-m','pytest','-p','pytest_asyncio.plugin','-q','-W','error',
