@@ -148,6 +148,8 @@ def test_stack_probe_writes_failure_when_root_process_cannot_start(tmp_path, mon
     monkeypatch.setattr(probe.subprocess, "Popen", fail_start)
     tools = tmp_path / "tools"
     monkeypatch.setattr(probe, "_validated_tools_bin", lambda root, roles: tools / "bin")
+    monkeypatch.setattr(probe, "_native_fingerprints",
+                        lambda root, roles: ("a" * 64, {"daprd":"b" * 64, "nats-server":"c" * 64}))
     monkeypatch.setattr(sys, "argv", [
         "local_stack_probe.py",
         "--profile", str(profile),
@@ -240,3 +242,27 @@ def test_stack_probe_rejects_nonprivate_or_symlinked_tools(tmp_path):
     (root / "bin").symlink_to(target)
     with __import__("pytest").raises(probe.MeasurementUnavailable, match="unavailable or unsafe"):
         probe._validated_tools_bin(root, ("app", "daprd", "nats"))
+
+
+def test_stack_probe_native_fingerprints_match_manifest_and_binaries(tmp_path):
+    import hashlib
+
+    probe = _module()
+    root = tmp_path / "tools"
+    root.mkdir(mode=0o700)
+    bin_dir = root / "bin"
+    bin_dir.mkdir(mode=0o700)
+    manifest = root / "manifest.json"
+    manifest.write_bytes(b'{"runtimeProfile":"local-lite"}\n')
+    manifest.chmod(0o600)
+    for name, payload in (("daprd", b"dapr"), ("nats-server", b"nats")):
+        path = bin_dir / name
+        path.write_bytes(payload)
+        path.chmod(0o700)
+    probe._validated_tools_bin(root, ("app", "daprd", "nats"))
+    manifest_sha, binaries = probe._native_fingerprints(root, ("app", "daprd", "nats"))
+    assert manifest_sha == hashlib.sha256(manifest.read_bytes()).hexdigest()
+    assert binaries == {
+        "daprd": hashlib.sha256(b"dapr").hexdigest(),
+        "nats-server": hashlib.sha256(b"nats").hexdigest(),
+    }

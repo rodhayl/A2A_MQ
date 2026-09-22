@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import math
 import os
@@ -261,10 +262,14 @@ def _validated_tools_bin(root: Path, expected_roles: tuple[str, ...]) -> Path:
     """Validate a private bootstrap directory before placing its bin first on PATH."""
     root = root.expanduser().absolute()
     bin_dir = root / "bin"
+    manifest = root / "manifest.json"
     try:
-        if root.is_symlink() or bin_dir.is_symlink() or not root.is_dir() or not bin_dir.is_dir():
+        if (root.is_symlink() or bin_dir.is_symlink() or manifest.is_symlink()
+                or not root.is_dir() or not bin_dir.is_dir()):
             raise MeasurementUnavailable("native tools directory unavailable or unsafe")
-        if root.stat().st_mode & 0o077 or bin_dir.stat().st_mode & 0o077:
+        manifest_info = manifest.stat()
+        if (root.stat().st_mode & 0o077 or bin_dir.stat().st_mode & 0o077
+                or manifest_info.st_mode & 0o077 or not stat.S_ISREG(manifest_info.st_mode)):
             raise MeasurementUnavailable("native tools directory is not private")
         names = {"daprd": "daprd", "nats": "nats-server",
                  "placement": "placement", "scheduler": "scheduler"}
@@ -278,6 +283,27 @@ def _validated_tools_bin(root: Path, expected_roles: tuple[str, ...]) -> Path:
     except (OSError, KeyError):
         raise MeasurementUnavailable("native tools directory unavailable or unsafe") from None
     return bin_dir
+
+
+def _sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    try:
+        with path.open("rb") as stream:
+            for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+                digest.update(chunk)
+    except OSError:
+        raise MeasurementUnavailable("native tool fingerprint unavailable") from None
+    return digest.hexdigest()
+
+
+def _native_fingerprints(root: Path, expected_roles: tuple[str, ...]) -> tuple[str, dict[str, str]]:
+    names = {"daprd": "daprd", "nats": "nats-server",
+             "placement": "placement", "scheduler": "scheduler"}
+    binaries = {
+        names[role]: _sha256_file(root / "bin" / names[role])
+        for role in expected_roles if role != "app"
+    }
+    return _sha256_file(root / "manifest.json"), binaries
 
 
 def _native_tools_match(roles: dict[str, list[int]], commands: dict[int, str],
@@ -351,6 +377,9 @@ def main() -> int:
     expected_roles = policy["expectedRoles"]
     expected_count = len(expected_roles)
     tools_bin = _validated_tools_bin(args.tools_dir, expected_roles)
+    tools_manifest_sha, tools_binary_sha = _native_fingerprints(
+        args.tools_dir.expanduser().absolute(), expected_roles
+    )
     max_rss = policy["maxTotalRssMiB"] if args.max_total_rss_mib is None else args.max_total_rss_mib
     max_cpu = policy["maxIdleCpuPercent"] if args.max_idle_cpu_percent is None else args.max_idle_cpu_percent
     max_startup = policy["maxStartupSeconds"] if args.max_startup_seconds is None else args.max_startup_seconds
@@ -464,6 +493,8 @@ def main() -> int:
                         "processCount": len(children),
                         "processes": {str(pid): commands[pid] for pid in children},
                         "nativeToolsBin": str(tools_bin),
+                        "bootstrapManifestSha256": tools_manifest_sha,
+                        "binarySha256": tools_binary_sha,
                         "rssByRoleMiB": role_rss,
                         "idlePeakRssByRoleMiB": idle_peak_role_rss,
                         "idleCpuByRolePercentOneCore": role_cpu,

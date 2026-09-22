@@ -378,3 +378,9 @@ def test_verified_workflow_bootstrap_binds_control_plane_binaries(tmp_path, monk
             manifest_path, str(paths["daprd"]), str(paths["nats-server"]),
             str(paths["placement"]), None
         )
+
+
+def test_native_version_report_exposes_cross_gate_fingerprints():
+    source = (Path(__file__).resolve().parents[1] / "scripts" / "check_local_native_versions.py").read_text()
+    assert '"bootstrapManifestSha256": _sha256(args.bootstrap_manifest)' in source
+    assert '"binarySha256": {name: _sha256(path)' in source

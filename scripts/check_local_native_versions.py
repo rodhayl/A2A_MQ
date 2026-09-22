@@ -270,6 +270,11 @@ def main() -> int:
                  and manifest.get("daprVersion") == EXPECTED_DAPRD
                  and manifest.get("natsVersion") == EXPECTED_NATS
                  and manifest.get("daprFlavor") == EXPECTED_DAPR_FLAVOR)
+        binary_paths = {"daprd": Path(args.daprd), "nats-server": Path(args.nats_server)}
+        if workflow:
+            if args.placement is None or args.scheduler is None:
+                raise ValueError("workflow control-plane binaries must be supplied together")
+            binary_paths.update({"placement": Path(args.placement), "scheduler": Path(args.scheduler)})
         result = {
             "verdict": "PASS_NATIVE_VERSION" if exact else "INCOMPLETE_NATIVE_VERSION",
             "expected": {"daprd": EXPECTED_DAPRD, "daprFlavor": EXPECTED_DAPR_FLAVOR,
@@ -279,6 +284,8 @@ def main() -> int:
                          "nats-server": nats,
                          **({"placement": manifest.get("daprVersion"),
                              "scheduler": manifest.get("daprVersion")} if workflow else {})},
+            "bootstrapManifestSha256": _sha256(args.bootstrap_manifest),
+            "binarySha256": {name: _sha256(path) for name, path in binary_paths.items()},
             "versionOutput": {"daprd": daprd_raw, "nats-server": nats_raw},
         }
         code = 0 if exact else 2

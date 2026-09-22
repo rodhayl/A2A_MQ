@@ -34,6 +34,8 @@ def measured_stack(tmp_path, monkeypatch):
     report = tmp_path / "report.json"
     tools = tmp_path / "tools"
     monkeypatch.setattr(probe, "_validated_tools_bin", lambda root, roles: tools / "bin")
+    monkeypatch.setattr(probe, "_native_fingerprints",
+                        lambda root, roles: ("a" * 64, {"daprd":"b" * 64, "nats-server":"c" * 64}))
     monkeypatch.setattr(probe, "_native_tools_match", lambda roles, commands, bin_dir, expected: True)
     monkeypatch.setattr(sys, "argv", ["probe", "--profile", str(root), "--tools-dir", str(tools),
                                      "--json", str(report), "--log", str(tmp_path / "log.txt")])
