@@ -5,7 +5,7 @@
 Branch: `implementation/production-hardening-20260916`.
 
 Executable/source hardening currently reaches
-`a3d7020af6c0818d2e4f75498951bafff3d134df`.
+`70ad2ece35fbaced9fb02d600dde46dadc5fe992`.
 This status update itself changes documentation only.
 
 The most recent exact SHA with executed `LOCAL_PASS` evidence remains
@@ -154,6 +154,19 @@ The follow-up changes include:
 Exact pinned upstream source was reviewed for A2A SDK 1.1.2, Dapr Workflow
 1.18.3 and MCP 2.2.0 while making these changes. No external SDK, PostgreSQL,
 Vault or broker gate is claimed as executed by that review.
+
+Additional acceptance/supply-chain hardening after `a3d7020a` includes:
+
+- recursive evidence hashing across nested package/broker output, with symlink or
+  special-file evidence paths forcing an incomplete verdict (`796f2a3f`);
+- alignment of the formal and independent model-credential guards with additional
+  current provider credentials including xAI, Cerebras and Replicate (`b5460d44`);
+- PEP 517 build isolation for CI and the formal package gate so the exact
+  `setuptools==82.0.1` build-system pin is honored rather than an arbitrary host
+  backend (`70ad2ece`).
+
+These changes are source/harness hardening only. They have not inherited the
+historical `LOCAL_PASS` and require focused/current-SHA execution.
 
 ## Evidence that exists
 
