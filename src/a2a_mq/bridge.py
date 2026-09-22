@@ -22,6 +22,7 @@ def create_bridge(api, verifier, *, public_url: str, profile: str = "workflow",
                 and parsed.hostname in {"127.0.0.1", "localhost", "::1"})
     require((secure or loopback) and bool(parsed.hostname) and not parsed.username
             and not parsed.password and not parsed.query and not parsed.fragment
+            and "?" not in public_url and "#" not in public_url
             and parsed.path in {"", "/"},
             "PUBLIC_HTTPS_URL_REQUIRED")
     require(profile in {"workflow", "local-lite"}, "INVALID_RUNTIME_PROFILE")

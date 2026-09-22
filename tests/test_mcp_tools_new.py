@@ -123,7 +123,7 @@ async def test_unexpected_failure_sanitized(setup,monkeypatch):
 
 
 @pytest.mark.parametrize('url',['http://tasks.test/mcp','https://x/api','https://u:p@x/mcp',
-                                'https://tasks.test/mcp?q=1'])
+                                'https://tasks.test/mcp?q=1','https://tasks.test/mcp#'])
 async def test_bad_public_resource_rejected_before_sdk_import(setup,url):
     _,_,_,_,api,verifier=setup
     with pytest.raises(PermanentError,match='MCP_HTTPS_RESOURCE_REQUIRED'):

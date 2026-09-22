@@ -106,6 +106,8 @@ def mcp(api, verifier, *, resource_url, profile):
     ("https://agent.example/base", None, "PUBLIC_HTTPS_URL_REQUIRED"),
     ("https://agent.example", "https://agent.example/not-mcp", "MCP_HTTPS_RESOURCE_REQUIRED"),
     ("https://agent.example", "https://agent.example/mcp?x=1", "MCP_HTTPS_RESOURCE_REQUIRED"),
+    ("https://agent.example?", None, "PUBLIC_HTTPS_URL_REQUIRED"),
+    ("https://agent.example", "https://agent.example/mcp#", "MCP_HTTPS_RESOURCE_REQUIRED"),
 ])
 def test_api_platform_rejects_invalid_public_paths_before_composition(public_url,mcp_url,code):
     with pytest.raises(PermanentError, match=code):

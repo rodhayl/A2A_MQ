@@ -37,7 +37,7 @@ def _public_https(value: str, *, path: str, code: str) -> str:
             and not any(c.isspace() for c in value)
             and parsed.scheme == "https" and bool(parsed.hostname)
             and not parsed.username and not parsed.password and not parsed.query
-            and not parsed.fragment
+            and not parsed.fragment and "?" not in value and "#" not in value
             and parsed.path in ({"", "/"} if path == "" else {path})
             and (port is None or 1 <= port <= 65535), code)
     return value.rstrip("/")

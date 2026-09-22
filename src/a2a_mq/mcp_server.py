@@ -122,7 +122,8 @@ def create_mcp(api, verifier, *, resource_url: str, profile: str = "workflow",
     loopback = (allow_insecure_loopback and url.scheme == "http"
                 and url.hostname in {"127.0.0.1", "localhost", "::1"})
     require((secure or loopback) and bool(url.hostname) and url.path == "/mcp"
-            and not url.username and not url.password and not url.query and not url.fragment,
+            and not url.username and not url.password and not url.query and not url.fragment
+            and "?" not in resource_url and "#" not in resource_url,
             "MCP_HTTPS_RESOURCE_REQUIRED")
     require(verifier.audience == resource_url and urlsplit(verifier.issuer).scheme == "https",
             "MCP_RESOURCE_AUDIENCE_REQUIRED")

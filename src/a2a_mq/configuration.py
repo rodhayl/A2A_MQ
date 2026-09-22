@@ -29,6 +29,7 @@ def https_origin(value: str, code: str = "PUBLIC_HTTPS_URL_REQUIRED") -> str:
         url = urlsplit(value)
         require(url.scheme == "https" and bool(url.hostname) and url.path in {"", "/"}
                 and not url.username and not url.password and not url.query and not url.fragment
+                and "?" not in value and "#" not in value
                 and not any(c.isspace() for c in value), code)
         if url.port is not None:
             require(1 <= url.port <= 65535, code)
@@ -42,6 +43,7 @@ def https_issuer(value: str) -> str:
         url = urlsplit(value)
         require(url.scheme == "https" and bool(url.hostname) and not url.username
                 and not url.password and not url.query and not url.fragment
+                and "?" not in value and "#" not in value
                 and not any(c.isspace() for c in value), "HTTPS_ISSUER_REQUIRED")
         if url.port is not None:
             require(1 <= url.port <= 65535, "HTTPS_ISSUER_REQUIRED")

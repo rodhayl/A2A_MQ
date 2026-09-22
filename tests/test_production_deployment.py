@@ -54,18 +54,20 @@ def test_image_must_be_immutable_digest():
                         issuer="https://issuer.example", jwt_kid="key-1", public_key=PUBLIC_KEY)
 
 
-@pytest.mark.parametrize("field,value", [
-    ("public_url", "https://agent.example "),
-    ("issuer", "https://issuer.example\n"),
-    ("public_url", "https://agent.example:70000"),
-    ("issuer", "https://user@issuer.example"),
+@pytest.mark.parametrize("field,value,code", [
+    ("public_url", "https://agent.example ", "PUBLIC_HTTPS_URL_REQUIRED"),
+    ("issuer", "https://issuer.example\n", "HTTPS_ISSUER_REQUIRED"),
+    ("public_url", "https://agent.example:70000", "PUBLIC_HTTPS_URL_REQUIRED"),
+    ("issuer", "https://user@issuer.example", "HTTPS_ISSUER_REQUIRED"),
+    ("public_url", "https://agent.example?", "PUBLIC_HTTPS_URL_REQUIRED"),
+    ("issuer", "https://issuer.example#", "HTTPS_ISSUER_REQUIRED"),
 ])
-def test_production_urls_reject_whitespace_invalid_ports_and_credentials(field,value):
+def test_production_urls_reject_whitespace_invalid_ports_and_credentials(field,value,code):
     values = dict(namespace="a2amq", tenant="demo", broker="jetstream", image=IMAGE,
                   public_url="https://agent.example", issuer="https://issuer.example",
                   jwt_kid="key-1", public_key=PUBLIC_KEY)
     values[field] = value
-    with pytest.raises(PermanentError, match="PUBLIC_HTTPS_URL_REQUIRED"):
+    with pytest.raises(PermanentError, match=code):
         deploy.generate(**values)
 
 
