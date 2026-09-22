@@ -112,6 +112,8 @@ def dependencies(settings, runtime=None):
     ({"dapr_grpc_port": True}, "INVALID_DAPR_PORT"), ({"max_active": 0}, "INVALID_QUOTA"),
     ({"callback_timeout": float("nan")}, "INVALID_TIMEOUT"), ({"concurrency": 0}, "INVALID_CONCURRENCY"),
     ({"role": "api", "public_url": "http://api"}, "PUBLIC_HTTPS_URL_REQUIRED"),
+    ({"role": "api", "public_url": "https://bad host"}, "PUBLIC_HTTPS_URL_REQUIRED"),
+    ({"role": "api", "public_url": "https://api.example", "otlp_endpoint": "https://bad host"}, "OTLP_HTTPS_REQUIRED"),
     ({"role": "operator", "issuer": "http://issuer"}, "HTTPS_ISSUER_REQUIRED"),
     ({"subscription_queue": "x;*"}, "INVALID_SUBSCRIPTION_QUEUE"),
     ({"postgres_dsn_file": "x"}, "EXACTLY_ONE_STORAGE_BACKEND_REQUIRED"),

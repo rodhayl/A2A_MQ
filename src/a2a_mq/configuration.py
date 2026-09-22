@@ -28,7 +28,8 @@ def https_origin(value: str, code: str = "PUBLIC_HTTPS_URL_REQUIRED") -> str:
     try:
         url = urlsplit(value)
         require(url.scheme == "https" and bool(url.hostname) and url.path in {"", "/"}
-                and not url.username and not url.password and not url.query and not url.fragment, code)
+                and not url.username and not url.password and not url.query and not url.fragment
+                and not any(c.isspace() for c in value), code)
         if url.port is not None:
             require(1 <= url.port <= 65535, code)
     except (ValueError, TypeError):
