@@ -71,6 +71,20 @@ def _cpu_ticks(pid: int) -> int:
         return 0
 
 
+def _start_ticks(pid: int) -> int | None:
+    """Linux process start time from /proc; stable across PID reuse."""
+    try:
+        raw = Path(f"/proc/{pid}/stat").read_text()
+        tail = raw[raw.rfind(")") + 2:].split()
+        return int(tail[19])
+    except (OSError, ValueError, IndexError):
+        return None
+
+
+def _identities(pids: list[int]) -> dict[int, int]:
+    return {pid: started for pid in pids if (started := _start_ticks(pid)) is not None}
+
+
 def _tree_bytes(path: Path) -> int:
     total = 0
     if not path.exists():
@@ -101,7 +115,11 @@ def _ready(url: str, deadline: float, process: subprocess.Popen) -> None:
     raise RuntimeError("local runtime readiness timeout")
 
 
-def _terminate(process: subprocess.Popen, children: list[int]) -> None:
+def _same_process(pid: int, started: int) -> bool:
+    return _start_ticks(pid) == started
+
+
+def _terminate(process: subprocess.Popen, children: dict[int, int]) -> None:
     if process.poll() is None:
         process.send_signal(signal.SIGTERM)
         try:
@@ -109,16 +127,16 @@ def _terminate(process: subprocess.Popen, children: list[int]) -> None:
         except subprocess.TimeoutExpired:
             process.kill()
             process.wait(timeout=5)
-    for pid in children:
-        if pid == process.pid or not Path(f"/proc/{pid}").exists():
+    for pid, started in children.items():
+        if pid == process.pid or not _same_process(pid, started):
             continue
         try:
             os.kill(pid, signal.SIGTERM)
         except ProcessLookupError:
             pass
     time.sleep(.2)
-    for pid in children:
-        if pid == process.pid or not Path(f"/proc/{pid}").exists():
+    for pid, started in children.items():
+        if pid == process.pid or not _same_process(pid, started):
             continue
         try:
             os.kill(pid, signal.SIGKILL)
@@ -225,7 +243,7 @@ def main() -> int:
         raise SystemExit("evidence output already exists; refusing to overwrite")
 
     started = time.monotonic()
-    children: list[int] = []
+    children: dict[int, int] = {}
     with args.log.open("xb") as log:
         process = subprocess.Popen(
             [sys.executable, "-m", policy["module"], "run", str(args.profile.resolve())],
@@ -235,7 +253,8 @@ def main() -> int:
             try:
                 _ready("http://127.0.0.1:18000/health/ready", started + startup_timeout, process)
                 startup = time.monotonic() - started
-                children = _descendants(process.pid)
+                pids = _descendants(process.pid)
+                children = _identities(pids)
                 commands = {pid: _cmdline(pid) for pid in children}
                 roles = _roles(process.pid, commands)
 
@@ -295,7 +314,7 @@ def main() -> int:
                     "failedChecks": ["startup"],
                 }
                 if not children:
-                    children = _descendants(process.pid)
+                    children = _identities(_descendants(process.pid))
         finally:
             _terminate(process, children)
 

@@ -65,3 +65,19 @@ def test_stack_probe_profile_reader_accepts_bounded_object(tmp_path):
     root.mkdir()
     (root / "profile.json").write_text('{"mode":"local-lite"}')
     assert probe._read_profile(root) == {"mode": "local-lite"}
+
+
+def test_stack_probe_process_identity_rejects_pid_reuse(monkeypatch):
+    probe = _module()
+    observed = {123: 10}
+    monkeypatch.setattr(probe, "_start_ticks", lambda pid: observed.get(pid))
+    assert probe._same_process(123, 10) is True
+    observed[123] = 11
+    assert probe._same_process(123, 10) is False
+
+
+def test_stack_probe_collects_only_live_process_identities(monkeypatch):
+    probe = _module()
+    starts = {1: 100, 2: None, 3: 300}
+    monkeypatch.setattr(probe, "_start_ticks", lambda pid: starts[pid])
+    assert probe._identities([1, 2, 3]) == {1: 100, 3: 300}
