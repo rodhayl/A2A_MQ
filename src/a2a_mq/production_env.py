@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Mapping
 
 from .central_dlq import CentralDLQ
+from .configuration import read_file
 from .dlq_service import create_dlq_collector
 from .domain import PermanentError, require, token
 from .identity import JWTVerifier
@@ -58,7 +59,9 @@ def _postgres_dsn(env: Mapping[str, str]) -> str:
     direct, path = env.get("A2A_POSTGRES_DSN"), env.get("A2A_POSTGRES_DSN_FILE")
     require(not (direct and path), "AMBIGUOUS_SECRET_CONFIG")
     if path:
-        return FileToken(path)()
+        value = read_file(path, secret=True, limit=8192).strip()
+        require(value and not any(c in value for c in "\x00\r\n"), "INVALID_POSTGRES_DSN")
+        return value
     if direct:
         require(isinstance(direct, str) and 0 < len(direct) <= 8192
                 and not any(c in direct for c in "\x00\r\n"), "INVALID_POSTGRES_DSN")

@@ -25,6 +25,15 @@ def test_direct_postgres_conninfo_allows_spaces_but_not_control_lines():
             _storage_config({"A2A_POSTGRES_DSN": invalid})
 
 
+def test_private_postgres_conninfo_file_allows_spaces(tmp_path):
+    dsn = tmp_path / "postgres.dsn"
+    value = "host=db.internal port=5432 dbname=a2amq user=app sslmode=verify-full sslrootcert=/ca.pem"
+    dsn.write_text(value + "\n", encoding="ascii")
+    os.chmod(dsn, 0o600)
+    path, actual, insecure = _storage_config({"A2A_POSTGRES_DSN_FILE": str(dsn)})
+    assert path is None and actual == value and insecure is False
+
+
 def test_secret_configuration_is_unambiguous_and_file_is_permission_checked(tmp_path):
     secret = tmp_path / "token"
     secret.write_text("mounted-token\n", encoding="ascii")
