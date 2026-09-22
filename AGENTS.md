@@ -42,11 +42,18 @@ services as part of validation.
 ## Low-resource validation
 
 Use an isolated project-local venv. Keep generated state under ignored
-`.local-validation/`. Start with `requirements/local-validation.txt`; only after
-the core resource gate passes may the agent install the project's `.[local]` extra
-inside that same venv for real local-lite measurement.
+`.local-validation/`. Start with `requirements/core-probe.txt`; only after the
+core resource gate passes extend the venv with eligible validation dependencies.
+The project's `.[local]` extra is only needed for an authorized real local-lite run.
 
 Run one inspected test file at a time. Do not run Docker/full distributed stacks,
 parallel load tests or host package installation on this machine. Native
 PostgreSQL/Vault/Workflow/RabbitMQ/full-stack gates remain separate and unexecuted,
 not implicitly passed.
+
+For the 2026-09-22 audit follow-up, read `PROMPT_AGENT_LOCAL_FOLLOWUP.md` and
+`docs/validation/local-audit-20260922.md`. Include the new launcher/core-probe/stack-
+probe regression files. Missing measurements are INCOMPLETE, never zero-cost PASS;
+only exit 0 with the expected PASS verdict clears the respective economic gate.
+Preserve unpushed local work when updating and keep native measurements separate
+from core-only and synthetic fixture results.
