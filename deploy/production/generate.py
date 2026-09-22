@@ -10,15 +10,22 @@ import re
 from urllib.parse import urlsplit
 
 from a2a_mq.broker_profiles import assert_portability_contract, platform_profiles
-from a2a_mq.domain import require, token
+from a2a_mq.domain import PermanentError, require, token
 
 IMAGE = re.compile(r"^[A-Za-z0-9._/:@-]+@sha256:[0-9a-f]{64}$")
 
 
 def https_url(value: str) -> str:
-    parsed = urlsplit(value)
+    require(isinstance(value, str) and value and not any(c.isspace() for c in value),
+            "PUBLIC_HTTPS_URL_REQUIRED")
+    try:
+        parsed = urlsplit(value)
+        port = parsed.port
+    except (TypeError, ValueError):
+        raise PermanentError("PUBLIC_HTTPS_URL_REQUIRED") from None
     require(parsed.scheme == "https" and bool(parsed.hostname) and not parsed.username
-            and not parsed.password and not parsed.query and not parsed.fragment,
+            and not parsed.password and not parsed.query and not parsed.fragment
+            and (port is None or 1 <= port <= 65535),
             "PUBLIC_HTTPS_URL_REQUIRED")
     return value.rstrip("/")
 

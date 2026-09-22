@@ -54,6 +54,21 @@ def test_image_must_be_immutable_digest():
                         issuer="https://issuer.example", jwt_kid="key-1", public_key=PUBLIC_KEY)
 
 
+@pytest.mark.parametrize("field,value", [
+    ("public_url", "https://agent.example "),
+    ("issuer", "https://issuer.example\n"),
+    ("public_url", "https://agent.example:70000"),
+    ("issuer", "https://user@issuer.example"),
+])
+def test_production_urls_reject_whitespace_invalid_ports_and_credentials(field,value):
+    values = dict(namespace="a2amq", tenant="demo", broker="jetstream", image=IMAGE,
+                  public_url="https://agent.example", issuer="https://issuer.example",
+                  jwt_kid="key-1", public_key=PUBLIC_KEY)
+    values[field] = value
+    with pytest.raises(PermanentError, match="PUBLIC_HTTPS_URL_REQUIRED"):
+        deploy.generate(**values)
+
+
 def test_postgres_dsn_uses_secret_env_not_unreadable_root_owned_volume():
     items = manifests()
     deployments = [item for item in items if item["kind"] == "Deployment"]
