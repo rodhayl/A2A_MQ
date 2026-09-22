@@ -27,8 +27,13 @@ repository-pinned Dapr 1.18.3 all-components/default archive and NATS Server 2.1
 archive into an ignored private directory. JetStream is compiled behind Dapr's
 `allcomponents` build tag, so the bootstrap intentionally uses the default/all-components
 `daprd` release asset rather than the smaller `stablecomponents` flavor. It verifies
-fixed SHA-256 digests and extracts only the expected regular binaries; prepend that
-run-local `bin/` to `PATH`. This is a test bootstrap, not a host installation or production updater. For the reproducible local economics
+fixed SHA-256 digests and exact official archive sizes, extracts only the expected
+regular binaries, and records compressed/extracted byte totals in the private
+manifest. On amd64 the pinned downloads are 63,716,263 bytes for Dapr and 7,236,657
+bytes for NATS (70,952,920 bytes / 67.67 MiB total compressed); on arm64 they total
+63,342,655 bytes / 60.41 MiB compressed. This is tooling download/disk cost, not
+runtime RSS. Prepend that run-local `bin/` to `PATH`. This is a test bootstrap,
+not a host installation or production updater. For the reproducible local economics
 gate, prefer this pinned private asset even when a same-version host daprd exists:
 Dapr's version output does not identify whether that binary was built with
 `allcomponents`, which JetStream requires.
