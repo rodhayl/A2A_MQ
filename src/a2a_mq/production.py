@@ -27,11 +27,19 @@ from .tasks import TaskLedger
 from .workflows import ActionRelay, DaprActions, register
 
 
-def _public_https(value: str, code: str = "PUBLIC_HTTPS_URL_REQUIRED") -> str:
-    parsed = urlsplit(value)
-    require(isinstance(value, str) and parsed.scheme == "https" and bool(parsed.hostname)
+def _public_https(value: str, *, path: str, code: str) -> str:
+    try:
+        parsed = urlsplit(value)
+        port = parsed.port
+    except (TypeError, ValueError):
+        raise PermanentError(code) from None
+    require(isinstance(value, str) and 0 < len(value) <= 2048
+            and not any(c.isspace() for c in value)
+            and parsed.scheme == "https" and bool(parsed.hostname)
             and not parsed.username and not parsed.password and not parsed.query
-            and not parsed.fragment and len(value) <= 2048, code)
+            and not parsed.fragment
+            and parsed.path in ({"", "/"} if path == "" else {path})
+            and (port is None or 1 <= port <= 65535), code)
     return value.rstrip("/")
 
 
@@ -70,8 +78,11 @@ def create_api_platform(task_store, dlq_store, bus, *, a2a_verifier, mcp_verifie
                         bridge_factory: Callable[..., Any] = create_bridge,
                         mcp_factory: Callable[..., Any] = create_mcp_http) -> Starlette:
     """Public A2A + MCP + operations plane over shared durable task storage."""
-    public_url = _public_https(public_url)
-    mcp_resource = _public_https(mcp_resource_url or public_url + "/mcp")
+    public_url = _public_https(public_url, path="", code="PUBLIC_HTTPS_URL_REQUIRED")
+    mcp_resource = _public_https(
+        mcp_resource_url or public_url + "/mcp",
+        path="/mcp", code="MCP_HTTPS_RESOURCE_REQUIRED",
+    )
     require(task_store.scope.tenant == dlq_store.scope.tenant, "STORAGE_TENANT_MISMATCH")
     require(type(database_capacity) is int and 1 <= database_capacity <= 128, "INVALID_STORAGE_CAPACITY")
     require(type(relay_interval) in {int, float} and .01 <= relay_interval <= 60,

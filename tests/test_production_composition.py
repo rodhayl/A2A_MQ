@@ -4,8 +4,10 @@ from contextlib import asynccontextmanager
 import threading
 
 import httpx
+import pytest
 from starlette.applications import Starlette
 
+from a2a_mq.domain import PermanentError
 from a2a_mq.production import create_api_platform, create_workflow_worker
 from a2a_mq.storage import SQLiteStore
 
@@ -98,6 +100,21 @@ def mcp(api, verifier, *, resource_url, profile):
 
     assert profile == "workflow"
     return Server(), app
+
+
+@pytest.mark.parametrize("public_url,mcp_url,code", [
+    ("https://agent.example/base", None, "PUBLIC_HTTPS_URL_REQUIRED"),
+    ("https://agent.example", "https://agent.example/not-mcp", "MCP_HTTPS_RESOURCE_REQUIRED"),
+    ("https://agent.example", "https://agent.example/mcp?x=1", "MCP_HTTPS_RESOURCE_REQUIRED"),
+])
+def test_api_platform_rejects_invalid_public_paths_before_composition(public_url,mcp_url,code):
+    with pytest.raises(PermanentError, match=code):
+        create_api_platform(
+            object(), object(), Bus(),
+            a2a_verifier=object(), mcp_verifier=object(),
+            public_url=public_url, mcp_resource_url=mcp_url,
+            bridge_factory=bridge, mcp_factory=mcp,
+        )
 
 
 async def test_api_platform_enters_mcp_lifespan_and_drains_relays(tmp_path):
