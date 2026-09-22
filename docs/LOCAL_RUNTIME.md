@@ -189,6 +189,7 @@ After the core passes, measure a prepared native profile with the same probe:
 ```bash
 python scripts/local_stack_probe.py \
   --profile .local-validation/local-lite \
+  --tools-dir .local-validation/tools \
   --json .local-validation/local-lite-resources.json \
   --log .local-validation/local-lite.log
 ```
@@ -207,6 +208,7 @@ If the optional Workflow tier is explicitly being evaluated:
 ```bash
 python scripts/local_stack_probe.py \
   --profile .local-validation/local-workflow \
+  --tools-dir .local-validation/workflow-tools \
   --json .local-validation/local-workflow-resources.json \
   --log .local-validation/local-workflow.log
 ```

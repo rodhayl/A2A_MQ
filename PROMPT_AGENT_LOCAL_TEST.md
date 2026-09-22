@@ -239,7 +239,7 @@ idle window so periodic work is represented in the economics result:
 
 ```bash
 set +e
-"$PY" "$REPO/scripts/local_stack_probe.py"   --profile "$PROFILE"   --json "$EVIDENCE/local-stack-resources.json"   --log "$EVIDENCE/local-stack.log"
+"$PY" "$REPO/scripts/local_stack_probe.py"   --profile "$PROFILE"   --tools-dir "$TOOLS"   --json "$EVIDENCE/local-stack-resources.json"   --log "$EVIDENCE/local-stack.log"
 STACK_RC=$?
 set -e
 cat "$EVIDENCE/local-stack-resources.json"
@@ -328,7 +328,9 @@ all four explicit paths: `daprd`, `nats-server`, `placement`, and `scheduler`.
 Do not substitute host Placement/Scheduler for that acceptance run.
 
 Then prepare `a2amq-local-workflow` and run the same
-`scripts/local_stack_probe.py`. That profile has its own initial gate: exactly
+`scripts/local_stack_probe.py` with `--tools-dir` pointing at that Workflow
+bootstrap root. The probe must report `nativeToolsBound=true`. That profile has
+its own initial gate: exactly
 5 processes, <=640 MiB RSS, <=8% of one CPU core idle, <=25 s readiness and <=64 MiB
 runtime state. A failure does not invalidate the cheaper local-lite tier; it means
 the optional Workflow tier needs redesign or should remain disabled on that host.

@@ -144,12 +144,15 @@ PROFILE="$STATE/local-lite"
   > "$EVIDENCE/local-prepare.json"
 "$PY" "$REPO/scripts/local_stack_probe.py" \
   --profile "$PROFILE" \
+  --tools-dir "$TOOLS" \
   --json "$EVIDENCE/local-stack-resources.json" \
   --log "$EVIDENCE/local-stack.log"
 ```
 
 Require the exact PASS verdict expected by each probe and its exit code 0.
-`INCOMPLETE_*` stays incomplete; a measurement failure is not a resource PASS.
+For the native stack probe, also require `nativeToolsBound=true` so the measured
+children are the same private executables whose archive/binary provenance was
+verified. `INCOMPLETE_*` stays incomplete; a measurement failure is not a resource PASS.
 
 ## 5. Execute real external gates when prerequisites exist
 
