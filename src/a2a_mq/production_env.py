@@ -5,6 +5,7 @@ import asyncio
 import os
 from pathlib import Path
 from typing import Mapping
+from urllib.parse import urlsplit
 
 from .central_dlq import CentralDLQ
 from .configuration import https_issuer, https_origin, read_file
@@ -117,9 +118,27 @@ def _close_bus(bus) -> None:
         loop.create_task(bus.close(), name="a2amq-failed-factory-bus-close")
 
 
+def _dapr_http_endpoint(value: str) -> str:
+    try:
+        parsed = urlsplit(value)
+        port = parsed.port
+    except (TypeError, ValueError):
+        raise PermanentError("COLOCATED_DAPR_REQUIRED") from None
+    require(parsed.scheme in {"http", "https"}
+            and parsed.hostname in {"127.0.0.1", "localhost", "::1"}
+            and parsed.path in {"", "/"} and not parsed.username and not parsed.password
+            and not parsed.query and not parsed.fragment
+            and (port is None or 1 <= port <= 65535),
+            "COLOCATED_DAPR_REQUIRED")
+    return value.rstrip("/")
+
+
 def _bus(env: Mapping[str, str]) -> DaprPublisher:
+    endpoint = _dapr_http_endpoint(
+        _value(env, "DAPR_HTTP_ENDPOINT", default="http://127.0.0.1:3500")
+    )
     return DaprPublisher(
-        _value(env, "DAPR_HTTP_ENDPOINT", default="http://127.0.0.1:3500"),
+        endpoint,
         component=token(_value(env, "A2A_PUBSUB_COMPONENT", default="bus")),
         api_token=_secret(env, "DAPR_API_TOKEN", "DAPR_API_TOKEN_FILE", required=False),
     )

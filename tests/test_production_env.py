@@ -4,7 +4,8 @@ import pytest
 
 from a2a_mq.domain import PermanentError
 import a2a_mq.production_env as production_env
-from a2a_mq.production_env import _bool, _mcp_resource_url, _secret, _storage_config
+from a2a_mq.production_env import (_bool, _dapr_http_endpoint, _mcp_resource_url,
+                                   _secret, _storage_config)
 
 
 def test_storage_backend_requires_exactly_one_choice(tmp_path):
@@ -60,6 +61,20 @@ def test_api_factory_rejects_unsafe_identity_urls_before_storage(monkeypatch,env
     )
     with pytest.raises(PermanentError, match=code):
         production_env.create_api_from_env(env)
+
+
+@pytest.mark.parametrize("value", [
+    "https://dapr.example:3500",
+    "http://10.0.0.5:3500",
+    "http://user@127.0.0.1:3500",
+    "http://127.0.0.1:3500/path",
+    "http://127.0.0.1:70000",
+])
+def test_production_dapr_endpoint_is_colocated(value):
+    with pytest.raises(PermanentError, match="COLOCATED_DAPR_REQUIRED"):
+        _dapr_http_endpoint(value)
+    assert _dapr_http_endpoint("http://127.0.0.1:3500") == "http://127.0.0.1:3500"
+    assert _dapr_http_endpoint("http://[::1]:3500/") == "http://[::1]:3500"
 
 
 def test_secret_configuration_is_unambiguous_and_file_is_permission_checked(tmp_path):
