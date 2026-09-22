@@ -148,7 +148,7 @@ def _bus(env: Mapping[str, str]) -> DaprPublisher:
     return DaprPublisher(
         endpoint,
         component=token(_value(env, "A2A_PUBSUB_COMPONENT", default="bus")),
-        api_token=_secret(env, "DAPR_API_TOKEN", "DAPR_API_TOKEN_FILE", required=False),
+        api_token=_secret(env, "DAPR_API_TOKEN", "DAPR_API_TOKEN_FILE", required=True),
     )
 
 

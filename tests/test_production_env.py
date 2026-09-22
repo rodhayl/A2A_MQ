@@ -4,7 +4,7 @@ import pytest
 
 from a2a_mq.domain import PermanentError
 import a2a_mq.production_env as production_env
-from a2a_mq.production_env import (_bool, _dapr_grpc_port, _dapr_http_endpoint,
+from a2a_mq.production_env import (_bool, _bus, _dapr_grpc_port, _dapr_http_endpoint,
                                    _mcp_resource_url, _secret, _storage_config)
 
 
@@ -89,6 +89,13 @@ def test_production_workflow_grpc_uses_explicit_colocated_port(env):
         _dapr_grpc_port(env)
     assert _dapr_grpc_port({}) == "50001"
     assert _dapr_grpc_port({"DAPR_GRPC_PORT":"51001"}) == "51001"
+
+
+def test_production_bus_requires_dapr_api_token():
+    with pytest.raises(PermanentError, match="MISSING_OR_INVALID_CONFIG"):
+        _bus({})
+    bus = _bus({"DAPR_API_TOKEN":"x" * 32})
+    assert bus.headers == {"dapr-api-token":"x" * 32}
 
 
 def test_secret_configuration_is_unambiguous_and_file_is_permission_checked(tmp_path):
