@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Mapping
 
 from .central_dlq import CentralDLQ
-from .configuration import read_file
+from .configuration import https_issuer, https_origin, read_file
 from .dlq_service import create_dlq_collector
 from .domain import PermanentError, require, token
 from .identity import JWTVerifier
@@ -22,6 +22,13 @@ def _value(env: Mapping[str, str], name: str, *, default: str | None = None,
     value = env.get(name, default)
     require(isinstance(value, str) and 0 < len(value) <= maximum and "\x00" not in value,
             "MISSING_OR_INVALID_CONFIG")
+    return value
+
+
+def _mcp_resource_url(value: str) -> str:
+    require(isinstance(value, str) and value.endswith("/mcp"), "MCP_HTTPS_RESOURCE_REQUIRED")
+    origin = https_origin(value[:-4], "MCP_HTTPS_RESOURCE_REQUIRED")
+    require(value == origin + "/mcp", "MCP_HTTPS_RESOURCE_REQUIRED")
     return value
 
 
@@ -119,9 +126,10 @@ def _bus(env: Mapping[str, str]) -> DaprPublisher:
 
 
 def _identity(env: Mapping[str, str], audience: str) -> JWTVerifier:
+    issuer = https_issuer(_value(env, "A2A_JWT_ISSUER"))
     kid = token(_value(env, "A2A_JWT_KID"))
     pem = _public_key(_value(env, "A2A_JWT_PUBLIC_KEY_FILE"))
-    return JWTVerifier({kid: pem}, issuer=_value(env, "A2A_JWT_ISSUER"), audience=audience)
+    return JWTVerifier({kid: pem}, issuer=issuer, audience=audience)
 
 
 def _close_stores(*stores) -> None:
@@ -140,8 +148,10 @@ def create_api_from_env(env: Mapping[str, str] | None = None):
     tenant = token(_value(env, "A2A_TENANT", default="demo"))
     consumer = token(_value(env, "A2A_CONSUMER", default="workflow-worker"))
     dlq_consumer = token(_value(env, "A2A_DLQ_CONSUMER", default="operations"))
-    public_url = _value(env, "A2A_PUBLIC_URL").rstrip("/")
-    mcp_url = env.get("A2A_MCP_RESOURCE_URL", public_url + "/mcp").rstrip("/")
+    public_url = https_origin(_value(env, "A2A_PUBLIC_URL"))
+    mcp_url = _mcp_resource_url(_value(
+        env, "A2A_MCP_RESOURCE_URL", default=public_url + "/mcp"
+    ))
     # Validate identities and storage selection before allocating clients/connections.
     a2a_identity = _identity(env, public_url)
     mcp_identity = _identity(env, mcp_url)

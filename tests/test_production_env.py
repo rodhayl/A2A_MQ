@@ -3,7 +3,8 @@ import os
 import pytest
 
 from a2a_mq.domain import PermanentError
-from a2a_mq.production_env import _bool, _secret, _storage_config
+import a2a_mq.production_env as production_env
+from a2a_mq.production_env import _bool, _mcp_resource_url, _secret, _storage_config
 
 
 def test_storage_backend_requires_exactly_one_choice(tmp_path):
@@ -32,6 +33,33 @@ def test_private_postgres_conninfo_file_allows_spaces(tmp_path):
     os.chmod(dsn, 0o600)
     path, actual, insecure = _storage_config({"A2A_POSTGRES_DSN_FILE": str(dsn)})
     assert path is None and actual == value and insecure is False
+
+
+@pytest.mark.parametrize("value", [
+    "http://agent.example/mcp",
+    "https://agent.example/not-mcp",
+    "https://agent.example//mcp",
+    "https://agent.example/mcp ",
+])
+def test_mcp_resource_url_is_exact_https_endpoint(value):
+    with pytest.raises(PermanentError, match="MCP_HTTPS_RESOURCE_REQUIRED"):
+        _mcp_resource_url(value)
+
+
+@pytest.mark.parametrize("env,code", [
+    ({"A2A_PUBLIC_URL":"http://agent.example"}, "PUBLIC_HTTPS_URL_REQUIRED"),
+    ({"A2A_PUBLIC_URL":"https://agent.example",
+      "A2A_MCP_RESOURCE_URL":"http://agent.example/mcp"}, "MCP_HTTPS_RESOURCE_REQUIRED"),
+    ({"A2A_PUBLIC_URL":"https://agent.example",
+      "A2A_JWT_ISSUER":"http://issuer.example"}, "HTTPS_ISSUER_REQUIRED"),
+])
+def test_api_factory_rejects_unsafe_identity_urls_before_storage(monkeypatch,env,code):
+    monkeypatch.setattr(
+        production_env, "_stores",
+        lambda *a, **k: pytest.fail("storage must not open before identity URL validation"),
+    )
+    with pytest.raises(PermanentError, match=code):
+        production_env.create_api_from_env(env)
 
 
 def test_secret_configuration_is_unambiguous_and_file_is_permission_checked(tmp_path):
