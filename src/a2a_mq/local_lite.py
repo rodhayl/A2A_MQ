@@ -273,10 +273,14 @@ def create_app(settings: LocalLiteSettings):
 
     operations = Operations(ledger)
     archive = DeadLetters(store, component="bus-dlq")
-    dlq_callback = create_dlq_callback(archive, database, app_token=app_token,
-                                       active=lambda: running["value"],
-                                       timeout=settings.callback_timeout,
-                                       concurrency=settings.concurrency)
+    parking_topic = f"a2a.v1.{settings.tenant}.parking"
+    dlq_callback = create_dlq_callback(
+        archive, database, app_token=app_token,
+        active=lambda: running["value"],
+        timeout=settings.callback_timeout,
+        concurrency=settings.concurrency,
+        dead_letter_topic=parking_topic,
+    )
     replay = ReplayService(archive, database, bus,
                            allowed_routes=frozenset({settings.command_route, settings.event_route}))
     ops_app = create_operations(api, identity, operations, archive, replay, database,
@@ -307,7 +311,7 @@ def create_app(settings: LocalLiteSettings):
             {"pubsubname": settings.component, "topic": settings.command_route, "route": "/events",
              "deadLetterTopic": f"a2a.v1.{settings.tenant}.dlq"},
             {"pubsubname": "bus-dlq", "topic": f"a2a.v1.{settings.tenant}.dlq",
-             "route": "/dlq-events"},
+             "route": "/dlq-events", "deadLetterTopic": parking_topic},
         ])
 
     discovery = _AppTokenMiddleware(Starlette(routes=[Route("/dapr/subscribe", subscriptions)]), app_token)

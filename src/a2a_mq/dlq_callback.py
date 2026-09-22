@@ -10,15 +10,21 @@ from .domain import load_json, require
 from .transport import _AppTokenMiddleware
 
 
-def create_dlq_callback(archive, database, *, app_token, active=lambda: True, timeout=30, concurrency=4):
+def create_dlq_callback(archive, database, *, app_token, active=lambda: True, timeout=30, concurrency=4,
+                        dead_letter_topic: str | None = None):
     require(isinstance(app_token, str) and 16 <= len(app_token) <= 256
             and all(33 <= ord(c) <= 126 for c in app_token), "APP_TOKEN_REQUIRED")
     require(type(concurrency) is int and 1 <= concurrency <= 128, "INVALID_CONCURRENCY")
     require(type(timeout) in {int, float} and 0 < timeout <= 300, "INVALID_TIMEOUT")
+    parking = f"a2a.v1.{archive.store.scope.tenant}.parking"
+    require(dead_letter_topic is None or dead_letter_topic == parking, "INVALID_DLQ_PARKING_TOPIC")
     gate = asyncio.Semaphore(concurrency)
 
     async def subscriptions(request):
-        return JSONResponse([{"pubsubname": archive.component, "topic": archive.topic, "route": "/events"}])
+        item = {"pubsubname": archive.component, "topic": archive.topic, "route": "/events"}
+        if dead_letter_topic is not None:
+            item["deadLetterTopic"] = dead_letter_topic
+        return JSONResponse([item])
 
     async def receive(request):
         try:

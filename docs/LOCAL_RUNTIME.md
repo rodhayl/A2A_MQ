@@ -235,3 +235,12 @@ Both native local tiers pin Dapr's internal gRPC listener to
 otherwise derives a stable internal port when none is supplied; making it explicit
 keeps the local topology deterministic and prevents a hidden port collision from
 appearing only after NATS/Dapr startup.
+
+
+### Poison-message terminal parking
+
+Both local pub/sub components use the same bounded Dapr inbound retry policy
+(5 retries at 500 ms). Command failures dead-letter to the local DLQ; failures
+while archiving that DLQ are then forwarded to `a2a.v1.<tenant>.parking`.
+The parking topic intentionally has no local application consumer, preventing a
+corrupt DLQ delivery from redelivering forever or recursively dead-lettering.

@@ -51,12 +51,13 @@ def test_local_bus_uses_one_app_and_loopback_nats():
     assert "secret-token" in raw
 
 
-def test_dlq_has_a_separate_durable_consumer_and_no_publish_permission():
+def test_dlq_has_separate_durable_consumer_and_only_terminal_parking_publish():
     raw = _dlq_component("demo", "secret-token")
     assert "name: bus-dlq" in raw
     assert "a2a-demo-local-dlq-v1" in raw
-    assert "publishingScopes" not in raw
     assert "protectedTopics" in raw
+    assert "a2a.v1.demo.dlq,a2a.v1.demo.parking" in raw
+    assert f"value: {APP_ID}=a2a.v1.demo.parking" in raw
     assert f"value: {APP_ID}=a2a.v1.demo.dlq" in raw
 
 
@@ -67,7 +68,7 @@ def test_local_pubsub_retries_are_bounded_before_dlq():
     assert "localPubsubRetry" in raw
     assert "duration: 500ms" in raw
     assert "maxRetries: 5" in raw
-    assert "bus:" in raw and "inbound:" in raw
+    assert "bus:" in raw and "bus-dlq:" in raw and raw.count("inbound:") == 2
 
 
 def test_optional_workflow_state_is_sqlite_not_redis_and_quotes_path(tmp_path):

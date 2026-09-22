@@ -193,6 +193,8 @@ spec:
 
 def _dlq_component(tenant: str, nats_token: str) -> str:
     dlq = f"a2a.v1.{tenant}.dlq"
+    parking = f"a2a.v1.{tenant}.parking"
+    topics = ",".join((dlq, parking))
     return f'''apiVersion: dapr.io/v1alpha1
 kind: Component
 metadata:
@@ -230,9 +232,11 @@ spec:
     - name: memoryStorage
       value: "false"
     - name: allowedTopics
-      value: {dlq}
+      value: {topics}
     - name: protectedTopics
-      value: {dlq}
+      value: {topics}
+    - name: publishingScopes
+      value: {APP_ID}={parking}
     - name: subscriptionScopes
       value: {APP_ID}={dlq}
 '''
@@ -256,6 +260,9 @@ spec:
   targets:
     components:
       bus:
+        inbound:
+          retry: localPubsubRetry
+      bus-dlq:
         inbound:
           retry: localPubsubRetry
 '''
