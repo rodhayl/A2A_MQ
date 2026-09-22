@@ -21,3 +21,96 @@ def test_python_probe_helpers_are_bounded(tmp_path):
     nested.mkdir()
     (nested / "b").write_bytes(b"y" * 5)
     assert probe._tree_bytes(tmp_path) == 12
+
+
+def test_python_probe_rejects_missing_or_symlinked_state(tmp_path):
+    import pytest
+
+    probe = _module()
+    with pytest.raises(probe.MeasurementUnavailable):
+        probe._tree_bytes(tmp_path / "missing")
+
+    state = tmp_path / "state"
+    state.mkdir()
+    target = tmp_path / "outside"
+    target.write_bytes(b"x")
+    (state / "link").symlink_to(target)
+    with pytest.raises(probe.MeasurementUnavailable):
+        probe._tree_bytes(state)
+
+
+def test_python_probe_rejects_invalid_budget_before_running(tmp_path, monkeypatch):
+    import pytest
+    import sys
+
+    probe = _module()
+    report = tmp_path / "report.json"
+    state = tmp_path / "state"
+    monkeypatch.setattr(sys, "argv", [
+        "probe", "--state-dir", str(state), "--json", str(report), "--max-rss-mib=inf",
+    ])
+    monkeypatch.setattr(probe, "_run", lambda *a: pytest.fail("probe ran"))
+    with pytest.raises(SystemExit) as exc:
+        probe.main()
+    assert exc.value.code == 2
+    assert not report.exists()
+    assert not state.exists()
+
+
+def test_python_probe_preserves_existing_report(tmp_path, monkeypatch):
+    import pytest
+    import sys
+
+    probe = _module()
+    report = tmp_path / "report.json"
+    report.write_text("prior")
+    state = tmp_path / "state"
+    monkeypatch.setattr(sys, "argv", ["probe", "--state-dir", str(state), "--json", str(report)])
+    monkeypatch.setattr(probe, "_run", lambda *a: pytest.fail("probe ran"))
+    with pytest.raises(SystemExit) as exc:
+        probe.main()
+    assert exc.value.code == 2
+    assert report.read_text() == "prior"
+    assert not state.exists()
+
+
+def test_python_probe_writes_sanitized_failure_evidence(tmp_path, monkeypatch):
+    import json
+    import sys
+
+    probe = _module()
+    report = tmp_path / "report.json"
+    state = tmp_path / "state"
+    monkeypatch.setattr(sys, "argv", ["probe", "--state-dir", str(state), "--json", str(report)])
+
+    def fail(*_):
+        raise RuntimeError("secret fixture detail")
+
+    monkeypatch.setattr(probe, "_run", fail)
+    assert probe.main() == 3
+    evidence = json.loads(report.read_text())
+    assert evidence["verdict"] == "FAIL_LOCAL_PYTHON"
+    assert evidence["failedChecks"] == ["execution"]
+    assert evidence["errorType"] == "RuntimeError"
+    assert "secret fixture detail" not in report.read_text()
+    assert report.stat().st_mode & 0o077 == 0
+
+
+def test_python_probe_missing_measurement_is_incomplete(tmp_path, monkeypatch):
+    import json
+    import sys
+
+    probe = _module()
+    report = tmp_path / "report.json"
+    state = tmp_path / "state"
+    monkeypatch.setattr(sys, "argv", ["probe", "--state-dir", str(state), "--json", str(report)])
+
+    def incomplete(*_):
+        raise probe.MeasurementUnavailable("fixture details")
+
+    monkeypatch.setattr(probe, "_run", incomplete)
+    assert probe.main() == 2
+    evidence = json.loads(report.read_text())
+    assert evidence["verdict"] == "INCOMPLETE_LOCAL_PYTHON"
+    assert evidence["failedChecks"] == ["measurement"]
+    assert "fixture details" not in report.read_text()
