@@ -42,3 +42,24 @@ def test_verified_sqlite_backup_restores_to_new_file(setup, tmp_path):
     assert result == OperationsManager.verify_sqlite_backup(restored)
     reopened = SQLiteStore(restored, tenant="demo", consumer="operations", clock=lambda: 1000.0)
     assert reopened.scope.consumer == "operations"
+
+
+def test_legacy_backup_and_restore_refuse_dangling_symlink_destinations(setup, tmp_path):
+    store, _, admin = setup
+    operations = OperationsManager(TaskLedger(store, source="workflow-worker"))
+
+    backup_link = tmp_path / "backup-link.sqlite3"
+    backup_target = tmp_path / "unexpected-backup-target.sqlite3"
+    backup_link.symlink_to(backup_target)
+    with pytest.raises(PermanentError):
+        operations.backup_sqlite(admin, backup_link)
+    assert backup_link.is_symlink() and not backup_target.exists()
+
+    source = tmp_path / "valid-backup.sqlite3"
+    operations.backup_sqlite(admin, source)
+    restore_link = tmp_path / "restore-link.sqlite3"
+    restore_target = tmp_path / "unexpected-restore-target.sqlite3"
+    restore_link.symlink_to(restore_target)
+    with pytest.raises(PermanentError):
+        restore_sqlite_backup(source, restore_link)
+    assert restore_link.is_symlink() and not restore_target.exists()

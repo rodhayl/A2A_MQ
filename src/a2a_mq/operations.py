@@ -4,7 +4,6 @@ from __future__ import annotations
 import base64
 import hashlib
 import math
-import os
 from pathlib import Path
 import sqlite3
 import threading
@@ -255,36 +254,23 @@ class OperationsManager:
         source_path = getattr(self.store, "path", None)
         require(isinstance(source_path, str), "SQLITE_BACKUP_ONLY")
         destination = Path(destination).absolute()
-        require(destination != Path(source_path).absolute() and not destination.exists(), "INVALID_BACKUP_PATH")
-        require(destination.parent.exists() and destination.parent.is_dir(), "INVALID_BACKUP_PATH")
+        require(destination != Path(source_path).absolute(), "INVALID_BACKUP_PATH")
         try:
-            source = sqlite3.connect(f"file:{Path(source_path).as_posix()}?mode=ro", uri=True)
-            target = sqlite3.connect(destination)
-            try:
-                source.backup(target)
-                require(target.execute("PRAGMA integrity_check").fetchone()[0] == "ok", "BACKUP_INTEGRITY_ERROR")
-                version = target.execute("SELECT version FROM a2amq_schema WHERE singleton=1").fetchone()
-                require(version is not None and int(version[0]) == SCHEMA_VERSION, "BACKUP_INTEGRITY_ERROR")
-                target.commit()
-            finally:
-                target.close()
-                source.close()
-            digest = hashlib.sha256(destination.read_bytes()).hexdigest()
-            fd = os.open(destination, os.O_RDONLY)
-            try:
-                os.fsync(fd)
-            finally:
-                os.close(fd)
+            # Reuse the no-overwrite online backup primitive used by the canonical
+            # admin path. It snapshots WAL state into a private temp file and installs
+            # with os.link(), avoiding destination symlink/check-then-create races.
+            from .sqlite_archive import backup_sqlite as create_backup
+            created = create_backup(source_path, destination)
+            verified = self.verify_sqlite_backup(destination)
+            require(created["sha256"] == verified["sha256"]
+                    and created["bytes"] == verified["bytes"], "BACKUP_INTEGRITY_ERROR")
             self.metrics.inc("a2amq_backup_success_total")
-            return {"path": str(destination), "sha256": digest, "bytes": destination.stat().st_size,
-                    "schemaVersion": SCHEMA_VERSION}
+            return {"path": str(destination), **verified}
         except PermanentError:
             self.metrics.inc("a2amq_backup_failure_total")
-            destination.unlink(missing_ok=True)
             raise
         except (OSError, sqlite3.Error):
             self.metrics.inc("a2amq_backup_failure_total")
-            destination.unlink(missing_ok=True)
             raise RetryableError("BACKUP_UNAVAILABLE") from None
 
     @staticmethod
