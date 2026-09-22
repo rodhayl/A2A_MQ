@@ -55,6 +55,11 @@ class BlockingRuntime(Runtime):
         self.started = True
 
 
+class FailingRuntime(Runtime):
+    def start(self):
+        raise RuntimeError("workflow start failed")
+
+
 class Client:
     def __init__(self):
         self.closed = False
@@ -141,6 +146,28 @@ async def test_worker_http_lifespan_does_not_block_on_workflow_runtime_start(tmp
             assert (await client.get("/health/ready")).status_code == 200
     assert runtime.stopped and bus.closed and client_instance.closed
     assert app.state.a2amq_worker_state["workflow_ready"] is False
+
+
+async def test_worker_liveness_fails_when_critical_runtime_task_dies(tmp_path):
+    store = SQLiteStore(tmp_path / "worker-failed.db", tenant="demo", consumer="workflow")
+    bus = Bus()
+    runtime = FailingRuntime()
+    app = create_workflow_worker(
+        store, bus, app_token="fixture-token",
+        runtime_factory=lambda: runtime, client_factory=Client,
+        workflow_sdk=object(), reconcile_interval=.01, relay_interval=.01,
+    )
+    async with app.router.lifespan_context(app):
+        async with asyncio.timeout(2):
+            while not app.state.a2amq_worker_state["tasks"][0].done():
+                await asyncio.sleep(.01)
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app),
+                                     base_url="http://app") as client:
+            live = await client.get("/health/live")
+            ready = await client.get("/health/ready")
+            assert live.status_code == 503 and live.json() == {"status":"failed"}
+            assert ready.status_code == 503
+    assert runtime.stopped and bus.closed
 
 
 async def test_worker_starts_official_runtime_shape_and_shuts_down(tmp_path):

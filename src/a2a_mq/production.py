@@ -192,6 +192,12 @@ def create_workflow_worker(store, bus, *, app_token: str, source: str = "workflo
         except Exception:
             return False
 
+    async def liveness() -> bool:
+        # Connecting to daprd is not a liveness failure. A completed critical
+        # background task while the worker is otherwise running is.
+        return (state["started"] and not state["stopping"]
+                and not any(task.done() for task in state["tasks"]))
+
     async def reconcile(actions, stop: asyncio.Event) -> None:
         cursor = None
         while not stop.is_set():
@@ -292,7 +298,8 @@ def create_workflow_worker(store, bus, *, app_token: str, source: str = "workflo
     topic = f"a2a.v1.{store.scope.tenant}.command.agent.{source}"
     app = subscriber(handle, bus, tenant=store.scope.tenant, consumer=store.scope.consumer,
                      topic=topic, app_token=app_token, concurrency=callback_concurrency,
-                     readiness=readiness, lifespan=lifespan, callback_timeout=callback_timeout)
+                     readiness=readiness, liveness=liveness, lifespan=lifespan,
+                     callback_timeout=callback_timeout)
     app.state.a2amq_worker_state = state
     app.state.a2amq_ledger = ledger
     return app

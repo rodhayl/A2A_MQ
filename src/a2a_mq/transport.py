@@ -134,8 +134,9 @@ class DaprPublisher:
 
 def subscriber(handler: Handler, bus: DaprPublisher, *, tenant: str, consumer: str,
                topic: str | None, app_token: str = "", concurrency: int = 4,
-               readiness: Readiness | None = None, lifespan: Any = None,
-               callback_timeout: float = 30.0, protector: Any = None) -> FastAPI:
+               readiness: Readiness | None = None, liveness: Readiness | None = None,
+               lifespan: Any = None, callback_timeout: float = 30.0,
+               protector: Any = None) -> FastAPI:
     tenant, consumer = token(tenant), token(consumer)
     require(type(concurrency) is int and 1 <= concurrency <= 128, "INVALID_CONCURRENCY")
     require(type(callback_timeout) in {int, float} and 0 < callback_timeout <= 300, "INVALID_TIMEOUT")
@@ -164,7 +165,13 @@ def subscriber(handler: Handler, bus: DaprPublisher, *, tenant: str, consumer: s
 
     @app.get("/health/live")
     async def live():
-        return {"status": "alive"}
+        try:
+            async with asyncio.timeout(callback_timeout):
+                ok = liveness is None or await liveness()
+        except Exception:
+            ok = False
+        return JSONResponse({"status": "alive" if ok else "failed"},
+                            status_code=200 if ok else 503)
 
     @app.get("/health/ready")
     async def ready():
