@@ -1,7 +1,7 @@
 """Acceptance evidence must fail closed, independently of optional service availability."""
 import pytest
 
-from a2a_mq.acceptance import FULL_REQUIRED, full_status, junit, test_gate as execute_gate
+from a2a_mq.acceptance import FULL_REQUIRED, GROUPS, full_status, junit, test_gate as execute_gate
 from a2a_mq.live_probe import wait_until
 
 
@@ -130,3 +130,8 @@ def test_legacy_postgres_gate_uses_same_private_dsn_without_logging(tmp_path,mon
     else:
         assert result["status"]=="PASSED"
         assert captured[0]["A2A_TEST_POSTGRES_DSN"]==private.read_text()
+
+
+def test_sdk_gate_requires_real_upstream_modules_not_phantom_dependency():
+    assert GROUPS["sdk"]["modules"] == ["a2a", "dapr.ext.workflow", "mcp", "httpx"]
+    assert "httpx2" not in {module for group in GROUPS.values() for module in group["modules"]}

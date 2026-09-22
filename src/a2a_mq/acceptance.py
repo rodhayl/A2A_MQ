@@ -22,7 +22,7 @@ import xml.etree.ElementTree as ET
 GROUPS = {
     "local": {"selection":"not live and not postgres and not upstream and not mcp and not vault",
               "modules":["pytest", "pytest_asyncio", "cryptography", "jwt", "opentelemetry.sdk"]},
-    "sdk": {"selection":"upstream or mcp", "modules":["a2a", "dapr.ext.workflow", "mcp", "httpx2"]},
+    "sdk": {"selection":"upstream or mcp", "modules":["a2a", "dapr.ext.workflow", "mcp", "httpx"]},
     "postgres": {"selection":"postgres", "modules":["psycopg", "psycopg_pool"]},
     "vault": {"selection":"vault", "modules":["cryptography"]},
 }
