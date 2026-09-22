@@ -128,6 +128,19 @@ Initial core budget:
 - >= 512 MiB host memory headroom;
 - no attributable swap growth.
 
+After the core passes, measure the Python product process independently:
+
+```bash
+python scripts/local_python_probe.py \
+  --state-dir .local-validation/python-app \
+  --json .local-validation/python-app-resources.json
+```
+
+This builds the real local-lite A2A/HTTP/crypto/SQLite app and enters its lifespan
+without starting daprd or NATS. Initial budget: <=192 MiB RSS, <=3% one-core idle
+CPU, <=5 seconds build/start and <=4 MiB SQLite state. This isolates our own process
+cost from the sidecar and broker.
+
 After the core passes, measure a prepared native profile with the same probe:
 
 ```bash

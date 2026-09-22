@@ -90,10 +90,36 @@ If verdict is `FAIL_CORE_LIGHT` or `INCOMPLETE_HOST_HEADROOM`, STOP expensive
 execution. Report **LOCAL ECONOMICS = FAIL**. Do not raise thresholds or machine
 requirements to obtain a pass.
 
-## Phase 1 - focused broker-free correctness
+## Phase 1 - Python-product economics, then broker-free correctness
 
-Only after the core gate passes, extend the same venv with the still-small
-broker-free validation set:
+Only after the core gate passes, install the actual **local product** Python extra
+in the same venv. It does not start native services:
+
+```bash
+du -sb "$STATE/venv" > "$EVIDENCE/venv-before-product.txt" || true
+"$PY" -m pip install --no-cache-dir --only-binary=:all: -e '.[local]' \
+  > "$EVIDENCE/install-local-product.log" 2>&1
+"$PY" -m pip check > "$EVIDENCE/pip-check-local-product.log" 2>&1
+du -sb "$STATE/venv" > "$EVIDENCE/venv-after-product.txt" || true
+
+set +e
+"$PY" "$REPO/scripts/local_python_probe.py" \
+  --state-dir "$STATE/python-app" \
+  --json "$EVIDENCE/python-app-resources.json" \
+  > "$EVIDENCE/python-app-resources.log" 2>&1
+PYAPP_RC=$?
+set -e
+cat "$EVIDENCE/python-app-resources.json"
+test "$PYAPP_RC" -eq 0
+```
+
+This probe builds the real local-lite A2A/HTTP/crypto/SQLite app and enters its
+lifespan so idle relays/recovery loops run, but starts neither daprd nor NATS.
+Initial budget: <=192 MiB RSS, <=3% of one CPU core idle, <=5 seconds build/start
+and <=4 MiB SQLite state. If it returns `FAIL_LOCAL_PYTHON`, stop native
+validation and set **LOCAL ECONOMICS = REDESIGN_REQUIRED**.
+
+If it passes, install the still-small validation-only dependencies:
 
 ```bash
 "$PY" -m pip install --no-cache-dir --only-binary=:all: \
@@ -102,16 +128,16 @@ broker-free validation set:
 "$PY" -m pip check > "$EVIDENCE/pip-check-validation.log" 2>&1
 ```
 
-Then read ADR 0011, `docs/LOCAL_RUNTIME.md`,
-`ARCHITECTURE.md`, `local_lite.py`, `local_runtime.py`, TaskLedger/TaskAPI,
-transport, bridge, DLQ/replay and the new tests.
+Then read ADR 0011, `docs/LOCAL_RUNTIME.md`, `ARCHITECTURE.md`, `local_lite.py`,
+`local_runtime.py`, TaskLedger/TaskAPI, transport, bridge and DLQ/replay.
 
-Run `"$PY" tools/check.py` first. Then execute these one at a time, inspecting
-imports/fixtures before each:
+Run `"$PY" tools/check.py` first. Execute these one at a time:
 
 ```text
 tests/test_local_resource_probe.py
+tests/test_local_python_probe.py
 tests/test_local_stack_probe.py
+tests/test_bootstrap_local_tools.py
 tests/test_local_lite.py
 tests/test_local_runtime.py
 tests/test_local_workflow.py
@@ -129,14 +155,18 @@ tests/test_operations_new.py
 tests/test_projection_retention_new.py
 ```
 
-Use the existing strict JUnit checker for each eligible file. Keep infrastructure
-markers excluded in this broker-free phase:
+Use this bounded template for every eligible file; substitute TEST/STEM each time:
 
 ```bash
 TEST=tests/test_local_lite.py
 STEM="$(basename "$TEST" .py)"
 set +e
-timeout --signal=TERM --kill-after=15s 300s   "$PY" -m pytest -p pytest_asyncio.plugin -p no:cacheprovider   -o addopts= -q -W error --maxfail=1   -m 'not live and not postgres and not upstream and not mcp and not vault'   --basetemp="$STATE/tmp/$STEM" --junitxml="$EVIDENCE/$STEM.xml" "$TEST"   > "$EVIDENCE/$STEM.log" 2>&1
+timeout --signal=TERM --kill-after=15s 300s \
+  "$PY" -m pytest -p pytest_asyncio.plugin -p no:cacheprovider \
+  -o addopts= -q -W error --maxfail=1 \
+  -m 'not live and not postgres and not upstream and not mcp and not vault' \
+  --basetemp="$STATE/tmp/$STEM" --junitxml="$EVIDENCE/$STEM.xml" "$TEST" \
+  > "$EVIDENCE/$STEM.log" 2>&1
 RC=$?
 set -e
 printf '%s\n' "$RC" > "$EVIDENCE/$STEM.exit-code"
@@ -144,9 +174,9 @@ printf '%s\n' "$RC" > "$EVIDENCE/$STEM.exit-code"
 test "$RC" -eq 0
 ```
 
+Unexpected skips, xfails, timeouts, empty selections or missing JUnit are not PASS.
 For every real defect: preserve the minimal failure, add a regression test, fix the
-root cause, rerun focused/affected lightweight tests, and create a focused local
-commit. Do not refactor unrelated distributed code.
+root cause, rerun focused/affected lightweight tests, and create a focused local commit.
 
 ## Phase 2 - real local-lite economic gate
 
@@ -183,14 +213,11 @@ outside `$STATE/tools`. Treat download/checksum/platform failures as
 `$TOOLS/manifest.json` in the evidence and include its disk size in the resource
 report. The tools disappear when the validation run directory is removed.
 
-If both binaries are now available, record venv/tool disk usage, then install only
-the product's local Python extra in the same venv:
+If both binaries are now available, the local Python product dependencies are
+already installed and measured. Record only any run-local native tool footprint:
 
 ```bash
-du -sb "$STATE/venv" > "$EVIDENCE/venv-before-local.txt" || true
-"$PY" -m pip install --no-cache-dir --only-binary=:all: -e '.[local]'   > "$EVIDENCE/install-local.log" 2>&1
-"$PY" -m pip check > "$EVIDENCE/pip-check-local.log" 2>&1
-du -sb "$STATE/venv" > "$EVIDENCE/venv-after-local.txt" || true
+du -sb "$STATE/tools" > "$EVIDENCE/native-tools-size.txt" 2>/dev/null || true
 ```
 
 Prepare one private profile:
