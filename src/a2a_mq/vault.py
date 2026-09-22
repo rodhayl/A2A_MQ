@@ -8,10 +8,10 @@ from pathlib import Path
 import re
 import stat
 from typing import Callable
-from urllib.parse import urlsplit
 
 import httpx
 
+from .configuration import https_origin
 from .domain import PermanentError, RetryableError, load_json, require, token
 from .protection import _b64, _decode
 
@@ -60,10 +60,7 @@ class VaultTransit:
     def __init__(self, url: str, token_provider: Callable[[], str], keys: list[TransitKey],
                  active: str, *, mount: str = "transit", namespace: str = "",
                  timeout: float = 5, client: httpx.AsyncClient | None = None):
-        parsed = urlsplit(url)
-        require(parsed.scheme == "https" and bool(parsed.hostname) and parsed.path in {"", "/"}
-                and not parsed.username and not parsed.password and not parsed.query and not parsed.fragment,
-                "VAULT_HTTPS_REQUIRED")
+        url = https_origin(url, "VAULT_HTTPS_REQUIRED")
         token(mount)
         require(type(timeout) in {int, float} and 0 < timeout <= 60, "INVALID_TIMEOUT")
         require(isinstance(namespace, str) and len(namespace) <= 256

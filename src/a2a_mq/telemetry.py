@@ -7,8 +7,8 @@ import logging
 import math
 from threading import Lock
 import time
-from urllib.parse import urlsplit
 
+from .configuration import https_origin
 from .domain import PermanentError, RetryableError, require, token
 
 STAGES = frozenset({"publish", "callback", "reconcile", "replay", "retention"})
@@ -104,10 +104,7 @@ class MetadataHandler(logging.Handler):
 
 class OTLP:
     def __init__(self, endpoint, *, service_name, ca_file=None):
-        url = urlsplit(endpoint)
-        require(url.scheme == "https" and bool(url.hostname) and url.path in {"", "/"}
-                and not url.username and not url.password and not url.query and not url.fragment,
-                "OTLP_HTTPS_REQUIRED")
+        endpoint = https_origin(endpoint, "OTLP_HTTPS_REQUIRED")
         token(service_name)
         try:
             import requests

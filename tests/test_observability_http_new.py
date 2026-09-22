@@ -78,7 +78,10 @@ def test_gauges_are_fixed_and_do_not_query_database(telemetry):
     assert 'secret' not in repr(data)
 
 
-@pytest.mark.parametrize('url',['http://collector:4318','https://user:secret@x','https://x?token=secret','https://x/path'])
+@pytest.mark.parametrize('url',[
+    'http://collector:4318','https://user:secret@x','https://x?token=secret','https://x/path',
+    'https://collector:70000','https://collector?','https://collector#','https://bad host',
+])
 def test_otlp_secure_endpoint_required(url):
     with pytest.raises(PermanentError,match='OTLP_HTTPS_REQUIRED'):
         OTLP(url,service_name='test')

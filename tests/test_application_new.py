@@ -270,6 +270,9 @@ async def test_crypto_config_missing_required_fields_fails_deterministically(set
     (lambda config: config["command"]["keys"][0].update(writeVersion=0), "INVALID_KEY_VERSION"),
     (lambda config: config["command"].update(active="missing-key"), "UNKNOWN_KEY"),
     (lambda config: config.update(vaultUrl="http://vault.example"), "VAULT_HTTPS_REQUIRED"),
+    (lambda config: config.update(vaultUrl="https://vault.example?"), "VAULT_HTTPS_REQUIRED"),
+    (lambda config: config.update(vaultUrl="https://vault.example#"), "VAULT_HTTPS_REQUIRED"),
+    (lambda config: config.update(vaultUrl="https://vault.example:70000"), "VAULT_HTTPS_REQUIRED"),
 ])
 async def test_crypto_static_validation_precedes_missing_token(settings, tmp_path, change, code):
     from contextlib import AsyncExitStack
