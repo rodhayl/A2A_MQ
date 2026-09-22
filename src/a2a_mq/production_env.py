@@ -129,6 +129,7 @@ def _dapr_http_endpoint(value: str) -> str:
             and parsed.path in {"", "/"} and not parsed.username and not parsed.password
             and not parsed.query and not parsed.fragment
             and "?" not in value and "#" not in value
+            and not any(c.isspace() for c in value)
             and (port is None or 1 <= port <= 65535),
             "COLOCATED_DAPR_REQUIRED")
     return value.rstrip("/")
