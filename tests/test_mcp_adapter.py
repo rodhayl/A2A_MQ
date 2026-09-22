@@ -30,6 +30,20 @@ async def test_official_server_registers_bounded_task_tools():
     assert names == {"get_task", "list_tasks", "send_text", "provide_input", "cancel_task", "approve_task"}
 
 
+@pytest.mark.parametrize("url", [
+    "http://mcp.example/mcp",
+    "https://mcp.example/",
+    "https://mcp.example/other",
+    "https://mcp.example/mcp?",
+    "https://mcp.example/mcp#",
+])
+def test_mcp_adapter_requires_exact_https_resource_before_sdk_import(url):
+    verifier = Verifier()
+    verifier.audience = url
+    with pytest.raises(PermanentError, match="MCP_HTTPS_RESOURCE_REQUIRED"):
+        create_mcp(API(), verifier, resource_url=url)
+
+
 def test_mcp_requires_exact_resource_audience_before_sdk_import():
     verifier = Verifier(); verifier.audience = "https://other.example/mcp"
     with pytest.raises(PermanentError, match="MCP_AUDIENCE_MISMATCH"):

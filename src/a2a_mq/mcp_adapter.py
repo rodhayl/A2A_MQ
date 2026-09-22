@@ -19,9 +19,12 @@ def create_mcp(api: TaskAPI, verifier: JWTVerifier, *, resource_url: str,
     """Return a configured official MCPServer; caller chooses the HTTP mount."""
     parsed = urlsplit(resource_url)
     require(isinstance(resource_url, str) and parsed.scheme == "https" and bool(parsed.hostname)
-            and not parsed.username and not parsed.password and not parsed.query and not parsed.fragment
-            and 8 < len(resource_url) <= 2048, "PUBLIC_HTTPS_URL_REQUIRED")
-    require(verifier.audience == resource_url, "MCP_AUDIENCE_MISMATCH")
+            and parsed.path == "/mcp" and not parsed.username and not parsed.password
+            and not parsed.query and not parsed.fragment
+            and "?" not in resource_url and "#" not in resource_url
+            and 8 < len(resource_url) <= 2048, "MCP_HTTPS_RESOURCE_REQUIRED")
+    require(verifier.audience == resource_url and urlsplit(verifier.issuer).scheme == "https",
+            "MCP_AUDIENCE_MISMATCH")
     try:
         from pydantic import AnyHttpUrl
         from mcp.server.auth.middleware.auth_context import get_access_token
@@ -53,7 +56,8 @@ def create_mcp(api: TaskAPI, verifier: JWTVerifier, *, resource_url: str,
             issuer_url=AnyHttpUrl(verifier.issuer),
             resource_server_url=AnyHttpUrl(resource_url),
             required_scopes=[],
-            validate_token_resource=True,
+            # JWTVerifier already enforces the exact resource URL as aud.
+            validate_token_resource=False,
         ),
     )
 
