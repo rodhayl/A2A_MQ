@@ -4,8 +4,13 @@
 
 Branch: `implementation/production-hardening-20260916`.
 
-Source head:
-`3415b10ddcfc5c721f9872c926fead5e11897543` (followed by status documentation update).
+Executable/source hardening currently reaches
+`a3d7020af6c0818d2e4f75498951bafff3d134df`.
+This status update itself changes documentation only.
+
+The most recent exact SHA with executed `LOCAL_PASS` evidence remains
+`3415b10ddcfc5c721f9872c926fead5e11897543`; later source/harness commits
+require an exact-SHA rerun before a current-head PASS can be claimed.
 
 `main` remains unchanged at
 `66c17153d7ec75b9ad85808ef141b9dba43a9d91`.
@@ -120,6 +125,36 @@ Six defects and regressions were identified and remediated across commits `3ba32
 - restored workflow step IDs in `ci.yml`, aligned `test_ci_contract.py` with `mcp` extra, and aligned
   `test_service.py` with unauthenticated `/health/ready` probe access and `DaprPublisher` closed state (`3415b10`).
 
+### Second follow-up audit after the validated local run
+
+A source-level audit after the executed `3415b10` validation added further
+hardening through `a3d7020a`. These changes have **not** inherited the historical
+LOCAL_PASS; they require rerun on their exact final SHA.
+
+The follow-up changes include:
+
+- strict CI contract restoration for the canonical MCP dependency set
+  (`cef60bdc`);
+- complete static crypto/Vault configuration validation before mounted-token
+  inspection (`b0cd527f`);
+- broader model-credential rejection in formal acceptance (`d68b67db`);
+- pre/post clean Git HEAD+tree binding for acceptance evidence, closing a
+  provenance TOCTOU gap (`64cf9db3`);
+- explicit MCP 2.2 resource-validation mode, avoiding its deprecation warning
+  under the SDK gate's `-W error` policy (`eb287f49`);
+- official A2A-client regression coverage for cross-owner cancel/subscribe on
+  live tasks (`6a89959c`);
+- repository-contract checking as a mandatory FULL_PASS gate (`979d8c66`);
+- an isolated CI wheel smoke that proves imports come from the installed wheel
+  rather than the editable checkout (`dc7a8161`);
+- package/supply-chain smoke as a formal FULL_PASS gate, built from an external
+  `git archive HEAD`, plus regression coverage that pins that isolation
+  (`c66964af`, `a3d7020a`).
+
+Exact pinned upstream source was reviewed for A2A SDK 1.1.2, Dapr Workflow
+1.18.3 and MCP 2.2.0 while making these changes. No external SDK, PostgreSQL,
+Vault or broker gate is claimed as executed by that review.
+
 ## Evidence that exists
 
 Historical evidence must stay attached to the SHA it actually tested.
@@ -153,15 +188,15 @@ The following gates remain execution/evidence gates with real prerequisites:
 2. Vault Transit gate: `UNAVAILABLE` / `INCOMPLETE` (Vault test config file not provided).
 3. Disposable JetStream / RabbitMQ gates: `UNAVAILABLE` / `INCOMPLETE` (container opt-in absent; prohibited per user rules).
 4. Official SDK gate: `UNAVAILABLE` / `INCOMPLETE` (missing `dapr.ext.workflow`, `mcp`, `httpx2`).
-5. Full acceptance status: `LOCAL_PASS` is certified; full acceptance remains **INCOMPLETE** (`productionCertified=false`, `upstreamBindingCertified=false`).
+5. Historical local acceptance: `LOCAL_PASS` is established at exact SHA `3415b10`. The current branch HEAD has later source/harness changes and is therefore **INCOMPLETE until rerun on the exact final SHA**. Full acceptance remains **INCOMPLETE** (`productionCertified=false`, `upstreamBindingCertified=false`).
 
 ## Hosted CI status
 
-Recent GitHub Actions push runs complete as failures in roughly five seconds with
-no job steps, logs or uploaded artifacts exposed by the available GitHub interface.
-That is consistent with failure before runner execution and is not evidence that
-repository tests ran and failed. The exact platform-side annotation is not
-available through the connector, so no more specific cause is claimed.
+Recent GitHub Actions push runs complete as failures in roughly five seconds.
+The raw job records show `runner_id: 0`, an empty runner name and `steps: []`;
+job log retrieval returns no logs. This is failure before runner assignment, not
+evidence that repository tests executed and failed. The platform-side reason for
+the missing runner is not exposed by the available interface.
 
 Hosted CI therefore remains **not passed** and must be rerun/diagnosed separately.
 

@@ -5,18 +5,18 @@ acceptance are separate. Historical test counts do not certify the current SHA.
 
 | Scope | Implemented source | Evidence still required |
 | --- | --- | --- |
-| Local economics / NFR-013 | `scripts/local_resource_probe.py`, `scripts/local_stack_probe.py`, ADR 0011 | Execute both probes on the target low-resource machine |
-| Local-lite A2A bridge | `local_lite.py`, official `bridge.py`, JWT identity, SQLite TaskLedger/TaskAPI | Native A2A client + real daprd/JetStream smoke on target |
-| Local-lite transport | direct native launcher, one Dapr sidecar, bounded single-node JetStream, separate command/DLQ durables | Restart/redelivery and resource evidence with real native binaries |
+| Local economics / NFR-013 | `scripts/local_resource_probe.py`, `scripts/local_stack_probe.py`, ADR 0011 | Passed on validated SHA `3415b10` (core, warmed Python, native 3-process); rerun exact final SHA before current-head PASS |
+| Local-lite A2A bridge | `local_lite.py`, official `bridge.py`, JWT identity, SQLite TaskLedger/TaskAPI | Real local-lite Dapr/NATS functional roundtrip passed at `3415b10`; official A2A SDK gate and current-head rerun remain |
+| Local-lite transport | direct native launcher, one Dapr sidecar, bounded single-node JetStream, separate command/DLQ durables | Native 3-process resource evidence passed at `3415b10`; restart/redelivery coverage and exact-final-SHA rerun remain |
 | Local-lite state | SQLite jobs/tasks/actions/outbox/runtime-end, retention identities | Target-machine restart and backup/restore smoke |
 | Local-lite execution | immediate deterministic echo/upper executor using existing durable actions | Race/restart/cancel regression plus real transport execution |
 | Local-lite cancellation | existing owner-scoped TaskAPI/TaskLedger controls | Real A2A cancel race through sidecar |
 | Local-lite DLQ/replay | existing bounded archive/replay, dedicated Dapr DLQ component | Poison delivery + replay through real JetStream |
 | Local-lite MCP | optional official MCP SDK; submit/get/list/cancel only | Install `.[local,mcp]` and run native MCP HTTP client gate |
 | Local Workflow | `local_workflow.py`, `local_workflow_runtime.py`, official Dapr Workflow, SQLite actor state, native Placement/Scheduler | Five-process resource gate + real wait/timer/approval/restart smoke on target |
-| FR-001/009/010/037/040/050/052 | domain/schema/transport, stable routing/identity, A2A bridge | Whole-repository/current-SHA regression |
+| FR-001/009/010/037/040/050/052 | domain/schema/transport, stable routing/identity, A2A bridge | Historical broker-independent 929-test LOCAL_PASS exists at `3415b10`; rerun whole repository on exact final SHA |
 | FR-002/011/012/020/022/024/026 distributed semantics | role-separated admissions, brokers, workers/observers and dual-broker harness | Real JetStream/RabbitMQ distributed runs; local-lite does not claim independent offline worker pools/observer fan-out |
-| FR-021/023/027 | SQLiteStore, PostgresStore, leases/fences/outbox/projection ordering | Current-SHA SQLite regression and real PostgreSQL gate |
+| FR-021/023/027 | SQLiteStore, PostgresStore, leases/fences/outbox/projection ordering | SQLite/local evidence exists at `3415b10`; exact-final-SHA regression and real verified-TLS PostgreSQL gate remain |
 | FR-003/007/008 Workflow tier | Dapr Workflow registration/actions/reconcile, input/auth/cancel/timers/fan-out | Native Workflow restart/race gate; intentionally outside local-lite |
 | FR-004/005/006/013/014 | TaskAPI + official A2A SDK Agent Card/send/get/list/cancel/subscribe | Official SDK client/native streaming gate |
 | FR-030/031/032/038 | JWT principal/owner scopes, Dapr scopes, TLS production profiles | Deployed workload/broker policy and cross-tenant negative tests |
