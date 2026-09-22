@@ -118,8 +118,11 @@ test "$PYAPP_RC" -eq 0
 This probe builds the real local-lite A2A/HTTP/crypto/SQLite app and enters its
 lifespan so idle relays/recovery loops run, but starts neither daprd nor NATS.
 Initial budget: <=192 MiB RSS, <=3% of one CPU core idle, <=5 seconds build/start
-and <=4 MiB SQLite state. If it returns `FAIL_LOCAL_PYTHON`, stop native
-validation and set **LOCAL ECONOMICS = REDESIGN_REQUIRED**.
+and <=4 MiB SQLite state. Continue only on exit 0 AND `PASS_LOCAL_PYTHON`.
+If it returns `FAIL_LOCAL_PYTHON`, stop native validation and set
+**LOCAL ECONOMICS = REDESIGN_REQUIRED**. If it returns
+`INCOMPLETE_LOCAL_PYTHON`, stop the economic sequence and report the exact
+measurement/startup blocker; INCOMPLETE is neither PASS nor proof of excess usage.
 
 If it passes, install the still-small validation-only dependencies:
 
@@ -137,12 +140,15 @@ Run `"$PY" tools/check.py` first. Execute these one at a time:
 
 ```text
 tests/test_local_resource_probe.py
+tests/test_local_resource_probe_regressions.py
 tests/test_local_python_probe.py
 tests/test_local_stack_probe.py
+tests/test_local_stack_probe_regressions.py
 tests/test_bootstrap_local_tools.py
 tests/test_local_native_versions.py
 tests/test_local_lite.py
 tests/test_local_runtime.py
+tests/test_local_launcher_regressions.py
 tests/test_local_workflow.py
 tests/test_json_boundary_regressions.py
 tests/test_domain.py

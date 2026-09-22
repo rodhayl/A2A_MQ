@@ -35,9 +35,13 @@ that tier rather than adding a second scheduler to local-lite. Do not make the
 five-process Workflow tier the default without separate resource evidence.
 
 Before broad local testing, create the isolated venv and run the core resource probe
-from PROMPT_AGENT_LOCAL_TEST.md. After the core/Python/selected regressions pass,
-run the real three-process local stack probe with the repository-pinned private
-native bootstrap inside the current ignored `.local-validation` run directory.
+from PROMPT_AGENT_LOCAL_TEST.md. A core PASS is followed by
+`scripts/local_python_probe.py`, which measures the actual local Python product
+and its maintenance loops without daprd/NATS. Only an exit-0
+`PASS_LOCAL_PYTHON` clears that second economic gate. After the
+core/Python/selected regressions pass, run the real three-process local stack probe
+with the repository-pinned private native bootstrap inside the current ignored
+`.local-validation` run directory.
 The acceptance gate deliberately does not trust an arbitrary same-version host
 daprd because JetStream requires Dapr's all-components flavor, which
 `--version`/`--build-info` do not identify. Require the bootstrap manifest and

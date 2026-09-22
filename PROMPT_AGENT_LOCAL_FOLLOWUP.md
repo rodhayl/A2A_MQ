@@ -41,20 +41,42 @@ cheap execution or proof of a code defect. Preserve reports; choose fresh paths
 for retries. Keep the default budgets unchanged. The probe's sleeping idle CPU is
 not the running application's idle CPU; host-wide swap is not process attribution.
 
+## Second: measure the actual Python local product
+
+Do not jump directly from the core fixture to native Dapr/NATS. Install only the
+repository's `.[local]` extra inside the same venv, record the venv disk delta,
+then run:
+
+```bash
+"$PY" scripts/local_python_probe.py \
+  --state-dir "$STATE/python-app" \
+  --json "$EVIDENCE/python-app-resources.json"
+```
+
+Continue only on exit 0 AND `PASS_LOCAL_PYTHON`. This gate includes the actual
+A2A/HTTP/crypto/SQLite app and its 60-second background-maintenance window, while
+starting neither daprd nor NATS. `FAIL_LOCAL_PYTHON` means
+`REDESIGN_REQUIRED`; `INCOMPLETE_LOCAL_PYTHON` is a measurement/startup blocker
+and must not be called a resource failure or a pass. Keep the default budget.
+
 ## Then: selected regressions, one file at a time
 
 Check installed dependencies in the venv. Reuse them; never perform an all-extras
-upgrade to make collection pass. The profile-generation tests need PyJWT and
-cryptography: if unavailable, record that subset INCOMPLETE and continue eligible
-files rather than installing a broad SDK bundle. The six candidate files are:
+upgrade to make collection pass. Install only the existing lightweight validation
+requirements when needed. The current local regression files are:
 
 ```text
 tests/test_local_resource_probe.py
 tests/test_local_resource_probe_regressions.py
+tests/test_local_python_probe.py
 tests/test_local_runtime.py
 tests/test_local_launcher_regressions.py
+tests/test_local_lite.py
+tests/test_local_workflow.py
 tests/test_local_stack_probe.py
 tests/test_local_stack_probe_regressions.py
+tests/test_local_native_versions.py
+tests/test_bootstrap_local_tools.py
 ```
 
 Use the following command separately for each TEST, with a unique STEM. Use an
@@ -69,16 +91,17 @@ OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 \
 "$PY" scripts/assert_junit_complete.py "$EVIDENCE/$STEM.xml"
 ```
 
-Preserve pytest's own exit code as well as JUnit. Expected count at the recorded
-code commit is 74; evaluate actual collected tests, not a hard-coded count or
+Preserve pytest's own exit code as well as JUnit. Do not use the historical
+74-test count as an acceptance target: new local regression files have been added.
+Evaluate the actual collected cases at the tested SHA, not a hard-coded count or
 historical PASS. A timeout, import failure, skip, xfail or missing report is not a
 passing selected gate. Fix only reproducible defects, add a regression first,
 rerun the affected files and make a focused local commit. No cosmetic refactoring.
 
 ## Native economics remains a separate conditional gate
 
-Only after the core and selected tests pass, execute Phase 2 of
-`PROMPT_AGENT_LOCAL_TEST.md`. For acceptance, use the repository-pinned private
+Only after the core, Python-product gate and selected tests pass, execute Phase 2
+of `PROMPT_AGENT_LOCAL_TEST.md`. For acceptance, use the repository-pinned private
 bootstrap in the fresh run directory even if a host `daprd` reports version
 1.18.3: Dapr's version/build-info output does not prove the sidecar flavor, while
 JetStream requires the `allcomponents` build. Pass `$STATE/tools/manifest.json` to the native-version checker; require that machine gate to verify `daprFlavor=allcomponents` together with the exact binary versions.
@@ -98,6 +121,6 @@ Write a compact `LOCAL_VALIDATION_REPORT.md`: actual starting/final SHA, venv,
 commands/exits/JUnit counts, core JSON, confirmed fixes, existing work preserved,
 resource limits and unexecuted gates. Keep raw evidence private and uncommitted;
 exclude tokens/private keys, venvs and generated profiles from any shared bundle.
-Report independently: CORE ECONOMICS, SELECTED REGRESSION, NATIVE LOCAL-LITE
-ECONOMICS, and FULL ACCEPTANCE. The last remains INCOMPLETE without its real gates.
+Report independently: CORE ECONOMICS, PYTHON-PRODUCT ECONOMICS, SELECTED
+REGRESSION, NATIVE LOCAL-LITE ECONOMICS, and FULL ACCEPTANCE. The last remains INCOMPLETE without its real gates.
 Do not push, merge or release unless the owner separately authorizes it.
