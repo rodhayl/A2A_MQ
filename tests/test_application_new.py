@@ -111,6 +111,8 @@ def dependencies(settings, runtime=None):
     ({"dapr_http": "http://127.0.0.1/?x=1"}, "COLOCATED_DAPR_REQUIRED"),
     ({"dapr_http": "http://127.0.0.1:3500?"}, "COLOCATED_DAPR_REQUIRED"),
     ({"dapr_http": "http://127.0.0.1:3500#"}, "COLOCATED_DAPR_REQUIRED"),
+    ({"dapr_http": "http://127.0.0.1:3500\n"}, "COLOCATED_DAPR_REQUIRED"),
+    ({"dapr_http": "http://127.0.0.1:3500\t"}, "COLOCATED_DAPR_REQUIRED"),
     ({"dapr_grpc_port": True}, "INVALID_DAPR_PORT"), ({"max_active": 0}, "INVALID_QUOTA"),
     ({"callback_timeout": float("nan")}, "INVALID_TIMEOUT"), ({"concurrency": 0}, "INVALID_CONCURRENCY"),
     ({"role": "api", "public_url": "http://api"}, "PUBLIC_HTTPS_URL_REQUIRED"),
