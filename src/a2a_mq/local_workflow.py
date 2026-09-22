@@ -19,7 +19,8 @@ from .configuration import read_file, verifier
 from .deadletters import DeadLetters, ReplayService
 from .dlq_callback import create_dlq_callback
 from .domain import Envelope, RetryableError, require
-from .local_lite import ASGIEndpoint, PathRewrite, LocalLiteSettings, _integer, _no_lifespan
+from .local_lite import (ASGIEndpoint, PathRewrite, LocalLiteSettings, _close_local_resources,
+                         _integer, _no_lifespan)
 from .maintenance import Operations
 from .operations_http import create_operations
 from .recovery import AdmissionRepair
@@ -184,6 +185,7 @@ def create_app(settings: LocalWorkflowSettings):
         runtime = client = None
         jobs = []
         async with AsyncExitStack() as stack:
+            stack.push_async_callback(_close_local_resources, database, bus)
             if mcp_server is not None:
                 await stack.enter_async_context(mcp_server.session_manager.run())
             try:
@@ -231,10 +233,6 @@ def create_app(settings: LocalWorkflowSettings):
                         await asyncio.to_thread(client.close)
                     except Exception:
                         pass
-                try:
-                    await database.aclose()
-                finally:
-                    await bus.close()
 
     app = Starlette(routes=routes, lifespan=lifespan)
     app.state.a2amq_api = api

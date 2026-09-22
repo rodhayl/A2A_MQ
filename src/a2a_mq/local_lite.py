@@ -229,6 +229,14 @@ async def _no_lifespan(app):
     yield
 
 
+async def _close_local_resources(database: AsyncSQLite, bus: DaprPublisher) -> None:
+    """Close app-owned async resources even when startup fails before yielding."""
+    try:
+        await database.aclose()
+    finally:
+        await bus.close()
+
+
 def create_app(settings: LocalLiteSettings):
     app_token = read_file(settings.app_token_file, secret=True, limit=512).strip()
     dapr_token = read_file(settings.dapr_token_file, secret=True, limit=512).strip()
@@ -322,6 +330,7 @@ def create_app(settings: LocalLiteSettings):
     async def lifespan(app):
         stop = asyncio.Event()
         async with AsyncExitStack() as stack:
+            stack.push_async_callback(_close_local_resources, database, bus)
             if mcp_server is not None:
                 await stack.enter_async_context(mcp_server.session_manager.run())
             jobs = [
@@ -348,10 +357,6 @@ def create_app(settings: LocalLiteSettings):
                         job.cancel()
                 await asyncio.gather(*jobs, return_exceptions=True)
                 running["jobs"] = []
-                try:
-                    await database.aclose()
-                finally:
-                    await bus.close()
 
     app = Starlette(routes=routes, lifespan=lifespan)
     app.state.a2amq_api = api

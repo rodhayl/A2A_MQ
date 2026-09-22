@@ -2,7 +2,8 @@ import pytest
 
 from a2a_mq.domain import Envelope, PermanentError, state_of
 from a2a_mq.identity import Principal
-from a2a_mq.local_lite import LocalLiteActions, LocalLiteSettings, LocalLiteTaskAPI
+from a2a_mq.local_lite import (_close_local_resources, LocalLiteActions, LocalLiteSettings,
+                               LocalLiteTaskAPI)
 from a2a_mq.runtime import AsyncSQLite
 from a2a_mq.storage import SQLiteStore
 from a2a_mq.tasks import TaskLedger
@@ -110,3 +111,20 @@ async def test_combined_action_relay_handles_publish_and_start_in_one_lane(tmp_p
         assert state_of(ledger.get(principal(), task["id"])) == "COMPLETED"
     finally:
         await database.aclose()
+
+
+async def test_local_resource_cleanup_always_closes_publisher():
+    events = []
+
+    class Database:
+        async def aclose(self):
+            events.append("database")
+            raise RuntimeError("database close failed")
+
+    class Bus:
+        async def close(self):
+            events.append("bus")
+
+    with pytest.raises(RuntimeError, match="database close failed"):
+        await _close_local_resources(Database(), Bus())
+    assert events == ["database", "bus"]
