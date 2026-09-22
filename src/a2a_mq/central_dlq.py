@@ -5,7 +5,7 @@ import base64
 import hashlib
 from typing import Any
 
-from .domain import Envelope, PermanentError, RetryableError, require
+from .domain import Envelope, PermanentError, RetryableError, load_json, require
 from .identity import Principal
 from .operations import Metrics
 from .storage import _key, _page
@@ -32,6 +32,35 @@ def _reason(value: Any) -> str:
     require(isinstance(value, str) and 1 <= len(value) <= 128
             and all(32 <= ord(c) < 127 for c in value), "INVALID_DLQ_REASON")
     return value
+
+
+def _replay_envelope(raw: bytes, tenant: str) -> Envelope:
+    """Recover a replayable Envelope from the real Dapr delivery bytes or a legacy raw Envelope."""
+    try:
+        envelope = Envelope.parse(raw)
+    except PermanentError:
+        try:
+            event = load_json(raw, 1024 * 1024)
+            require(isinstance(event, dict) and event.get("specversion") == "1.0",
+                    "DLQ_NOT_REPLAYABLE")
+            mime = event.get("datacontenttype")
+            require(isinstance(mime, str)
+                    and mime.split(";", 1)[0].strip().lower() == "application/json",
+                    "DLQ_NOT_REPLAYABLE")
+            require(isinstance(event.get("pubsubname"), str) and bool(event["pubsubname"]),
+                    "DLQ_NOT_REPLAYABLE")
+            envelope = Envelope.from_dict(event.get("data"))
+            value = envelope.as_dict()
+            require(event.get("id") == value["messageId"]
+                    and event.get("source") == "urn:a2a-mq:" + value["source"]
+                    and event.get("type") == "a2a-mq." + value["operation"]
+                    and event.get("topic") == envelope.route,
+                    "DLQ_NOT_REPLAYABLE")
+        except PermanentError:
+            raise PermanentError("DLQ_NOT_REPLAYABLE") from None
+    require(envelope.as_dict()["tenantId"] == tenant, "DLQ_TENANT_MISMATCH")
+    envelope.check_expiry()
+    return envelope
 
 
 class CentralDLQ:
@@ -152,11 +181,13 @@ class CentralDLQ:
 
     async def replay_dlq(self, principal: Principal, entry_id: str, publisher, *, force: bool = False) -> Envelope:
         raw = self.dlq_payload(principal, entry_id)
-        try:
-            envelope = Envelope.parse(raw)
-        except PermanentError:
-            raise PermanentError("DLQ_NOT_REPLAYABLE") from None
-        require(envelope.as_dict()["tenantId"] == self.store.scope.tenant, "DLQ_TENANT_MISMATCH")
+        with self.store._connection() as db:
+            row = db.execute("SELECT truncated FROM a2amq_central_dlq "
+                             "WHERE tenant=? AND consumer=? AND entry_id=?",
+                             (*self.keys, _key(entry_id))).fetchone()
+        require(row is not None, "DLQ_NOT_FOUND")
+        require(not bool(row["truncated"]), "DLQ_NOT_REPLAYABLE")
+        envelope = _replay_envelope(raw, self.store.scope.tenant)
         self.prepare_replay(principal, entry_id, force=force)
         await publisher.publish(envelope)
         self.mark_replayed(principal, entry_id)
