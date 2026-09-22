@@ -69,6 +69,29 @@ async def test_official_a2a_client_routes_and_owner_isolation(tmp_path, binding)
             stream = client.subscribe(pb.SubscribeToTaskRequest(id=task.id))
             items = [item async for item in stream]
             assert items and items[0].task.status.state == pb.TASK_STATE_COMPLETED
+
+            cancel_request = ParseDict({"message": {"messageId": "native-cancel",
+                        "role": "ROLE_USER", "parts": [{"text": "cancel me"}]},
+                        "configuration": {"returnImmediately": True}}, pb.SendMessageRequest())
+            cancel_target = [item async for item in client.send_message(cancel_request)][0].task
+
+            async def owner_cancel():
+                while not ledger.pending(("cancel",)):
+                    await asyncio.sleep(.005)
+                ledger.step(cancel_target.id, "canceled", "CANCELED")
+
+            owner_job = asyncio.create_task(owner_cancel())
+            try:
+                async with asyncio.timeout(5):
+                    canceled = await client.cancel_task(pb.CancelTaskRequest(id=cancel_target.id))
+                    await owner_job
+            finally:
+                if not owner_job.done():
+                    owner_job.cancel()
+                    await asyncio.gather(owner_job, return_exceptions=True)
+            assert canceled.id == cancel_target.id
+            assert canceled.status.state == pb.TASK_STATE_CANCELED
+
             http.headers["Authorization"] = "Bearer " + issue("mallory")
             assert not (await client.list_tasks(pb.ListTasksRequest(page_size=10))).tasks
             from a2a.utils.errors import TaskNotFoundError
@@ -123,5 +146,8 @@ async def test_official_mcp_http_tools_and_authenticated_task(tmp_path):
                         assert not result.is_error
                         absent = await client.call_tool("get_task", {"task_id":"missing"})
                         assert absent.is_error
+                http.headers["Authorization"] = "Bearer invalid-token"
+                denied = await http.post("/mcp", json={"jsonrpc":"2.0","id":"denied","method":"tools/list"})
+                assert denied.status_code == 401
     finally:
         await database.aclose()
