@@ -20,8 +20,8 @@ NATS_VERSION = "2.15.0"
 ASSETS = {
     "amd64": {
         "daprd": {
-            "url": "https://github.com/dapr/dapr/releases/download/v1.18.3/daprd_linux_amd64-stablecomponents.tar.gz",
-            "sha256": "383921da04c1fa306922f3b2ec3593afc3a26c74f184e197a551d3b3b6f7fe46",
+            "url": "https://github.com/dapr/dapr/releases/download/v1.18.3/daprd_linux_amd64.tar.gz",
+            "sha256": "f5d1683b672d83bd88b8e79624d695779b72f856f7eb365ae1ea06354f2cb96c",
             "max_bytes": 80 * 1024 * 1024,
         },
         "nats-server": {
@@ -32,8 +32,8 @@ ASSETS = {
     },
     "arm64": {
         "daprd": {
-            "url": "https://github.com/dapr/dapr/releases/download/v1.18.3/daprd_linux_arm64-stablecomponents.tar.gz",
-            "sha256": "aab61fc470869e3b8d7841443a717e83f67320c7a10cefa5b9b3fd876ad09c5c",
+            "url": "https://github.com/dapr/dapr/releases/download/v1.18.3/daprd_linux_arm64.tar.gz",
+            "sha256": "7fbffc5ffd18bb78cd7685c129d4f7ec337c8f92a0855790a6570571b2e62953",
             "max_bytes": 80 * 1024 * 1024,
         },
         "nats-server": {
@@ -126,7 +126,7 @@ def main() -> int:
     arch = _arch()
     manifest = {
         "platform": "linux", "arch": arch, "daprVersion": DAPR_VERSION,
-        "natsVersion": NATS_VERSION, "binaries": {},
+        "daprFlavor": "allcomponents", "natsVersion": NATS_VERSION, "binaries": {},
     }
     try:
         with tempfile.TemporaryDirectory(prefix="archives-", dir=root) as temp:

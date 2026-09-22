@@ -23,10 +23,12 @@ python -m pip check
 The launcher never installs host software. Existing `daprd` and `nats-server`
 executables may be used directly. For a disposable validation run on Linux
 amd64/arm64, `scripts/bootstrap_local_tools.py` can instead download the
-repository-pinned Dapr 1.18.3 stable-components archive and NATS Server 2.15.0
-archive into an ignored private directory. It verifies fixed SHA-256 digests and
-extracts only the expected regular binaries; prepend that run-local `bin/` to
-`PATH`. This is a test bootstrap, not a host installation or production updater.
+repository-pinned Dapr 1.18.3 all-components/default archive and NATS Server 2.15.0
+archive into an ignored private directory. JetStream is compiled behind Dapr's
+`allcomponents` build tag, so the bootstrap intentionally uses the default/all-components
+`daprd` release asset rather than the smaller `stablecomponents` flavor. It verifies
+fixed SHA-256 digests and extracts only the expected regular binaries; prepend that
+run-local `bin/` to `PATH`. This is a test bootstrap, not a host installation or production updater.
 
 Prepare and run:
 

@@ -48,3 +48,16 @@ def test_sha256_helper(tmp_path):
     value = tmp_path / "value"
     value.write_bytes(b"abc")
     assert bootstrap._sha256(value) == hashlib.sha256(b"abc").hexdigest()
+
+
+def test_bootstrap_uses_allcomponents_daprd_assets_for_jetstream():
+    bootstrap = _module()
+    expected = {
+        "amd64": "f5d1683b672d83bd88b8e79624d695779b72f856f7eb365ae1ea06354f2cb96c",
+        "arm64": "7fbffc5ffd18bb78cd7685c129d4f7ec337c8f92a0855790a6570571b2e62953",
+    }
+    for arch, digest in expected.items():
+        asset = bootstrap.ASSETS[arch]["daprd"]
+        assert asset["sha256"] == digest
+        assert asset["url"].endswith(f"daprd_linux_{arch}.tar.gz")
+        assert "stablecomponents" not in asset["url"]
