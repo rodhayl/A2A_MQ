@@ -386,6 +386,39 @@ def _read(path: Path) -> str:
     return read_file(str(path), secret=True, limit=512).strip()
 
 
+def _runtime_environments(root: Path, profile: dict) -> tuple[dict[str, str], dict[str, str], dict[str, str]]:
+    """Return app, sidecar and unprivileged child environments with least-privilege secrets."""
+    base = os.environ.copy()
+    base.pop("APP_API_TOKEN", None)
+    base.pop("DAPR_API_TOKEN", None)
+    base["PYTHONNOUSERSITE"] = "1"
+
+    app = base.copy()
+    app.update({
+        "APP_API_TOKEN_FILE": str((root / "app-api-token").resolve()),
+        "DAPR_API_TOKEN_FILE": str((root / "dapr-api-token").resolve()),
+        "A2A_SQLITE_PATH": str((root / "state/a2amq.db").resolve()),
+        "A2A_JWT_KEYS_FILE": str((root / "jwt-keys.json").resolve()),
+        "A2A_JWT_ISSUER": profile["issuer"],
+        "A2A_PUBLIC_URL": profile["publicUrl"],
+        "A2A_TENANT": profile["tenant"],
+        "A2A_CONSUMER": "local",
+        "A2A_SOURCE": profile["source"],
+        "A2A_COMPONENT": "bus",
+        "A2A_ENABLE_MCP": "1" if profile.get("mcp") else "0",
+        "A2A_CONCURRENCY": "2",
+        "A2A_DATABASE_CAPACITY": "4",
+        "DAPR_GRPC_PORT": "50001",
+    })
+
+    sidecar = base.copy()
+    sidecar.update({
+        "APP_API_TOKEN": _read(root / "app-api-token"),
+        "DAPR_API_TOKEN": _read(root / "dapr-api-token"),
+    })
+    return app, sidecar, base
+
+
 def _native_binary(name: str) -> str | None:
     found = shutil.which(name)
     if found:
@@ -421,32 +454,16 @@ def run(root: Path) -> int:
         missing = [name for name, value in (("nats-server", nats_server), ("daprd", daprd)) if not value]
         raise RuntimeError("missing native prerequisite(s): " + ", ".join(missing))
 
-    env = os.environ.copy()
-    env.update({
-        "APP_API_TOKEN": _read(root / "app-api-token"),
-        "DAPR_API_TOKEN": _read(root / "dapr-api-token"),
-        "APP_API_TOKEN_FILE": str((root / "app-api-token").resolve()),
-        "DAPR_API_TOKEN_FILE": str((root / "dapr-api-token").resolve()),
-        "A2A_SQLITE_PATH": str((root / "state/a2amq.db").resolve()),
-        "A2A_JWT_KEYS_FILE": str((root / "jwt-keys.json").resolve()),
-        "A2A_JWT_ISSUER": profile["issuer"],
-        "A2A_PUBLIC_URL": profile["publicUrl"],
-        "A2A_TENANT": profile["tenant"],
-        "A2A_CONSUMER": "local",
-        "A2A_SOURCE": profile["source"],
-        "A2A_COMPONENT": "bus",
-        "A2A_ENABLE_MCP": "1" if profile.get("mcp") else "0",
-        "A2A_CONCURRENCY": "2",
-        "A2A_DATABASE_CAPACITY": "4",
-        "PYTHONNOUSERSITE": "1",
-    })
+    app_env, sidecar_env, child_env = _runtime_environments(root, profile)
 
     # The current process becomes the ASGI application. Only NATS and daprd are
     # child processes, so the steady-state product process count is exactly three.
-    os.environ.update(env)
+    os.environ.pop("APP_API_TOKEN", None)
+    os.environ.pop("DAPR_API_TOKEN", None)
+    os.environ.update(app_env)
     nats = sidecar = None
     try:
-        nats = subprocess.Popen([nats_server, "-c", str(root / "nats.conf")], cwd=root, env=env)
+        nats = subprocess.Popen([nats_server, "-c", str(root / "nats.conf")], cwd=root, env=child_env)
         _wait_port("127.0.0.1", 4222, nats)
         # Provisioning is deliberately short-lived so nats-py and its client state
         # are not retained in the steady-state A2A application process.
@@ -456,7 +473,7 @@ def run(root: Path) -> int:
             "--password-file", str(root / "nats-token"),
             "--plan", str(root / "broker-plan.json"),
             "--development",
-        ], cwd=root, env=env, check=True, stdout=subprocess.DEVNULL)
+        ], cwd=root, env=child_env, check=True, stdout=subprocess.DEVNULL)
 
         sidecar_command = [
             daprd, "--mode", "standalone", "--app-id", APP_ID, "--app-port", "18000",
@@ -467,7 +484,7 @@ def run(root: Path) -> int:
             "--app-max-concurrency", "2", "--max-body-size", "1Mi",
             "--enable-metrics=false", "--log-level", "warn",
         ]
-        sidecar = subprocess.Popen(sidecar_command, cwd=root, env=env)
+        sidecar = subprocess.Popen(sidecar_command, cwd=root, env=sidecar_env)
         _wait_port("127.0.0.1", 3500, sidecar)
 
         import uvicorn

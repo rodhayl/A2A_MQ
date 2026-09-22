@@ -17,6 +17,7 @@ from a2a_mq.local_runtime import (
     _plan,
     _private_replace,
     _read,
+    _runtime_environments,
     _resiliency_resource,
     _workflow_state_component,
 )
@@ -181,3 +182,29 @@ def test_local_secret_reader_rejects_symlink_and_oversize(tmp_path):
     oversized.chmod(0o600)
     with pytest.raises(PermanentError, match="INVALID_CONFIG_FILE"):
         _read(oversized)
+
+
+def test_local_child_environments_keep_app_tokens_sidecar_only(tmp_path, monkeypatch):
+    root = tmp_path / "profile"
+    root.mkdir(mode=0o700)
+    for name, value in (("app-api-token", "a" * 32), ("dapr-api-token", "d" * 32)):
+        path = root / name
+        path.write_text(value)
+        path.chmod(0o600)
+    monkeypatch.setenv("APP_API_TOKEN", "host-app-secret")
+    monkeypatch.setenv("DAPR_API_TOKEN", "host-dapr-secret")
+    profile = {
+        "issuer": "https://local-a2amq.invalid",
+        "publicUrl": "http://127.0.0.1:18000",
+        "tenant": "demo",
+        "source": "local-worker",
+        "mcp": False,
+    }
+
+    app, sidecar, child = _runtime_environments(root, profile)
+    assert "APP_API_TOKEN" not in app and "DAPR_API_TOKEN" not in app
+    assert "APP_API_TOKEN" not in child and "DAPR_API_TOKEN" not in child
+    assert sidecar["APP_API_TOKEN"] == "a" * 32
+    assert sidecar["DAPR_API_TOKEN"] == "d" * 32
+    assert app["APP_API_TOKEN_FILE"].endswith("app-api-token")
+    assert app["DAPR_API_TOKEN_FILE"].endswith("dapr-api-token")

@@ -23,6 +23,7 @@ from .local_runtime import (
     _load_profile,
     _native_binary,
     _read,
+    _runtime_environments,
     _refresh_client_tokens,
     _terminate,
     _wait_port,
@@ -89,30 +90,6 @@ def _scheduler_command(binary: str, root: Path) -> list[str]:
     ]
 
 
-def _environment(root: Path, profile: dict) -> dict[str, str]:
-    env = os.environ.copy()
-    env.update({
-        "APP_API_TOKEN": _read(root / "app-api-token"),
-        "DAPR_API_TOKEN": _read(root / "dapr-api-token"),
-        "APP_API_TOKEN_FILE": str((root / "app-api-token").resolve()),
-        "DAPR_API_TOKEN_FILE": str((root / "dapr-api-token").resolve()),
-        "A2A_SQLITE_PATH": str((root / "state/a2amq.db").resolve()),
-        "A2A_JWT_KEYS_FILE": str((root / "jwt-keys.json").resolve()),
-        "A2A_JWT_ISSUER": profile["issuer"],
-        "A2A_PUBLIC_URL": profile["publicUrl"],
-        "A2A_TENANT": profile["tenant"],
-        "A2A_CONSUMER": "local",
-        "A2A_SOURCE": profile["source"],
-        "A2A_COMPONENT": "bus",
-        "A2A_ENABLE_MCP": "1" if profile.get("mcp") else "0",
-        "A2A_CONCURRENCY": "2",
-        "A2A_DATABASE_CAPACITY": "4",
-        "DAPR_GRPC_PORT": "50001",
-        "PYTHONNOUSERSITE": "1",
-    })
-    return env
-
-
 def run(root: Path) -> int:
     profile = _load_profile(root, "local-workflow")
     _refresh_client_tokens(root, profile)
@@ -122,12 +99,14 @@ def run(root: Path) -> int:
     if missing:
         raise RuntimeError("missing native prerequisite(s): " + ", ".join(missing))
 
-    env = _environment(root, profile)
-    os.environ.update(env)
+    app_env, sidecar_env, child_env = _runtime_environments(root, profile)
+    os.environ.pop("APP_API_TOKEN", None)
+    os.environ.pop("DAPR_API_TOKEN", None)
+    os.environ.update(app_env)
     nats = placement = scheduler = sidecar = None
     try:
         nats = subprocess.Popen([binaries["nats-server"], "-c", str(root / "nats.conf")],
-                                cwd=root, env=env)
+                                cwd=root, env=child_env)
         _wait_port("127.0.0.1", 4222, nats)
 
         subprocess.run([
@@ -136,12 +115,12 @@ def run(root: Path) -> int:
             "--password-file", str(root / "nats-token"),
             "--plan", str(root / "broker-plan.json"),
             "--development",
-        ], cwd=root, env=env, check=True, stdout=subprocess.DEVNULL)
+        ], cwd=root, env=child_env, check=True, stdout=subprocess.DEVNULL)
 
-        placement = subprocess.Popen(_placement_command(binaries["placement"]), cwd=root, env=env)
+        placement = subprocess.Popen(_placement_command(binaries["placement"]), cwd=root, env=child_env)
         _wait_port("127.0.0.1", PLACEMENT_PORT, placement)
 
-        scheduler = subprocess.Popen(_scheduler_command(binaries["scheduler"], root), cwd=root, env=env)
+        scheduler = subprocess.Popen(_scheduler_command(binaries["scheduler"], root), cwd=root, env=child_env)
         _wait_port("127.0.0.1", SCHEDULER_PORT, scheduler)
 
         sidecar_command = [
@@ -155,7 +134,7 @@ def run(root: Path) -> int:
             "--app-max-concurrency", "2", "--max-body-size", "1Mi",
             "--enable-metrics=false", "--log-level", "warn",
         ]
-        sidecar = subprocess.Popen(sidecar_command, cwd=root, env=env)
+        sidecar = subprocess.Popen(sidecar_command, cwd=root, env=sidecar_env)
         _wait_port("127.0.0.1", 3500, sidecar)
 
         import uvicorn
