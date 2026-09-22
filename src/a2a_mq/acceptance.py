@@ -152,13 +152,26 @@ def full_status(results,requested):
 
 
 
-def provenance_status(status, git_head, git_status):
-    """Bind a passing verdict to one clean, exact Git commit."""
+def git_snapshot(root):
+    """Return one clean exact Git HEAD/tree snapshot, or None when provenance is unusable."""
+    try:
+        head = subprocess.check_output(["git","rev-parse","HEAD"],cwd=root,text=True,timeout=5).strip()
+        tree = subprocess.check_output(["git","rev-parse","HEAD^{tree}"],cwd=root,text=True,timeout=5).strip()
+        status = subprocess.check_output(["git","status","--porcelain=v1","--untracked-files=all"],
+                                         cwd=root,text=True,timeout=5).strip()
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if (status or re.fullmatch(r"[0-9a-f]{40}", head) is None
+            or re.fullmatch(r"[0-9a-f]{40}", tree) is None):
+        return None
+    return {"head":head,"tree":tree}
+
+
+def provenance_status(status, initial, final):
+    """Bind a passing verdict to the same clean exact Git tree before and after execution."""
     if status == "FAILED":
         return status
-    clean = isinstance(git_status, str) and git_status == ""
-    exact = isinstance(git_head, str) and re.fullmatch(r"[0-9a-f]{40}", git_head) is not None
-    return status if clean and exact else "INCOMPLETE"
+    return status if initial is not None and final == initial else "INCOMPLETE"
 
 
 def main():
@@ -174,6 +187,7 @@ def main():
     if output.exists() or output==root or root in output.parents or not 1<=args.timeout<=7200:
         p.error('Use a new external output directory and a bounded timeout')
     output.mkdir(parents=True,mode=0o700)
+    initial_git=git_snapshot(root)
     env={**os.environ,'PYTEST_DISABLE_PLUGIN_AUTOLOAD':'1','PYTHONDONTWRITEBYTECODE':'1',
          'A2AMQ_NO_LLM_TOKENS':'1'}
     env["PYTHONPATH"]=str(root/"src")
@@ -183,7 +197,10 @@ def main():
     # are model-free; externally restrict egress for an independent attestation.
     secret_names=[k for k,v in env.items() if v and MODEL_CREDENTIAL.match(k)]
     results=[]
-    if secret_names:
+    if initial_git is None:
+        results.append({'name':'provenance-guard','status':'UNAVAILABLE',
+                        'missing':['clean exact git checkout']})
+    elif secret_names:
         results.append({'name':'credential-guard','status':'FAILED','presentNames':sorted(secret_names)})
     else:
         for name in (GROUPS if args.mode=='full' else [args.mode]):
@@ -216,12 +233,13 @@ def main():
             'timestamp':time.time(),'sourceSha256':source,
             'dependencies':{d.metadata['Name']:d.version for d in importlib.metadata.distributions()
                             if d.metadata.get('Name')}}
-    for key,command in [('gitHead',['git','rev-parse','HEAD']),('gitStatus',['git','status','--porcelain'])]:
-        try:
-            report[key]=subprocess.check_output(command,cwd=root,text=True,timeout=5).strip()
-        except (OSError,subprocess.SubprocessError):
-            report[key]=None
-    report['status']=provenance_status(report['status'],report['gitHead'],report['gitStatus'])
+    final_git=git_snapshot(root)
+    report['gitHead']=None if final_git is None else final_git['head']
+    report['gitTree']=None if final_git is None else final_git['tree']
+    report['initialGitHead']=None if initial_git is None else initial_git['head']
+    report['initialGitTree']=None if initial_git is None else initial_git['tree']
+    report['gitStatus']="" if final_git is not None else None
+    report['status']=provenance_status(report['status'],initial_git,final_git)
     (output/'verdict.json').write_text(json.dumps(report,indent=2)+'\n')
     hashes={path.name:hashlib.sha256(path.read_bytes()).hexdigest() for path in output.iterdir() if path.is_file()}
     (output/'sha256.json').write_text(json.dumps(hashes,indent=2)+'\n')

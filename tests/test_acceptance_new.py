@@ -1,7 +1,8 @@
 """Acceptance evidence must fail closed, independently of optional service availability."""
 import pytest
 
-from a2a_mq.acceptance import (FULL_REQUIRED, GROUPS, MODEL_CREDENTIAL, full_status, junit, provenance_status,
+from a2a_mq.acceptance import (FULL_REQUIRED, GROUPS, MODEL_CREDENTIAL, full_status, git_snapshot, junit,
+                               provenance_status,
                                test_gate as execute_gate)
 from a2a_mq.live_probe import wait_until
 
@@ -64,22 +65,33 @@ def test_aggregate_keeps_all_missing_gates(statuses,expected):
     assert full_status([{'name':'local','status':'PASSED'}],'local')=='LOCAL_PASS'
 
 
-@pytest.mark.parametrize("head,status", [
-    (None, ""),
-    ("a" * 39, ""),
-    ("A" * 40, ""),
-    ("a" * 40, " M src/a2a_mq/task_api.py"),
-    ("a" * 40, None),
+@pytest.mark.parametrize("initial,final", [
+    (None, {"head":"a" * 40,"tree":"b" * 40}),
+    ({"head":"a" * 40,"tree":"b" * 40}, None),
+    ({"head":"a" * 40,"tree":"b" * 40}, {"head":"c" * 40,"tree":"d" * 40}),
+    ({"head":"a" * 40,"tree":"b" * 40}, {"head":"a" * 40,"tree":"d" * 40}),
 ])
-def test_passing_acceptance_requires_clean_exact_git_provenance(head,status):
-    assert provenance_status("LOCAL_PASS", head, status) == "INCOMPLETE"
-    assert provenance_status("FULL_PASS", head, status) == "INCOMPLETE"
+def test_passing_acceptance_requires_stable_git_provenance(initial,final):
+    assert provenance_status("LOCAL_PASS", initial, final) == "INCOMPLETE"
+    assert provenance_status("FULL_PASS", initial, final) == "INCOMPLETE"
 
 
-def test_clean_git_provenance_preserves_pass_and_failure():
-    assert provenance_status("LOCAL_PASS", "a" * 40, "") == "LOCAL_PASS"
-    assert provenance_status("FULL_PASS", "b" * 40, "") == "FULL_PASS"
+def test_stable_git_provenance_preserves_pass_and_failure():
+    snapshot={"head":"a" * 40,"tree":"b" * 40}
+    assert provenance_status("LOCAL_PASS", snapshot, snapshot.copy()) == "LOCAL_PASS"
+    assert provenance_status("FULL_PASS", snapshot, snapshot.copy()) == "FULL_PASS"
     assert provenance_status("FAILED", None, None) == "FAILED"
+
+
+def test_git_snapshot_requires_clean_exact_head_and_tree(tmp_path,monkeypatch):
+    values=iter(["a" * 40, "b" * 40, ""])
+    monkeypatch.setattr("a2a_mq.acceptance.subprocess.check_output",
+                        lambda *a,**k: next(values))
+    assert git_snapshot(tmp_path)=={"head":"a" * 40,"tree":"b" * 40}
+    values=iter(["a" * 40, "b" * 40, "?? untracked"])
+    monkeypatch.setattr("a2a_mq.acceptance.subprocess.check_output",
+                        lambda *a,**k: next(values))
+    assert git_snapshot(tmp_path) is None
 
 
 async def test_live_deadline_does_not_accept_false_condition():
