@@ -94,6 +94,21 @@ and cannot be causally attributed to this process. This run does not estimate th
 full Python application's imports, Dapr, NATS, SDK or Workflow overhead. A passing
 core budget is not proof of the complete local product's economics.
 
+## Post-audit native bootstrap correction
+
+The 74-test selected regression remains valid for the Python launcher/probe bytes
+described above, but it did not execute native Dapr/NATS. A later source audit found
+that Dapr v1.18.3 registers `pubsub.jetstream` only under the `allcomponents`
+build tag. The bootstrap present at the historical tested SHA selected the smaller
+`stablecomponents` daprd asset, so that historical bootstrap was not capable of
+proving the intended JetStream-backed three-process stack.
+
+This was corrected after the audit: the private bootstrap now pins Dapr v1.18.3's
+official default/all-components assets and the native preflight requires bootstrap
+provenance with `daprFlavor=allcomponents` in addition to exact Dapr/NATS versions.
+This correction does not turn the native gate into PASS; it removes a prerequisite
+bug so the next owner's-machine run can measure the intended stack.
+
 ## Unexecuted gates and next run
 
 Real native local-lite, official A2A/MCP interoperability, Dapr Workflow, PostgreSQL,
