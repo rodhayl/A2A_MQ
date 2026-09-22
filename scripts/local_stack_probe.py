@@ -7,6 +7,7 @@ import json
 import os
 from pathlib import Path
 import signal
+import stat
 import subprocess
 import sys
 import time
@@ -125,6 +126,32 @@ def _terminate(process: subprocess.Popen, children: list[int]) -> None:
             pass
 
 
+def _read_profile(root: Path) -> dict:
+    """Read one bounded regular profile file without following symlinks."""
+    if not root.is_dir() or root.is_symlink():
+        raise ValueError("profile directory not found or unsafe")
+    path = root / "profile.json"
+    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0)
+    try:
+        fd = os.open(path, flags)
+        with os.fdopen(fd, "rb") as stream:
+            info = os.fstat(stream.fileno())
+            if not stat.S_ISREG(info.st_mode):
+                raise ValueError("profile must be a regular file")
+            raw = stream.read(16385)
+    except OSError as exc:
+        raise ValueError("profile file unavailable") from exc
+    if not raw or len(raw) > 16384:
+        raise ValueError("profile file exceeds size limit or is empty")
+    try:
+        value = json.loads(raw.decode("utf-8", errors="strict"))
+    except (UnicodeError, ValueError) as exc:
+        raise ValueError("invalid profile JSON") from exc
+    if not isinstance(value, dict):
+        raise ValueError("profile must be an object")
+    return value
+
+
 def _profile_policy(profile: dict) -> dict:
     mode = profile.get("mode", "local-lite")
     if mode == "local-lite":
@@ -179,9 +206,10 @@ def main() -> int:
 
     if not Path("/proc/self/status").exists():
         raise SystemExit("local stack probe currently requires Linux /proc")
-    if not args.profile.is_dir():
-        raise SystemExit("profile directory not found")
-    profile = json.loads((args.profile / "profile.json").read_text(encoding="utf-8"))
+    try:
+        profile = _read_profile(args.profile)
+    except ValueError as exc:
+        raise SystemExit(str(exc)) from exc
     policy = _profile_policy(profile)
     expected_roles = policy["expectedRoles"]
     expected_count = len(expected_roles)
@@ -193,10 +221,12 @@ def main() -> int:
 
     args.json_path.parent.mkdir(parents=True, exist_ok=True)
     args.log.parent.mkdir(parents=True, exist_ok=True)
+    if args.json_path.exists() or args.log.exists():
+        raise SystemExit("evidence output already exists; refusing to overwrite")
 
     started = time.monotonic()
     children: list[int] = []
-    with args.log.open("wb") as log:
+    with args.log.open("xb") as log:
         process = subprocess.Popen(
             [sys.executable, "-m", policy["module"], "run", str(args.profile.resolve())],
             stdout=log, stderr=subprocess.STDOUT, cwd=Path.cwd(),
@@ -269,7 +299,8 @@ def main() -> int:
         finally:
             _terminate(process, children)
 
-    args.json_path.write_text(json.dumps(result, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    with args.json_path.open("x", encoding="utf-8") as output:
+        output.write(json.dumps(result, indent=2, sort_keys=True) + "\n")
     print(json.dumps(result, sort_keys=True))
     return 0 if result["verdict"].startswith("PASS_") else 3
 
