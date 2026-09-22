@@ -126,6 +126,15 @@ async def _protectors(settings, cleanup):
     allowed = required | {"caFile", "mount", "namespace"}
     require(isinstance(config, dict) and required <= set(config) <= allowed,
             "INVALID_CRYPTO_CONFIG")
+    for kind in ("command", "event"):
+        item = config.get(kind)
+        require(isinstance(item, dict) and set(item) == {"receiver", "active", "keys"}
+                and isinstance(item["keys"], list), "INVALID_CRYPTO_CONFIG")
+        for key in item["keys"]:
+            key_required = {"id", "name", "writeVersion"}
+            key_allowed = key_required | {"minReadVersion"}
+            require(isinstance(key, dict) and key_required <= set(key) <= key_allowed,
+                    "INVALID_CRYPTO_CONFIG")
     token_provider = FileToken(config["tokenFile"])
     # Validate the mounted credential during startup so readiness cannot succeed
     # with an unusable crypto configuration. The provider is still invoked again
@@ -134,14 +143,8 @@ async def _protectors(settings, cleanup):
     protectors = {}
     for kind, route in (("command", settings.command_route), ("event", settings.event_route)):
         item = config.get(kind)
-        require(isinstance(item, dict) and set(item) == {"receiver", "active", "keys"}
-                and isinstance(item["keys"], list), "INVALID_CRYPTO_CONFIG")
         keys = []
         for key in item["keys"]:
-            key_required = {"id", "name", "writeVersion"}
-            key_allowed = key_required | {"minReadVersion"}
-            require(isinstance(key, dict) and key_required <= set(key) <= key_allowed,
-                    "INVALID_CRYPTO_CONFIG")
             keys.append(TransitKey(key["id"], key["name"], settings.tenant, item["receiver"],
                                    key["writeVersion"], key.get("minReadVersion", 1)))
         import ssl

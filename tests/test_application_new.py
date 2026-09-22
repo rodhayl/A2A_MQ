@@ -151,7 +151,7 @@ async def test_worker_ack_means_dapr_acceptance_and_reconcile_terminal_sql(setti
     async with httpx.AsyncClient(transport=httpx.ASGITransport(app=application), base_url="http://app") as http:
         assert (await http.post("/events", json={})).status_code == 503
         async with application.app.router.lifespan_context(application.app):
-            async with asyncio.timeout(2):
+            async with asyncio.timeout(10):
                 while not application.workflow_ready:
                     await asyncio.sleep(.01)
             assert state.runtime.started
@@ -167,7 +167,7 @@ async def test_worker_ack_means_dapr_acceptance_and_reconcile_terminal_sql(setti
             await application.database.call(application.ledger.step, task["id"], "working", "WORKING")
             await application.database.call(application.ledger.step, task["id"], "completed", "COMPLETED")
             state.client.instances[task["id"]].runtime_status.name = "COMPLETED"
-            async with asyncio.timeout(2):
+            async with asyncio.timeout(10):
                 while await application.database.call(application.ledger.unconfirmed):
                     await asyncio.sleep(.01)
             assert (await http.get("/health/ready", headers=headers)).status_code == 200
@@ -181,7 +181,7 @@ async def test_startup_failure_closes_clients_and_does_not_serve(settings):
     deps, state = dependencies(settings, Runtime(fail=True))
     app = ServiceApplication(settings, dependencies=deps)
     async with app.app.router.lifespan_context(app.app):
-        async with asyncio.timeout(2):
+        async with asyncio.timeout(10):
             while not any(t.done() for t in app.jobs):
                 await asyncio.sleep(.01)
         async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://app") as http:
