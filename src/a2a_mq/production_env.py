@@ -54,9 +54,21 @@ def _public_key(path: str) -> bytes:
         raise PermanentError("INVALID_IDENTITY_KEY") from None
 
 
+def _postgres_dsn(env: Mapping[str, str]) -> str:
+    direct, path = env.get("A2A_POSTGRES_DSN"), env.get("A2A_POSTGRES_DSN_FILE")
+    require(not (direct and path), "AMBIGUOUS_SECRET_CONFIG")
+    if path:
+        return FileToken(path)()
+    if direct:
+        require(isinstance(direct, str) and 0 < len(direct) <= 8192
+                and not any(c in direct for c in "\x00\r\n"), "INVALID_POSTGRES_DSN")
+        return direct
+    return ""
+
+
 def _storage_config(env: Mapping[str, str]) -> tuple[str | None, str | None, bool]:
     sqlite_path = env.get("A2A_SQLITE_PATH")
-    postgres_dsn = _secret(env, "A2A_POSTGRES_DSN", "A2A_POSTGRES_DSN_FILE", required=False)
+    postgres_dsn = _postgres_dsn(env)
     require(bool(sqlite_path) != bool(postgres_dsn), "EXACTLY_ONE_STORAGE_BACKEND_REQUIRED")
     if sqlite_path:
         require(0 < len(sqlite_path) <= 4096 and "\x00" not in sqlite_path, "INVALID_STORAGE_PATH")

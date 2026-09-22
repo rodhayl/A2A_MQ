@@ -16,6 +16,15 @@ def test_storage_backend_requires_exactly_one_choice(tmp_path):
     assert path == str(tmp_path / "db") and dsn is None and insecure is False
 
 
+def test_direct_postgres_conninfo_allows_spaces_but_not_control_lines():
+    dsn = "host=db.internal port=5432 dbname=a2amq user=app sslmode=verify-full sslrootcert=/ca.pem"
+    path, actual, insecure = _storage_config({"A2A_POSTGRES_DSN": dsn})
+    assert path is None and actual == dsn and insecure is False
+    for invalid in (dsn + "\npassword=x", dsn + "\rpassword=x", "host=db\x00dbname=a2amq"):
+        with pytest.raises(PermanentError, match="INVALID_POSTGRES_DSN"):
+            _storage_config({"A2A_POSTGRES_DSN": invalid})
+
+
 def test_secret_configuration_is_unambiguous_and_file_is_permission_checked(tmp_path):
     secret = tmp_path / "token"
     secret.write_text("mounted-token\n", encoding="ascii")
