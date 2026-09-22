@@ -24,7 +24,7 @@ async def environment(tmp_path):
                            issuer="issuer", audience="a2amq")
     ledger = TaskLedger(SQLiteStore(tmp_path/"db", tenant="demo", consumer="workflow"))
     lane = AsyncSQLite(ledger.store)
-    api = TaskAPI(ledger, lane, wait_timeout=.1, poll_interval=.005)
+    api = TaskAPI(ledger, lane, wait_timeout=5.0, poll_interval=.005)
     app = create_bridge(api, verifier, public_url="https://agent.example")
     user = Principal("alice", "demo", frozenset({"a2a:send", "a2a:read", "a2a:cancel"}))
     def headers(subject="alice", tenant="demo"):

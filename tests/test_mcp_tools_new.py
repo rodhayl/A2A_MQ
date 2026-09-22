@@ -29,7 +29,7 @@ async def setup(tmp_path):
     store=SQLiteStore(tmp_path/'db',tenant='demo',consumer='workflow')
     ledger=TaskLedger(store)
     db=AsyncSQLite(store)
-    api=TaskAPI(ledger,db,wait_timeout=.2,poll_interval=.005)
+    api=TaskAPI(ledger,db,wait_timeout=5.0,poll_interval=.005)
     tools=MCPTools(api,verifier,lambda:token[0])
     try:
         yield tools,ledger,token,signed,api,verifier

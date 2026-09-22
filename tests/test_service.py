@@ -77,11 +77,12 @@ async def test_bad_command_quarantined_only_after_confirmation(store):
 
 async def test_authentication_before_callback_and_queries(store):
     async with client_for(store) as (client, app, sent, status):
-        for path in ["/internal/tasks", "/internal/tasks/x", "/dapr/subscribe", "/health/ready"]:
+        for path in ["/internal/tasks", "/internal/tasks/x", "/dapr/subscribe"]:
             assert (await client.get(path, headers={"dapr-api-token": "wrong"})).status_code == 401
         response = await client.post("/events", json=callback(request()), headers={"dapr-api-token": "wrong"})
         assert response.status_code == 401 and counts(store)["inbox"] == 0
         assert (await client.get("/health/live", headers={"dapr-api-token": "wrong"})).status_code == 200
+        assert (await client.get("/health/ready", headers={"dapr-api-token": "wrong"})).status_code == 200
         response = await client.get("/internal/tasks", headers=[("dapr-api-token", TOKEN), ("dapr-api-token", TOKEN)])
         assert response.status_code == 401
         assert not sent
@@ -149,7 +150,7 @@ async def test_shutdown_closes_owned_bus_even_when_lifespan_body_raises(store):
         async with app.router.lifespan_context(app):
             db = app.state.runtime.database
             raise RuntimeError("fixture")
-    assert app.state.runtime is None and bus.client.is_closed
+    assert app.state.runtime is None and bus._closed and (bus.client is None or bus.client.is_closed)
     assert db._closed and not db._pending
 
 

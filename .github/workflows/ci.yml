@@ -43,10 +43,12 @@ jobs:
       - name: Types
         run: mypy
       - name: Broker-independent contracts including SDK adapters
+        id: tests
         run: |
           mkdir -p "$RUNNER_TEMP/a2amq-validation"
           python -m pytest -p no:cacheprovider -q -W error -m 'not live and not postgres' --junitxml="$RUNNER_TEMP/a2amq-validation/results.xml"
       - name: Reject missing, empty, failed, errored or skipped JUnit
+        id: junit
         if: always()
         run: python scripts/assert_junit_complete.py "$RUNNER_TEMP/a2amq-validation/results.xml"
       - name: Build and install wheel outside source tree
@@ -57,6 +59,7 @@ jobs:
           cd "$RUNNER_TEMP"
           PYTHONPATH="$RUNNER_TEMP/installed" python -I -c 'from importlib.resources import files; import a2a_mq.binding as b; assert b.load_binding()["protocolVersion"] == "1.0"; assert files("a2a_mq").joinpath("schema.json").is_file()'
       - name: Retain JUnit evidence
+        id: evidence
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
