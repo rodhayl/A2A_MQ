@@ -141,3 +141,13 @@ def test_sdk_owned_mcp_contract_is_excluded_from_local_gate():
 
     source = Path(__file__).with_name("test_mcp_adapter.py").read_text(encoding="utf-8")
     assert "pytestmark = pytest.mark.mcp" in source
+
+
+def test_postgres_marker_suites_share_acceptance_dsn_name():
+    from pathlib import Path
+
+    adapter = Path(__file__).with_name("test_postgres_adapter.py").read_text(encoding="utf-8")
+    live = Path(__file__).with_name("test_postgres_live.py").read_text(encoding="utf-8")
+    assert "A2AMQ_TEST_POSTGRES_DSN" not in adapter
+    assert "A2A_TEST_POSTGRES_DSN" in adapter
+    assert "A2A_TEST_POSTGRES_DSN" in live

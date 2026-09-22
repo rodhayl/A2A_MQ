@@ -49,8 +49,8 @@ def test_sqlite_factory(tmp_path):
 @pytest.mark.postgres
 def test_real_postgres_parity():
     # Selecting this required gate without prerequisites fails, rather than skips.
-    dsn = os.environ.get("A2AMQ_TEST_POSTGRES_DSN")
-    assert dsn, "A2AMQ_TEST_POSTGRES_DSN is required for the real PostgreSQL gate"
+    dsn = os.environ.get("A2A_TEST_POSTGRES_DSN")
+    assert dsn, "A2A_TEST_POSTGRES_DSN is required for the real PostgreSQL gate"
     consumer = "pg-" + uuid4().hex
     store = PostgresStore(dsn, tenant="tests", consumer=consumer, allow_insecure=True)
     peer = PostgresStore(dsn, tenant="tests", consumer=consumer, allow_insecure=True)
