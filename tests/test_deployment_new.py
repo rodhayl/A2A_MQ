@@ -57,6 +57,16 @@ def test_real_local_generation_private_secrets_no_runtime_start(tmp_path,broker)
         compose(root,broker=broker,source_root=Path.cwd())
 
 
+def test_compose_preserves_dangling_output_symlink(tmp_path):
+    root=tmp_path/'stack'
+    target=tmp_path/'missing-target'
+    root.symlink_to(target)
+    with pytest.raises(PermanentError,match='OUTPUT_ALREADY_EXISTS'):
+        compose(root,broker='jetstream',source_root=Path(__file__).resolve().parents[1])
+    assert root.is_symlink() and root.readlink()==target
+    assert not target.exists()
+
+
 def test_failed_compose_generation_leaves_no_partial_secret_tree(tmp_path,monkeypatch):
     root=tmp_path/'failed'
     source=Path(__file__).resolve().parents[1]

@@ -315,9 +315,9 @@ proxy_buffering off; proxy_read_timeout 3700s; proxy_set_header Connection ""; }
 def compose(output: Path, *, broker: str, source_root: Path, images: dict | None = None):
     """Generate a disposable fixture atomically so failed builds retain no credentials."""
     final = output.absolute()
-    require(not final.exists(), "OUTPUT_ALREADY_EXISTS")
+    require(not final.exists() and not final.is_symlink(), "OUTPUT_ALREADY_EXISTS")
     staging = final.with_name(final.name + "." + secrets.token_hex(8) + ".tmp")
-    require(not staging.exists(), "OUTPUT_ALREADY_EXISTS")
+    require(not staging.exists() and not staging.is_symlink(), "OUTPUT_ALREADY_EXISTS")
     try:
         generated = _compose_into(staging, broker=broker, source_root=source_root, images=images)
         relative = generated.relative_to(staging)
