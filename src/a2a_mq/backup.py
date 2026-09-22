@@ -4,7 +4,7 @@ from __future__ import annotations
 from pathlib import Path
 import sqlite3
 
-from .domain import PermanentError, RetryableError
+from .domain import PermanentError, RetryableError, require
 from .operations import OperationsManager
 
 

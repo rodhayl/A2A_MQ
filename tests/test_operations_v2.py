@@ -3,7 +3,7 @@ import pytest
 
 from a2a_mq.backup import restore_sqlite_backup
 from a2a_mq.central_dlq import CentralDLQ
-from a2a_mq.domain import command
+from a2a_mq.domain import PermanentError, command
 from a2a_mq.identity import Principal
 from a2a_mq.operations import OperationsManager
 from a2a_mq.storage import SQLiteStore
