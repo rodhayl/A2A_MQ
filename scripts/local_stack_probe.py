@@ -274,7 +274,7 @@ def main() -> int:
     parser.add_argument("--json", dest="json_path", required=True, type=Path)
     parser.add_argument("--log", required=True, type=Path)
     parser.add_argument("--startup-timeout", type=float)
-    parser.add_argument("--idle-seconds", type=float, default=3)
+    parser.add_argument("--idle-seconds", type=float, default=60)
     parser.add_argument("--max-total-rss-mib", type=float)
     parser.add_argument("--max-idle-cpu-percent", type=float)
     parser.add_argument("--max-startup-seconds", type=float)

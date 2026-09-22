@@ -246,7 +246,8 @@ PROFILE="$STATE/local-lite"
 "$PY" -m a2a_mq.local_runtime prepare "$PROFILE"   > "$EVIDENCE/local-prepare.json"
 ```
 
-Now measure the **actual** steady three-process product:
+Now measure the **actual** steady three-process product. Keep the default 60-second
+idle window so periodic work is represented in the economics result:
 
 ```bash
 set +e

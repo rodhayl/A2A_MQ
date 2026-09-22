@@ -137,7 +137,9 @@ python scripts/local_python_probe.py \
 ```
 
 This builds the real local-lite A2A/HTTP/crypto/SQLite app and enters its lifespan
-without starting daprd or NATS. Initial budget: <=192 MiB RSS, <=3% one-core idle
+without starting daprd or NATS. The default 60-second idle window covers the
+periodic admission-repair cadence instead of sampling only the first seconds.
+Initial budget: <=192 MiB RSS, <=3% one-core idle
 CPU, <=5 seconds build/start and <=4 MiB SQLite state. This isolates our own process
 cost from the sidecar and broker.
 
@@ -150,7 +152,8 @@ python scripts/local_stack_probe.py \
   --log .local-validation/local-lite.log
 ```
 
-For local-lite the initial budget is:
+The native stack probe also observes a 60-second idle window by default so
+periodic maintenance contributes to the CPU result. For local-lite the initial budget is:
 
 - exactly 3 steady processes;
 - peak aggregate RSS <= 384 MiB across startup and idle;

@@ -62,14 +62,14 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--state-dir", type=Path, required=True)
     parser.add_argument("--json", dest="json_path", type=Path, required=True)
-    parser.add_argument("--idle-seconds", type=float, default=2.0)
+    parser.add_argument("--idle-seconds", type=float, default=60.0)
     parser.add_argument("--max-rss-mib", type=float, default=192)
     parser.add_argument("--max-idle-cpu-percent", type=float, default=3)
     parser.add_argument("--max-build-seconds", type=float, default=5)
     parser.add_argument("--max-state-mib", type=float, default=4)
     args = parser.parse_args()
-    if not 0.5 <= args.idle_seconds <= 30:
-        parser.error("--idle-seconds must be between 0.5 and 30")
+    if not 0.5 <= args.idle_seconds <= 60:
+        parser.error("--idle-seconds must be between 0.5 and 60")
 
     root = Path(__file__).resolve().parents[1]
     state = args.state_dir.resolve()
