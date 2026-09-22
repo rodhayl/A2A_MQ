@@ -172,16 +172,17 @@ def create_workflow_worker(store, bus, *, app_token: str, source: str = "workflo
     source = token(source)
     ledger = TaskLedger(store, source=source)
     database = AsyncSQLite(store, capacity=database_capacity)
-    state: dict[str, Any] = {"tasks": [], "runtime": None, "started": False, "stopping": False}
+    state: dict[str, Any] = {"tasks": [], "runtime": None, "started": False,
+                             "workflow_ready": False, "stopping": False}
 
     async def handle(envelope):
         actions = state.get("actions")
-        if actions is None:
+        if actions is None or not state["workflow_ready"]:
             raise RetryableError("WORKFLOW_UNAVAILABLE")
         await database.call(actions.ensure_started, envelope)
 
     async def readiness() -> bool:
-        if not state["started"] or state["stopping"]:
+        if not state["started"] or not state["workflow_ready"] or state["stopping"]:
             return False
         if any(task.done() for task in state["tasks"]):
             return False
@@ -209,6 +210,20 @@ def create_workflow_worker(store, bus, *, app_token: str, source: str = "workflo
             except TimeoutError:
                 pass
 
+    async def run_runtime(runtime, stop: asyncio.Event) -> None:
+        """Let the HTTP app bind while the Workflow worker connects to daprd."""
+        start = asyncio.create_task(asyncio.to_thread(runtime.start),
+                                    name="a2amq-workflow-runtime-start")
+        try:
+            await asyncio.shield(start)
+            state["workflow_ready"] = True
+            await stop.wait()
+        finally:
+            state["workflow_ready"] = False
+            if not start.done():
+                start.cancel()
+            await asyncio.gather(start, return_exceptions=True)
+
     @asynccontextmanager
     async def lifespan(app):
         runtime = client = None
@@ -223,12 +238,10 @@ def create_workflow_worker(store, bus, *, app_token: str, source: str = "workflo
                     raise PermanentError("WORKFLOW_EXTRA_REQUIRED") from None
                 runtime = (runtime_factory or dapr_workflow.WorkflowRuntime)()
                 register(runtime, ledger, sdk=workflow_sdk or dapr_workflow)
-                await asyncio.to_thread(runtime.start)
                 client = (client_factory or dapr_workflow.DaprWorkflowClient)()
             else:
                 runtime = runtime_factory()
                 register(runtime, ledger, sdk=workflow_sdk)
-                await asyncio.to_thread(runtime.start)
                 client = client_factory()
             actions = DaprActions(ledger, client)
             controls = ActionRelay(ledger, database, actions=actions)
@@ -236,6 +249,7 @@ def create_workflow_worker(store, bus, *, app_token: str, source: str = "workflo
             state.update(runtime=runtime, client=client, actions=actions,
                          controls=controls, outbox=outbox, started=True)
             tasks = [
+                asyncio.create_task(run_runtime(runtime, stop), name="a2amq-workflow-runtime"),
                 asyncio.create_task(controls.run(stop, interval=relay_interval), name="a2amq-control-relay"),
                 asyncio.create_task(outbox.run(stop, interval=relay_interval), name="a2amq-result-relay"),
                 asyncio.create_task(reconcile(actions, stop), name="a2amq-workflow-reconcile"),
@@ -246,13 +260,22 @@ def create_workflow_worker(store, bus, *, app_token: str, source: str = "workflo
             state["stopping"] = True
             state["started"] = False
             stop.set()
-            for task in tasks:
-                await _finish(task)
             if runtime is not None:
                 try:
+                    # Shutdown first so a Workflow start blocked on daprd readiness
+                    # cannot hold application shutdown indefinitely.
                     await asyncio.to_thread(runtime.shutdown)
                 except Exception:
                     pass
+            for task in tasks:
+                await _finish(task)
+            if client is not None:
+                close = getattr(client, "close", None)
+                if callable(close):
+                    try:
+                        await asyncio.to_thread(close)
+                    except Exception:
+                        pass
             try:
                 await database.aclose()
             finally:
@@ -261,7 +284,10 @@ def create_workflow_worker(store, bus, *, app_token: str, source: str = "workflo
                 finally:
                     await asyncio.to_thread(_close_store, store)
             state["tasks"] = []
+            state["workflow_ready"] = False
             state["runtime"] = None
+            for key in ("client", "actions", "controls", "outbox"):
+                state.pop(key, None)
 
     topic = f"a2a.v1.{store.scope.tenant}.command.agent.{source}"
     app = subscriber(handle, bus, tenant=store.scope.tenant, consumer=store.scope.consumer,
