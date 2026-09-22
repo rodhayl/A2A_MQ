@@ -20,7 +20,7 @@ ROOT = Path(__file__).resolve().parents[1]
 EXCLUDED = "not live and not postgres and not upstream"
 CREDENTIAL = re.compile(
     r"^(?:OPENAI|ANTHROPIC|AZURE_OPENAI|GEMINI|GOOGLE|MISTRAL|COHERE|GROQ|"
-    r"DEEPSEEK|TOGETHER|OPENROUTER|HUGGING_FACE|HF_).*(?:KEY|TOKEN|CREDENTIAL)", re.I
+    r"DEEPSEEK|TOGETHER|OPENROUTER|HUGGING_FACE|HF_|XAI|CEREBRAS|REPLICATE).*(?:KEY|TOKEN|CREDENTIAL)", re.I
 )
 FORBIDDEN_DIRS = {".bundle", ".sync", ".publish", ".runtime", ".venv", "__pycache__"}
 GIT_OVERRIDES = {"GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_OBJECT_DIRECTORY",
