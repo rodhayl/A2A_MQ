@@ -41,8 +41,14 @@ Important contracts now expected in source:
 - acceptance rejects model-provider credentials and binds evidence to the same
   clean exact Git HEAD/tree before and after execution;
 - FULL_PASS requires repository contracts and an isolated package/wheel smoke;
-- package smoke builds from external `git archive HEAD` and proves imports come
-  from the installed wheel;
+- package smoke builds from external `git archive HEAD`, uses PEP 517 build
+  isolation so the pinned build-system backend is honored, and proves imports
+  come from the installed wheel;
+- acceptance hashes nested evidence recursively; symlink/special evidence paths
+  must make the verdict incomplete rather than silently escape the manifest;
+- the formal acceptance runner and independent reviewer use the same model-credential
+  boundary, including OpenAI/Anthropic/Google-family plus Mistral, Cohere, Groq,
+  DeepSeek, Together, OpenRouter, Hugging Face, xAI, Cerebras and Replicate;
 - MCP 2.2 explicitly sets its token-resource validation mode because our
   JWT verifier already enforces exact audience;
 - official A2A regression covers cross-owner cancel and subscribe on live tasks;
@@ -61,6 +67,14 @@ python -m a2a_mq.acceptance --mode sdk --root <repo> --output <fresh-external-di
 
 The gate must execute the pinned A2A SDK 1.1.2, Dapr Workflow 1.18.3 and MCP 2.2.0
 contracts. Warnings are errors. No skipped/missing JUnit may count as PASS.
+
+After the MCP 2.2 tests execute, inspect `src/a2a_mq/mcp_adapter.py` against the
+canonical `src/a2a_mq/mcp_server.py`. Production/local composition uses the latter
+and ADR 0009 requires request-scoped token revalidation, session-manager lifespan
+and disabled legacy sessions. If runtime evidence shows `mcp_adapter.py` is stale
+and has no source caller, remove the duplicate adapter/tests and update docs, or
+convert it into a thin compatibility shim. Preserve it unchanged if evidence shows
+it still owns a distinct supported contract. Do not consolidate by inspection alone.
 
 ## 3. Turn Ruff and mypy into actionable defects
 
@@ -104,6 +118,39 @@ runtime/probe bytes changed. If the raw evidence is absent or cannot resolve the
 mismatch, rerun core, warmed Python and native local-lite probes once with the
 current documented CLI before treating their measurements as reproducible evidence.
 
+Use the actual current CLIs; do not reconstruct the old transcription:
+
+```bash
+"$PY" "$REPO/scripts/local_resource_probe.py" \
+  --state-dir "$STATE/core-probe" \
+  --json "$EVIDENCE/core-resources.json"
+
+"$PY" "$REPO/scripts/local_python_probe.py" \
+  --state-dir "$STATE/python-app" \
+  --json "$EVIDENCE/python-app-resources.json"
+
+TOOLS="$STATE/tools"
+"$PY" "$REPO/scripts/bootstrap_local_tools.py" --output "$TOOLS" \
+  > "$EVIDENCE/bootstrap-local-tools.json"
+export PATH="$TOOLS/bin:$PATH"
+"$PY" "$REPO/scripts/check_local_native_versions.py" \
+  --daprd "$TOOLS/bin/daprd" \
+  --nats-server "$TOOLS/bin/nats-server" \
+  --bootstrap-manifest "$TOOLS/manifest.json" \
+  --json "$EVIDENCE/native-versions-bootstrap.json"
+
+PROFILE="$STATE/local-lite"
+"$PY" -m a2a_mq.local_runtime prepare "$PROFILE" \
+  > "$EVIDENCE/local-prepare.json"
+"$PY" "$REPO/scripts/local_stack_probe.py" \
+  --profile "$PROFILE" \
+  --json "$EVIDENCE/local-stack-resources.json" \
+  --log "$EVIDENCE/local-stack.log"
+```
+
+Require the exact PASS verdict expected by each probe and its exit code 0.
+`INCOMPLETE_*` stays incomplete; a measurement failure is not a resource PASS.
+
 ## 5. Execute real external gates when prerequisites exist
 
 Attempt, in order and without mock substitution:
@@ -130,7 +177,7 @@ Return:
 3. focused tests and exact results;
 4. SDK gate result;
 5. Ruff/mypy diagnostics fixed vs remaining;
-6. exact-current-SHA local acceptance result;
+6. exact-current-SHA local acceptance result and evidence-manifest integrity;
 7. external gate results/unavailable prerequisites;
 8. hosted CI state;
 9. confirmation that `main` and version remain unchanged;
