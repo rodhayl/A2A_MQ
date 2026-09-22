@@ -86,6 +86,24 @@ def test_local_lite_issuer_uses_strict_https_validation(tmp_path):
             LocalLiteSettings(**base, issuer=issuer)
 
 
+def test_local_lite_loopback_urls_reject_empty_query_fragment_delimiters(tmp_path):
+    base = dict(
+        sqlite_path=str(tmp_path / "db"),
+        app_token_file=str(tmp_path / "app"),
+        dapr_token_file=str(tmp_path / "dapr"),
+        jwt_keys_file=str(tmp_path / "keys"),
+        issuer="https://local-a2amq.invalid",
+    )
+    for field, value in (
+        ("public_url", "http://127.0.0.1:18000?"),
+        ("public_url", "http://127.0.0.1:18000#"),
+        ("dapr_http", "http://127.0.0.1:3500?"),
+        ("dapr_http", "http://127.0.0.1:3500#"),
+    ):
+        with pytest.raises(PermanentError, match="LOCAL_LOOPBACK_URL_REQUIRED"):
+            LocalLiteSettings(**base, **{field: value})
+
+
 async def test_combined_action_relay_handles_publish_and_start_in_one_lane(tmp_path):
     from a2a_mq.workflows import ActionRelay
 
