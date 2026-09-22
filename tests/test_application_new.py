@@ -11,7 +11,7 @@ from starlette.applications import Starlette
 from starlette.responses import JSONResponse
 from starlette.routing import Route
 
-from a2a_mq.application import Dependencies, ServiceApplication
+from a2a_mq.application import Dependencies, ServiceApplication, _protectors
 from a2a_mq.configuration import Settings, read_file
 from a2a_mq.domain import PermanentError
 from a2a_mq.identity import Principal
@@ -239,3 +239,24 @@ async def test_operator_starts_only_dlq_replay_and_discovery(settings):
             assert "deadLetterTopic" not in value and value["metadata"]["queueType"] == "quorum"
             assert (await http.post("/events", json={}, headers={"dapr-api-token": "a" * 32})).json()["status"] == "RETRY"
     assert state.closed and not state.runtime.started
+
+
+@pytest.mark.parametrize("config", [
+    {"tokenFile": "/tmp/token", "command": {}, "event": {}},
+    {"vaultUrl": "https://vault.example", "command": {}, "event": {}},
+    {
+        "vaultUrl": "https://vault.example",
+        "tokenFile": "/tmp/token",
+        "command": {"receiver": "workers", "active": "k", "keys": [{"name": "key", "writeVersion": 1}]},
+        "event": {"receiver": "observers", "active": "k", "keys": [{"id": "k", "name": "key", "writeVersion": 1}]},
+    },
+])
+async def test_crypto_config_missing_required_fields_fails_deterministically(settings, tmp_path, config):
+    from contextlib import AsyncExitStack
+
+    path = tmp_path / "crypto.json"
+    path.write_text(json.dumps(config))
+    protected = replace(settings, crypto_file=str(path))
+    async with AsyncExitStack() as cleanup:
+        with pytest.raises(PermanentError, match="INVALID_CRYPTO_CONFIG"):
+            await _protectors(protected, cleanup)

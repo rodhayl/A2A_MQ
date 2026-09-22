@@ -122,8 +122,10 @@ async def _protectors(settings, cleanup):
         return {}
     from .protection import EnvelopeProtector
     config = load_json(read_file(settings.crypto_file))
-    require(isinstance(config, dict) and set(config) <= {
-        "vaultUrl", "tokenFile", "caFile", "mount", "namespace", "command", "event"}, "INVALID_CRYPTO_CONFIG")
+    required = {"vaultUrl", "tokenFile", "command", "event"}
+    allowed = required | {"caFile", "mount", "namespace"}
+    require(isinstance(config, dict) and required <= set(config) <= allowed,
+            "INVALID_CRYPTO_CONFIG")
     protectors = {}
     for kind, route in (("command", settings.command_route), ("event", settings.event_route)):
         item = config.get(kind)
@@ -131,7 +133,9 @@ async def _protectors(settings, cleanup):
                 and isinstance(item["keys"], list), "INVALID_CRYPTO_CONFIG")
         keys = []
         for key in item["keys"]:
-            require(isinstance(key, dict) and set(key) <= {"id", "name", "writeVersion", "minReadVersion"},
+            key_required = {"id", "name", "writeVersion"}
+            key_allowed = key_required | {"minReadVersion"}
+            require(isinstance(key, dict) and key_required <= set(key) <= key_allowed,
                     "INVALID_CRYPTO_CONFIG")
             keys.append(TransitKey(key["id"], key["name"], settings.tenant, item["receiver"],
                                    key["writeVersion"], key.get("minReadVersion", 1)))
