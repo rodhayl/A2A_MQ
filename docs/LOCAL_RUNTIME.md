@@ -40,6 +40,11 @@ a2amq-local prepare .local-validation/local-lite
 a2amq-local run .local-validation/local-lite
 ```
 
+The launcher fails closed before rotating client credentials or starting children if
+one of its fixed loopback ports is already occupied. This prevents accidentally
+connecting Dapr/NATS to another local project's service and avoids exposing the
+generated app token to an unrelated listener on the configured app port.
+
 The launcher itself becomes the ASGI process, so it does not remain as a fourth
 supervisor. JetStream provisioning runs in a short-lived helper before steady state.
 

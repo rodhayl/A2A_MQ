@@ -19,6 +19,7 @@ from a2a_mq.local_runtime import (
     _private_replace,
     prepare,
     _read,
+    _require_ports_free,
     _runtime_environments,
     _server_exit_code,
     _resiliency_resource,
@@ -280,3 +281,23 @@ def test_local_lite_strips_dapr_control_plane_host_environment(tmp_path, monkeyp
         assert "DAPR_SCHEDULER_HOST_ADDRESS_DNS_A" not in env
         assert "DAPR_SCHEDULER_HOST_ADDRESS" not in env
         assert "DAPR_PLACEMENT_HOST_ADDRESS" not in env
+
+
+def test_local_port_preflight_rejects_occupied_loopback_port():
+    import socket
+
+    occupied = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    try:
+        occupied.bind(("127.0.0.1", 0))
+        port = occupied.getsockname()[1]
+        occupied.listen(1)
+        with pytest.raises(RuntimeError, match=rf"local loopback port unavailable: {port}"):
+            _require_ports_free((port,))
+    finally:
+        occupied.close()
+
+
+def test_local_port_preflight_rejects_duplicate_or_invalid_ports():
+    for ports in ((18000, 18000), (0,), (65536,), (True,)):
+        with pytest.raises(PermanentError, match="INVALID_LOCAL_PORTS"):
+            _require_ports_free(ports)

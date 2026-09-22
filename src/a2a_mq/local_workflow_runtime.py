@@ -24,6 +24,7 @@ from .local_runtime import (
     _runtime_environments,
     _server_exit_code,
     _refresh_client_tokens,
+    _require_ports_free,
     _terminate,
     _wait_port,
     prepare as prepare_local,
@@ -92,6 +93,13 @@ def _scheduler_command(binary: str, root: Path) -> list[str]:
 def run(root: Path) -> int:
     root = root.absolute()
     profile = _load_profile(root, "local-workflow")
+    _require_ports_free((
+        18000, 3500, 50001, 4222,
+        PLACEMENT_PORT, SCHEDULER_PORT, PLACEMENT_RAFT_PORT,
+        PLACEMENT_HEALTH_PORT, PLACEMENT_METRICS_PORT,
+        SCHEDULER_HEALTH_PORT, SCHEDULER_METRICS_PORT,
+        SCHEDULER_ETCD_CLIENT_PORT, SCHEDULER_ETCD_PEER_PORT,
+    ))
     _refresh_client_tokens(root, profile)
 
     binaries = {name: _native_binary(name) for name in ("nats-server", "daprd", "placement", "scheduler")}

@@ -376,6 +376,22 @@ def prepare(root: Path, *, tenant: str = "demo", source: str = "local-worker",
         raise
 
 
+def _require_ports_free(ports: tuple[int, ...]) -> None:
+    """Fail before secrets or child processes are touched when a fixed loopback port is occupied."""
+    require(isinstance(ports, tuple) and ports, "INVALID_LOCAL_PORTS")
+    seen: set[int] = set()
+    for port in ports:
+        require(type(port) is int and 1 <= port <= 65535 and port not in seen, "INVALID_LOCAL_PORTS")
+        seen.add(port)
+        probe = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        try:
+            probe.bind(("127.0.0.1", port))
+        except OSError:
+            raise RuntimeError(f"local loopback port unavailable: {port}") from None
+        finally:
+            probe.close()
+
+
 def _wait_port(host: str, port: int, process: subprocess.Popen, timeout: float = 15) -> None:
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
@@ -476,6 +492,7 @@ def run(root: Path) -> int:
     """Run exactly three product processes: this Python app, daprd and nats-server."""
     root = root.absolute()
     profile = _load_profile(root, "local-lite")
+    _require_ports_free((18000, 3500, 50001, 4222))
     # Profiles are durable, while access tokens are deliberately short-lived.
     # Refresh generated client credentials before checking runtime prerequisites.
     _refresh_client_tokens(root, profile)

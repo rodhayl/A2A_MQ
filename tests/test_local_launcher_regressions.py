@@ -111,3 +111,18 @@ def test_native_binary_in_relative_path_becomes_absolute(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("PATH", "bin")
     assert lite._native_binary("daprd") == str(binary)
+
+
+@pytest.mark.parametrize("module,mode", [(lite, "local-lite"), (workflow, "local-workflow")])
+def test_port_preflight_happens_before_token_refresh_or_child_start(profile, monkeypatch, module, mode):
+    root, data = profile
+    data["mode"] = mode
+    (root / "profile.json").write_text(json.dumps(data))
+    monkeypatch.setattr(module, "_require_ports_free",
+                        lambda ports: (_ for _ in ()).throw(BoundaryReached("ports checked")))
+    monkeypatch.setattr(module, "_refresh_client_tokens",
+                        lambda *a: pytest.fail("credentials were refreshed before port preflight"))
+    monkeypatch.setattr(module.subprocess, "Popen",
+                        lambda *a, **k: pytest.fail("child was started before port preflight"))
+    with pytest.raises(BoundaryReached, match="ports checked"):
+        module.run(root)
