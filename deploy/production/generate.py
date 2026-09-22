@@ -99,7 +99,7 @@ def deployment(*, namespace: str, role: str, app_id: str, image: str,
                                                                            "capabilities": {"drop": ["ALL"]}},
                                                        "resources": {"requests": {"cpu": "100m", "memory": "128Mi"},
                                                                      "limits": {"cpu": "1", "memory": "512Mi"}}}],
-                                       "volumes": volumes}}}}
+                                       "volumes": volumes}}}
     }
 
 
