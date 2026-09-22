@@ -203,6 +203,7 @@ DAPR_BIN="$TOOLS/bin/daprd"
 NATS_BIN="$TOOLS/bin/nats-server"
 "$PY" "$REPO/scripts/check_local_native_versions.py" \
   --daprd "$DAPR_BIN" --nats-server "$NATS_BIN" \
+  --bootstrap-manifest "$TOOLS/manifest.json" \
   --json "$EVIDENCE/native-versions-bootstrap.json"
 ```
 

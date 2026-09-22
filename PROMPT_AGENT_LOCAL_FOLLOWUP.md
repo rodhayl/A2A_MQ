@@ -81,8 +81,7 @@ Only after the core and selected tests pass, execute Phase 2 of
 `PROMPT_AGENT_LOCAL_TEST.md`. For acceptance, use the repository-pinned private
 bootstrap in the fresh run directory even if a host `daprd` reports version
 1.18.3: Dapr's version/build-info output does not prove the sidecar flavor, while
-JetStream requires the `allcomponents` build. Require the bootstrap manifest to
-say `daprFlavor=allcomponents` and require the exact native-version gate.
+JetStream requires the `allcomponents` build. Pass `$STATE/tools/manifest.json` to the native-version checker; require that machine gate to verify `daprFlavor=allcomponents` together with the exact binary versions.
 
 This is not a host install. Do not copy binaries outside `$STATE/tools`, change
 system PATH, start services, or use Docker/PostgreSQL/Redis/Vault/RabbitMQ as a

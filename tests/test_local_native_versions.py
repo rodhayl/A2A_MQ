@@ -62,3 +62,46 @@ def test_version_parser_rejects_nonzero_command(tmp_path, monkeypatch):
         assert "nonzero" in str(exc)
     else:
         raise AssertionError("nonzero version command accepted")
+
+
+def test_bootstrap_manifest_requires_allcomponents_provenance(tmp_path):
+    import json
+
+    check = _module()
+    manifest = tmp_path / "manifest.json"
+    manifest.write_text(json.dumps({
+        "daprVersion": check.EXPECTED_DAPRD,
+        "daprFlavor": "allcomponents",
+        "natsVersion": check.EXPECTED_NATS,
+    }))
+    assert check._bootstrap_manifest(manifest)["daprFlavor"] == "allcomponents"
+
+    manifest.write_text(json.dumps({
+        "daprVersion": check.EXPECTED_DAPRD,
+        "daprFlavor": "stablecomponents",
+        "natsVersion": check.EXPECTED_NATS,
+    }))
+    assert check._bootstrap_manifest(manifest)["daprFlavor"] == "stablecomponents"
+
+
+def test_bootstrap_manifest_rejects_symlink_and_oversize(tmp_path):
+    check = _module()
+    target = tmp_path / "target.json"
+    target.write_text("{}")
+    link = tmp_path / "manifest.json"
+    link.symlink_to(target)
+    try:
+        check._bootstrap_manifest(link)
+    except ValueError as exc:
+        assert "unsafe" in str(exc)
+    else:
+        raise AssertionError("symlink manifest accepted")
+
+    link.unlink()
+    link.write_text("x" * 16385)
+    try:
+        check._bootstrap_manifest(link)
+    except ValueError as exc:
+        assert "unsafe" in str(exc)
+    else:
+        raise AssertionError("oversized manifest accepted")
