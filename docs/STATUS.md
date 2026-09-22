@@ -1,85 +1,150 @@
-# Source and acceptance status - 2026-09-17
+# Source and acceptance status - 2026-09-22
 
-## Present source
+## Current branch
 
 Branch: `implementation/production-hardening-20260916`.
-Base: `66c17153d7ec75b9ad85808ef141b9dba43a9d91` (phase 2).
-Version: **0.1.0**. No main merge, force update, release or certification is issued.
 
-The source includes envelope validation, task-state helpers, Dapr HTTP publishing
-and callbacks, strict JUnit evidence, JSON/transport hardening, stable echo event
-bytes, and frozen-SHA review tooling. It now also includes consumer-scoped SQLite
-persistence, verified replay evidence, a bounded asynchronous database lane,
-durable echo workers, independent snapshot observers, an outbox relay and an
-authenticated internal query service. These are incremental implementations,
-not a checksum-verified recovery of the original later snapshot.
+Source head before this status-only wrap-up:
+`a5a1ccb25e2bad7f7023249b61bad2ce0ae37e7e`.
 
-Phase 3a is commit `a2ffbf787150563652085de934a2d67b7ae13b28`; recovery checks are
-`9dcd38e0b0aee8936d9089490c2d51e4a18a1479`; runtime integration is
-`4e68deeb9d0c2c06722cd070dbd07a736533386a`; the service is
-`64694be6f69f0033cb20cd3a32d762d37b901c24`.
+`main` remains unchanged at
+`66c17153d7ec75b9ad85808ef141b9dba43a9d91`.
 
-[Durable service usage](DURABLE_SERVICE.md) documents the explicit new entry point.
-The old `demo:create_app` and `make up` fixture remain volatile and disposable.
-[New validation](validation/durable-service-20260917.md) reports **184 selected
-combined tests passed**, real SQLite/process/loopback HTTP scopes and an offline
-installed-wheel smoke. It is not the whole repository suite, hosted CI or a live
-Dapr/broker gate. [Independent review](../TEST_MVP.md) retains a distinct full-MVP
-`INCOMPLETE` verdict. Architecture/requirements and old phase records are design
-or historical material, not evidence that every target capability exists.
+Package version remains **0.1.0**. No merge to main, release, production
+certification or upstream binding certification is implied by this branch.
+
+## Current implementation
+
+The source now contains substantially more than the 2026-09-17 reference service.
+
+### Lightweight local product
+
+The default local product is intentionally the small three-process topology:
+
+- one Python A2A-MQ process;
+- one native `daprd`;
+- one native `nats-server`;
+- SQLite application state.
+
+PostgreSQL, Redis, Docker, Kubernetes, Vault, OTLP, Placement and Scheduler are
+not default local-lite requirements.
+
+Implemented local support includes:
+
+- `a2a_mq.local_lite:from_env`;
+- `a2amq-local` prepare/run launcher;
+- atomic private profile generation;
+- bounded/fail-closed profile and secret reads;
+- explicit loopback-port preflight;
+- explicit Dapr internal gRPC port;
+- least-privilege child environments;
+- core, Python-product and native-stack resource probes;
+- peak/steady RSS, CPU and per-role native measurements;
+- private pinned native bootstrap for Dapr 1.18.3 all-components and
+  NATS Server 2.15.0;
+- bootstrap provenance, SHA-256 and exact archive/binary-size evidence.
+
+The optional local-workflow tier adds Placement + Scheduler only when native Dapr
+Workflow semantics are required. It remains separate from local-lite economics.
+
+### Distributed / production-like source
+
+Source is present for the role-separated integrated stack and related production
+capabilities, including:
+
+- SQLite and PostgreSQL stores;
+- Dapr Pub/Sub with JetStream and RabbitMQ profiles;
+- Dapr Workflow;
+- standard A2A JSON-RPC / HTTP+JSON bridge and official SDK contracts;
+- canonical authenticated MCP server;
+- owner/tenant authorization and cancellation/continuation/approval flows;
+- independent observers and operations/DLQ/replay paths;
+- Vault Transit payload protection;
+- observability/operations modules;
+- deployment generators and production environment factories;
+- backup/restore and retention/maintenance support.
+
+Presence of source is not equivalent to a passed external acceptance gate.
+
+## Important hardening added in this iteration
+
+The current branch also includes focused fixes around:
+
+- local resource-measurement correctness and warmed Python-product economics;
+- Dapr/NATS bootstrap provenance and native-tooling cost evidence;
+- local secret isolation and deterministic port ownership;
+- production PostgreSQL DSN wiring for non-root Kubernetes pods;
+- public health endpoints compatible with Kubernetes probes while callbacks stay
+  app-token protected;
+- Dapr Kubernetes secret-store behavior with ServiceAccount token automount disabled;
+- canonical MCP runtime use in production composition;
+- PostgreSQL acceptance DSN alignment and explicit disposable-CI insecure override;
+- MCP marker classification and MCP 2.x `httpx2` prerequisite;
+- official SDK cancellation and MCP authentication-denial coverage;
+- integrated Dapr runtime/control-plane alignment on **1.18.3**;
+- required Vault startup validation;
+- independent send/read authorization capabilities;
+- capacity reservation before durable stream admission;
+- SQLite backup destination symlink-race protection.
+
+## Evidence that exists
+
+Historical evidence must stay attached to the SHA it actually tested.
+
+The independent local audit in
+`docs/validation/local-audit-20260922.md` established selected launcher/probe
+regressions and a lightweight core observation. It does **not** certify the current
+branch head after subsequent fixes.
+
+The owner's earlier isolated validation also established that the core Python +
+SQLite design was comfortably inside the configured local resource budget, but
+that run could not execute native Dapr/NATS because those binaries were absent at
+the time. The repository now contains a private pinned bootstrap specifically so
+the next target-machine run can measure the intended stack without installing
+host packages or using Docker.
+
+## Gates still requiring real execution
+
+The following remain execution/evidence gates rather than missing source modules:
+
+1. Run the current SHA's core and warmed Python-product economic probes on the
+   target low-power machine.
+2. Run the current SHA's selected local regression files in the private venv.
+3. Bootstrap the pinned private Dapr/NATS binaries and measure the real native
+   three-process local-lite stack on that machine.
+4. Execute official SDK, PostgreSQL verified-TLS, Vault and both disposable
+   broker gates when their explicit prerequisites are available.
+5. Execute Ruff, mypy, dependency checks, packaging/install smoke and the full
+   repository regression suite on the final SHA.
+6. Run production/deployment acceptance separately from local-lite economics.
+
+Until those gates are executed on the current SHA, full acceptance remains
+**INCOMPLETE** and `productionCertified=false`.
+
+## Hosted CI status
+
+Recent GitHub Actions push runs complete as failures in roughly five seconds with
+no job steps, logs or uploaded artifacts exposed by the available GitHub interface.
+That is consistent with failure before runner execution and is not evidence that
+repository tests ran and failed. The exact platform-side annotation is not
+available through the connector, so no more specific cause is claimed.
+
+Hosted CI therefore remains **not passed** and must be rerun/diagnosed separately.
 
 ## Original snapshot recovery
 
-The staged handoff at `e80096da84190a8af9aa044a4bd97b0123fca4ad` expected a bundle with
-SHA-256 `47a2c5418ec35d0d1c5fbcbb0fa4cd502b8479760b935a3b94ed01efe93965e9`,
-10 checkpoints and final tree `79521dec0000e246baaab5bf4129841aa4799914`.
-No verified reconstruction of that tree was obtained.
+The historical staged handoff at
+`e80096da84190a8af9aa044a4bd97b0123fca4ad` expected bundle SHA-256
+`47a2c5418ec35d0d1c5fbcbb0fa4cd502b8479760b935a3b94ed01efe93965e9`
+and final tree `79521dec0000e246baaab5bf4129841aa4799914`.
 
-The committed `.bundle/part-01` blob `f347f90d3b4db2c80ae61d718b69c41af3dc9be8`
-has a literal `...` suffix. The alternate `.sync/base-719f.b64` blob
-`d22c45df80281ce9fc8fe6e29bfc16bedbba18e7` also has a literal ellipsis suffix.
-Encoded-tail inspection distinguished stored bytes from tool display truncation.
-The other legacy fragments have not established complete checksum-verified recovery.
+Accessible recovery fragments contain literal ellipsis corruption/incompleteness;
+that exact tree has not been checksum-verified or reconstructed. Do not fabricate
+or silently substitute recovery bytes. Current implementation work proceeds from
+the accessible tested branch instead.
 
-Continue implementation against the accessible architecture and tested baseline.
-Any subsequently recovered snapshot must pass its checksum and `git bundle verify`,
-then be compared with current changes before integration. Keep recovery payloads
-outside the product branch and preserve the newer tested work.
+## Next machine handoff
 
-## Staged patch disposition
-
-The following records the original September 16 replay assessment; the new local
-phase-3 implementation is narrower than those original full-MVP patches.
-
-| Block | Disposition |
-| --- | --- |
-| 02 | Standalone JUnit gate recovered and strengthened; CI adapted to the available source. Full-stack gates remain separate. |
-| 03-04 | Original canonical agent E2E/flush patch not replayed. New SQLite worker/relay/HTTP tests cover a narrower reference path; bridge and Workflow are still absent. |
-| 05 | Full chaos matrix not replayed. New process-crash and cancellation checks are not full-stack chaos. |
-| 06-07 | Full security/config/coverage integration not replayed. New mandatory app-token checks and fixed-scope queries are not production identity or tenant authorization. |
-| 08 | Original full-MVP wheel/migration smoke not replayed. A separate offline installation smoke now verifies this current reference package. |
-| 09 | Intended 0.3.1 completion claims remain unapplied; the package is experimental 0.1.0. |
-| 10 | Limited frozen-SHA review tooling exists. Full-MVP acceptance remains explicitly incomplete. |
-
-## Remaining implementation and acceptance
-
-Phase 3 still needs a PostgreSQL adapter with real transactional parity tests and
-an explicit durable-service Dapr/broker deployment. The new service must pass live
-retention, competition, fan-out, retry/DLQ and sidecar-token tests. SQLite is local
-single-host storage; the reference SQL effect does not establish exactly-once
-external tool execution. Published outbox retention is coupled to replay evidence.
-
-Phases 4-10 retain Dapr Workflow/Agents, standard A2A bridge interoperability,
-production identity/TLS, optional encrypted envelopes/KMS, retention/quotas/HA,
-RabbitMQ parity and the formal binding decision. No PostgreSQL, actual NATS or
-RabbitMQ broker, Dapr Workflow, MCP or Vault/KMS service was exercised here.
-
-Hosted run `35194462365` at `64694be6...` failed without step summaries for either
-Python job; the underlying cause is unestablished. This is not a successful hosted
-test gate. Subsequent commits require their own successful hosted execution.
-Python 3.12, Ruff/mypy, the full existing regression suite, fresh locked dependency
-resolution, full-MVP packaging/migrations, supply-chain and production acceptance
-remain unverified. The offline wheel experiment used preinstalled dependencies.
-
-Local test success, hosted success, full-MVP acceptance and production readiness
-are separate statements; none implies the next one.
+Use `PROMPT_AGENT_LOCAL_FOLLOWUP.md` for the next bounded owner-machine run.
+It is intentionally local-first, venv-based and non-containerized until the
+lightweight gates pass.
