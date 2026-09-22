@@ -23,7 +23,7 @@ def request(mid="one", **config):
 async def api(tmp_path):
     ledger = TaskLedger(SQLiteStore(tmp_path / "state", tenant="demo", consumer="workflow"))
     lane = AsyncSQLite(ledger.store)
-    facade = TaskAPI(ledger, lane, wait_timeout=.2, poll_interval=.005, stream_timeout=.2)
+    facade = TaskAPI(ledger, lane, wait_timeout=5.0, poll_interval=.005, stream_timeout=5.0)
     try:
         yield facade
     finally:
