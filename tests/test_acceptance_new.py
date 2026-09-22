@@ -194,6 +194,10 @@ def test_postgres_gate_fails_closed_when_private_dsn_cannot_be_read(tmp_path,mon
                       "configurationError":"INVALID_POSTGRES_GATE_FILE"}
 
 
+def test_full_acceptance_requires_repository_contract_checker():
+    assert "repository-check" in FULL_REQUIRED
+
+
 def test_sdk_gate_requires_mcp_v2_http_client_dependency():
     assert GROUPS["sdk"]["modules"] == ["a2a", "dapr.ext.workflow", "mcp", "httpx2"]
 

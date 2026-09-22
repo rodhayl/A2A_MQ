@@ -136,7 +136,7 @@ def test_gate(name,root,output,env,timeout):
     return result
 
 
-FULL_REQUIRED = frozenset({*GROUPS, "dependency-check", "lint", "types", "jetstream", "rabbitmq"})
+FULL_REQUIRED = frozenset({*GROUPS, "repository-check", "dependency-check", "lint", "types", "jetstream", "rabbitmq"})
 
 
 def full_status(results,requested):
@@ -206,7 +206,8 @@ def main():
         for name in (GROUPS if args.mode=='full' else [args.mode]):
             results.append(test_gate(name,root,output,env,args.timeout))
         if args.mode=='full':
-            for name,command in [('dependency-check',[sys.executable,'-m','pip','check']),
+            for name,command in [('repository-check',[sys.executable,'tools/check.py']),
+                                 ('dependency-check',[sys.executable,'-m','pip','check']),
                                  ('lint',[sys.executable,'-m','ruff','check','.']),
                                  ('types',[sys.executable,'-m','mypy'])]:
                 rc=run_command(command,root,output/(name+'.log'),args.timeout,env)
