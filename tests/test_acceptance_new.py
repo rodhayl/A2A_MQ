@@ -134,3 +134,10 @@ def test_legacy_postgres_gate_uses_same_private_dsn_without_logging(tmp_path,mon
 
 def test_sdk_gate_requires_mcp_v2_http_client_dependency():
     assert GROUPS["sdk"]["modules"] == ["a2a", "dapr.ext.workflow", "mcp", "httpx2"]
+
+
+def test_sdk_owned_mcp_contract_is_excluded_from_local_gate():
+    from pathlib import Path
+
+    source = Path(__file__).with_name("test_mcp_adapter.py").read_text(encoding="utf-8")
+    assert "pytestmark = pytest.mark.mcp" in source
