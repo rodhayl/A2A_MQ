@@ -211,6 +211,19 @@ def create_bridge(api, verifier, *, public_url: str, profile: str = "workflow",
                                      body["requestId"], body["approved"])
             return JSONResponse({"task": task, "approvalQueued": state_of(task) == "AUTH_REQUIRED"})
 
+    def enforce_tenant(inner):
+        async def asgi(scope, receive, send):
+            if scope["type"] == "http":
+                principal = scope.get("state", {}).get("principal")
+                if principal is not None and principal.tenant != tenant:
+                    response = JSONResponse({"error": {"code": 403, "message": "FORBIDDEN", "status": "PERMISSION_DENIED"}},
+                                            status_code=403,
+                                            headers={"Cache-Control": "no-store"})
+                    await response(scope, receive, send)
+                    return
+            await inner(scope, receive, send)
+        return asgi
+
     handler = Handler()
     app = Starlette(routes=[*create_agent_card_routes(card),
         *create_jsonrpc_routes(handler, rpc_url="/rpc", enable_v0_3_compat=False),
@@ -219,5 +232,5 @@ def create_bridge(api, verifier, *, public_url: str, profile: str = "workflow",
     sanitize_sdk_logs()
     app.state.a2amq_handler = handler
     app.state.a2amq_card = card
-    return BearerIdentity(BoundedJSON(app), verifier,
+    return BearerIdentity(BoundedJSON(enforce_tenant(app)), verifier,
                           public_paths=frozenset({"/.well-known/agent-card.json"}))

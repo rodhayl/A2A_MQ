@@ -66,9 +66,11 @@ async def test_official_a2a_client_routes_and_owner_isolation(tmp_path, binding)
             assert [value.id for value in listed.tasks] == [task.id]
             ledger.step(task.id, "work", "WORKING")
             ledger.step(task.id, "done", "COMPLETED", artifacts=[{"artifactId":"result","parts":[{"text":"ok"}]}])
+            client._config.streaming = True
             stream = client.subscribe(pb.SubscribeToTaskRequest(id=task.id))
             items = [item async for item in stream]
             assert items and items[0].task.status.state == pb.TASK_STATE_COMPLETED
+            client._config.streaming = False
 
             cancel_request = ParseDict({"message": {"messageId": "native-cancel",
                         "role": "ROLE_USER", "parts": [{"text": "cancel me"}]},
@@ -84,10 +86,12 @@ async def test_official_a2a_client_routes_and_owner_isolation(tmp_path, binding)
             with pytest.raises(Exception) as denied:
                 await client.cancel_task(pb.CancelTaskRequest(id=cancel_target.id))
             require_access_denial(denied.value, TaskNotFoundError)
+            client._config.streaming = True
             intruder_stream = client.subscribe(pb.SubscribeToTaskRequest(id=cancel_target.id))
             with pytest.raises(Exception) as denied:
                 await anext(intruder_stream)
             require_access_denial(denied.value, TaskNotFoundError)
+            client._config.streaming = False
             http.headers["Authorization"] = "Bearer " + issue()
 
             async def owner_cancel():

@@ -91,6 +91,9 @@ def require_access_denial(error, not_found_type):
         return
     if isinstance(error, httpx.HTTPStatusError) and error.response.status_code in {401, 403, 404}:
         return
+    cause = getattr(error, "__cause__", None)
+    if isinstance(cause, httpx.HTTPStatusError) and cause.response.status_code in {401, 403, 404}:
+        return
     raise error
 
 
@@ -204,7 +207,7 @@ async def run_probe(fixture, *, broker):
         rest=factory("HTTP+JSON")
         require((await rest.get_task(pb.GetTaskRequest(id=task.id))).id==task.id,"REST_INTEROP_FAILED")
         streamed=[r async for r in client.subscribe(pb.SubscribeToTaskRequest(id=task.id))]
-        require(streamed and streamed[0].task.status.state==pb.TASK_STATE_COMPLETED,"SSE_RECONNECT_FAILED")
+        require(bool(streamed) and streamed[0].task.status.state==pb.TASK_STATE_COMPLETED,"SSE_RECONNECT_FAILED")
         facts["checks"].append("official-jsonrpc-rest-sse-client")
         for subject,tenant in (("intruder","demo"),("acceptance","foreign")):
             bearer=token(root,subject=subject,tenant=tenant)

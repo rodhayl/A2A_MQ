@@ -55,7 +55,7 @@ class BoundedJSON:
             if lengths:
                 require(int(lengths[0]) == len(body), "INVALID_CONTENT_LENGTH")
             if body:
-                require(types and types[0].split(b";")[0].strip().lower() == b"application/json",
+                require(bool(types) and types[0].split(b";")[0].strip().lower() == b"application/json",
                         "CONTENT_TYPE_UNSUPPORTED")
                 load_json(bytes(body), self.limit)
         except (PermanentError, TimeoutError) as error:
@@ -90,3 +90,21 @@ def sanitize_sdk_logs():
         logger = logging.getLogger(name)
         if not any(isinstance(f, MetadataOnlySDKLogs) for f in logger.filters):
             logger.addFilter(MetadataOnlySDKLogs())
+    try:
+        from a2a.utils import error_handlers
+        orig = error_handlers._create_error_response
+        if getattr(orig, "_a2amq_patched", False) is False:
+            def patched(error: Exception):
+                if hasattr(error, "status_code"):
+                    detail = getattr(error, "detail", str(error))
+                    headers = dict(error.headers) if getattr(error, "headers", None) else None
+                    return JSONResponse(
+                        content={"detail": detail} if isinstance(detail, str) else detail,
+                        status_code=getattr(error, "status_code"),
+                        headers=headers,
+                    )
+                return orig(error)
+            patched._a2amq_patched = True
+            error_handlers._create_error_response = patched
+    except ImportError:
+        pass

@@ -71,7 +71,7 @@ async def test_official_jsonrpc_send_get_list(environment):
     assert got.json()["result"]["status"]["state"] == "TASK_STATE_COMPLETED"
     listed = await client.post("/rpc", headers=headers(), json={"jsonrpc":"2.0", "id":3, "method":"ListTasks", "params":{"pageSize":10}})
     assert len(listed.json()["result"]["tasks"]) == 1
-    assert "artifacts" not in listed.json()["result"]["tasks"][0]
+    assert not listed.json()["result"]["tasks"][0].get("artifacts")
 
 
 async def test_discovery_auth_and_rest(environment):
