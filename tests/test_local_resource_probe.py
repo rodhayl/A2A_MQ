@@ -45,3 +45,10 @@ def test_resource_probe_smoke_verifies_task_projection(tmp_path, monkeypatch):
     result = json.loads(report.read_text())
     assert result["verdict"] == "PASS_CORE_LIGHT"
     assert result["observed"]["tasksExecuted"] == 3
+
+
+def test_peak_rss_is_included_in_resource_budget(monkeypatch):
+    probe = _module()
+    monkeypatch.setattr(probe.resource, "getrusage", lambda _: type("Usage", (), {"ru_maxrss": 123})())
+    expected = 123 if __import__("sys").platform == "darwin" else 123 * 1024
+    assert probe._peak_rss_bytes() == expected

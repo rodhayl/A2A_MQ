@@ -16,6 +16,7 @@ from a2a_mq.local_runtime import (
     _nats_config,
     _plan,
     _private_replace,
+    _read,
     _resiliency_resource,
     _workflow_state_component,
 )
@@ -149,3 +150,34 @@ def test_local_rotation_constants_match_documented_budget():
     assert CLIENT_TOKEN_LIFETIME_SECONDS == 3600
     assert CLIENT_TOKEN_REFRESH_SECONDS == 1800
     assert SUPERVISOR_INTERVAL_SECONDS == 1.0
+
+
+def test_local_profile_rejects_symlink_and_oversized_profile(tmp_path):
+    root = tmp_path / "profile"
+    root.mkdir(mode=0o700)
+    target = tmp_path / "outside-profile.json"
+    target.write_text("{}")
+    (root / "profile.json").symlink_to(target)
+    with pytest.raises(PermanentError, match="CONFIG_FILE_UNAVAILABLE"):
+        _load_profile(root, "local-lite")
+
+    (root / "profile.json").unlink()
+    (root / "profile.json").write_text("x" * 16385)
+    with pytest.raises(PermanentError, match="INVALID_CONFIG_FILE"):
+        _load_profile(root, "local-lite")
+
+
+def test_local_secret_reader_rejects_symlink_and_oversize(tmp_path):
+    target = tmp_path / "outside-token"
+    target.write_text("secret")
+    target.chmod(0o600)
+    link = tmp_path / "token-link"
+    link.symlink_to(target)
+    with pytest.raises(PermanentError, match="CONFIG_FILE_UNAVAILABLE"):
+        _read(link)
+
+    oversized = tmp_path / "oversized-token"
+    oversized.write_text("x" * 513)
+    oversized.chmod(0o600)
+    with pytest.raises(PermanentError, match="INVALID_CONFIG_FILE"):
+        _read(oversized)

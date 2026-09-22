@@ -16,6 +16,7 @@ import sys
 import time
 from urllib.parse import urlsplit
 
+from .configuration import read_file
 from .domain import require, token
 
 APP_ID = "a2amq-local"
@@ -72,7 +73,7 @@ def _refresh_client_tokens(root: Path, profile: dict) -> None:
     except ImportError:
         raise RuntimeError("local runtime extra is required: pip install -e '.[local]'") from None
 
-    key = load_pem_private_key((root / "jwt-private.pem").read_bytes(), password=None)
+    key = load_pem_private_key(read_file(str(root / "jwt-private.pem"), secret=True, limit=65536).encode(), password=None)
     require(isinstance(key, RSAPrivateKey), "INVALID_LOCAL_IDENTITY_KEY")
     now = datetime.now(timezone.utc)
     claims = {
@@ -95,8 +96,7 @@ def _load_profile(root: Path, expected_mode: str) -> dict:
     require(root.is_dir() and not root.is_symlink(), "PROFILE_NOT_FOUND")
     info = root.stat()
     require(info.st_mode & 0o077 == 0, "UNSAFE_LOCAL_PROFILE")
-    raw = (root / "profile.json").read_text(encoding="utf-8")
-    require(len(raw.encode("utf-8")) <= 16384, "INVALID_LOCAL_PROFILE")
+    raw = read_file(str(root / "profile.json"), limit=16384)
     try:
         profile = json.loads(raw)
     except (TypeError, ValueError):
@@ -383,7 +383,7 @@ def _wait_port(host: str, port: int, process: subprocess.Popen, timeout: float =
 
 
 def _read(path: Path) -> str:
-    return path.read_text(encoding="utf-8").strip()
+    return read_file(str(path), secret=True, limit=512).strip()
 
 
 def _native_binary(name: str) -> str | None:

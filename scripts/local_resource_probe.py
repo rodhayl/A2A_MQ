@@ -6,6 +6,7 @@ import argparse
 import gc
 import json
 import os
+import resource
 from pathlib import Path
 import shutil
 import sys
@@ -35,11 +36,14 @@ def _rss_bytes() -> int:
                 return int(line.split()[1]) * 1024
     except (OSError, ValueError, IndexError):
         pass
+    return _peak_rss_bytes()
+
+
+def _peak_rss_bytes() -> int:
     try:
-        import resource
         value = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
         return int(value * 1024 if sys.platform != "darwin" else value)
-    except (ImportError, ValueError):
+    except (ValueError, OSError):
         return 0
 
 
@@ -151,7 +155,7 @@ def main() -> int:
     swap_after = after_mem.get("SwapTotal", 0) - after_mem.get("SwapFree", 0)
     state_size = _state_bytes(db_path)
     disk_after = _disk_free(state_dir)
-    rss_peak = max(rss_start, rss_after_import, rss_after_smoke)
+    rss_peak = max(rss_start, rss_after_import, rss_after_smoke, _peak_rss_bytes())
 
     checks = {
         "rss": _mib(rss_peak) <= args.max_rss_mib,
