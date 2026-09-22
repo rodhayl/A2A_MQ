@@ -8,6 +8,7 @@ from a2a_mq.local_runtime import (
     APP_ID,
     CLIENT_TOKEN_LIFETIME_SECONDS,
     CLIENT_TOKEN_REFRESH_SECONDS,
+    DAPR_INTERNAL_GRPC_PORT,
     SUPERVISOR_INTERVAL_SECONDS,
     _bus_component,
     _dlq_component,
@@ -245,6 +246,8 @@ def test_local_lite_sidecar_explicitly_disables_actor_workflow_control_plane(tmp
     assert "--placement-host-address=" in command
     assert "--scheduler-host-address=" in command
     assert command[command.index("--dapr-listen-addresses") + 1] == "127.0.0.1"
+    assert command[command.index("--dapr-internal-grpc-port") + 1] == str(DAPR_INTERNAL_GRPC_PORT)
+    assert command[command.index("--dapr-internal-grpc-listen-address") + 1] == "127.0.0.1"
     assert command[command.index("--app-max-concurrency") + 1] == "2"
 
 
@@ -301,3 +304,9 @@ def test_local_port_preflight_rejects_duplicate_or_invalid_ports():
     for ports in ((18000, 18000), (0,), (65536,), (True,)):
         with pytest.raises(PermanentError, match="INVALID_LOCAL_PORTS"):
             _require_ports_free(ports)
+
+
+def test_generated_profile_records_internal_dapr_grpc_port(tmp_path):
+    data = prepare(tmp_path / "profile")
+    assert data["daprInternalGrpcPort"] == DAPR_INTERNAL_GRPC_PORT
+    assert _load_profile(tmp_path / "profile", "local-lite")["daprInternalGrpcPort"] == DAPR_INTERNAL_GRPC_PORT

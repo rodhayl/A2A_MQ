@@ -17,6 +17,7 @@ import time
 
 from .local_runtime import (
     APP_ID,
+    DAPR_INTERNAL_GRPC_PORT,
     CLIENT_TOKEN_REFRESH_SECONDS,
     SUPERVISOR_INTERVAL_SECONDS,
     _load_profile,
@@ -94,7 +95,7 @@ def run(root: Path) -> int:
     root = root.absolute()
     profile = _load_profile(root, "local-workflow")
     _require_ports_free((
-        18000, 3500, 50001, 4222,
+        18000, 3500, 50001, DAPR_INTERNAL_GRPC_PORT, 4222,
         PLACEMENT_PORT, SCHEDULER_PORT, PLACEMENT_RAFT_PORT,
         PLACEMENT_HEALTH_PORT, PLACEMENT_METRICS_PORT,
         SCHEDULER_HEALTH_PORT, SCHEDULER_METRICS_PORT,
@@ -135,6 +136,8 @@ def run(root: Path) -> int:
             binaries["daprd"], "--mode", "standalone", "--app-id", APP_ID,
             "--app-port", "18000", "--app-protocol", "http",
             "--dapr-http-port", "3500", "--dapr-grpc-port", "50001",
+            "--dapr-internal-grpc-port", str(DAPR_INTERNAL_GRPC_PORT),
+            "--dapr-internal-grpc-listen-address", "127.0.0.1",
             "--resources-path", str((root / "components").resolve()),
             "--dapr-listen-addresses", "127.0.0.1",
             "--placement-host-address", f"127.0.0.1:{PLACEMENT_PORT}",

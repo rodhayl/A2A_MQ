@@ -1,7 +1,7 @@
 from pathlib import Path
 import tomllib
 
-from a2a_mq.local_runtime import APP_ID, _workflow_state_component
+from a2a_mq.local_runtime import APP_ID, DAPR_INTERNAL_GRPC_PORT, _workflow_state_component
 from a2a_mq.local_workflow import LocalWorkflowSettings
 from a2a_mq.local_workflow_runtime import _placement_command, _scheduler_command
 
@@ -56,3 +56,7 @@ def test_local_workflow_extra_only_adds_official_dapr_workflow_sdks():
     assert "psycopg" not in lowered
     assert "redis" not in lowered
     assert "docker" not in lowered
+
+
+def test_workflow_sidecar_internal_grpc_port_is_reserved():
+    assert DAPR_INTERNAL_GRPC_PORT == 50002

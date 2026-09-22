@@ -23,6 +23,7 @@ APP_ID = "a2amq-local"
 CLIENT_TOKEN_LIFETIME_SECONDS = 3600
 CLIENT_TOKEN_REFRESH_SECONDS = 1800
 SUPERVISOR_INTERVAL_SECONDS = 1.0
+DAPR_INTERNAL_GRPC_PORT = 50002
 
 
 def _private_write(path: Path, value: str) -> None:
@@ -104,7 +105,8 @@ def _load_profile(root: Path, expected_mode: str) -> dict:
     require(isinstance(profile, dict) and profile.get("mode") == expected_mode,
             "LOCAL_PROFILE_MODE_MISMATCH")
     require(profile.get("appId") == APP_ID and profile.get("appPort") == 18000
-            and profile.get("daprHttpPort") == 3500 and profile.get("daprGrpcPort") == 50001,
+            and profile.get("daprHttpPort") == 3500 and profile.get("daprGrpcPort") == 50001
+            and profile.get("daprInternalGrpcPort", DAPR_INTERNAL_GRPC_PORT) == DAPR_INTERNAL_GRPC_PORT,
             "INVALID_LOCAL_PROFILE")
     token(profile.get("tenant"))
     token(profile.get("source"))
@@ -367,7 +369,8 @@ def prepare(root: Path, *, tenant: str = "demo", source: str = "local-worker",
         config = {"mode": mode, "tenant": tenant, "source": source,
                   "publicUrl": public_url, "issuer": issuer,
                   "mcp": mcp, "appId": APP_ID, "appPort": 18000, "daprHttpPort": 3500,
-                  "daprGrpcPort": 50001, "processBudget": process_budget}
+                  "daprGrpcPort": 50001, "daprInternalGrpcPort": DAPR_INTERNAL_GRPC_PORT,
+                  "processBudget": process_budget}
         _json_write(root / "profile.json", config)
         os.replace(root, final_root)
         return config
@@ -438,6 +441,7 @@ def _runtime_environments(root: Path, profile: dict) -> tuple[dict[str, str], di
         "A2A_DATABASE_CAPACITY": "4",
         "DAPR_HTTP_ENDPOINT": "http://127.0.0.1:3500",
         "DAPR_GRPC_PORT": "50001",
+        "DAPR_INTERNAL_GRPC_PORT": str(DAPR_INTERNAL_GRPC_PORT),
     })
 
     sidecar = child.copy()
@@ -480,6 +484,8 @@ def _lite_sidecar_command(daprd: str, root: Path) -> list[str]:
     return [
         daprd, "--mode", "standalone", "--app-id", APP_ID, "--app-port", "18000",
         "--app-protocol", "http", "--dapr-http-port", "3500", "--dapr-grpc-port", "50001",
+        "--dapr-internal-grpc-port", str(DAPR_INTERNAL_GRPC_PORT),
+        "--dapr-internal-grpc-listen-address", "127.0.0.1",
         "--resources-path", str((root / "components").resolve()),
         "--dapr-listen-addresses", "127.0.0.1",
         "--placement-host-address=", "--scheduler-host-address=",
@@ -492,7 +498,7 @@ def run(root: Path) -> int:
     """Run exactly three product processes: this Python app, daprd and nats-server."""
     root = root.absolute()
     profile = _load_profile(root, "local-lite")
-    _require_ports_free((18000, 3500, 50001, 4222))
+    _require_ports_free((18000, 3500, 50001, DAPR_INTERNAL_GRPC_PORT, 4222))
     # Profiles are durable, while access tokens are deliberately short-lived.
     # Refresh generated client credentials before checking runtime prerequisites.
     _refresh_client_tokens(root, profile)

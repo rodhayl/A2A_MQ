@@ -221,3 +221,12 @@ The existing role-separated profile remains the place for independent API/worker
 observers, shared PostgreSQL, production broker/state backends, HA, Vault,
 observability and Kubernetes. Those capabilities and their acceptance gates are
 preserved; neither local tier silently claims them.
+
+
+### Dapr internal gRPC port
+
+Both native local tiers pin Dapr's internal gRPC listener to
+`127.0.0.1:50002` and include that port in the fail-closed preflight. Dapr 1.18.3
+otherwise derives a stable internal port when none is supplied; making it explicit
+keeps the local topology deterministic and prevents a hidden port collision from
+appearing only after NATS/Dapr startup.
