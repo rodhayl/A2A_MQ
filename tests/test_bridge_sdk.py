@@ -10,6 +10,21 @@ from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
 pytestmark = pytest.mark.upstream
 
 
+@pytest.mark.parametrize("url", [
+    "https://:443",
+    "https://agent.example:70000",
+    "https://agent.example:bad",
+    "https://agent.example\n",
+    "https://agent.example\t",
+])
+def test_bridge_rejects_malformed_public_url_before_sdk_import(url):
+    from a2a_mq.bridge import create_bridge
+    from a2a_mq.domain import PermanentError
+
+    with pytest.raises(PermanentError, match="PUBLIC_HTTPS_URL_REQUIRED"):
+        create_bridge(object(), object(), public_url=url)
+
+
 @pytest.fixture
 async def environment(tmp_path):
     pytest.importorskip("a2a.server.routes.jsonrpc_routes")

@@ -15,11 +15,17 @@ from .vault import FileToken
 
 
 def rabbit(url, password_file, plan, *, development=False, client=None):
-    parsed = urlsplit(url)
-    require(parsed.scheme == ("http" if development else "https") and parsed.hostname
-            and not parsed.username and not parsed.password and not parsed.query and not parsed.fragment
-            and "?" not in url and "#" not in url
-            and parsed.path in {"", "/"}, "PROVISION_TLS_REQUIRED")
+    try:
+        parsed = urlsplit(url)
+        port = parsed.port
+    except (TypeError, ValueError):
+        raise PermanentError("PROVISION_TLS_REQUIRED") from None
+    require(isinstance(url, str) and parsed.scheme == ("http" if development else "https")
+            and bool(parsed.hostname) and not parsed.username and not parsed.password
+            and not parsed.query and not parsed.fragment
+            and "?" not in url and "#" not in url and not any(c.isspace() for c in url)
+            and parsed.path in {"", "/"} and (port is None or 1 <= port <= 65535),
+            "PROVISION_TLS_REQUIRED")
     password = FileToken(password_file)()
     owns = client is None
     client = client or httpx.Client(timeout=5, follow_redirects=False, trust_env=False)
@@ -63,10 +69,16 @@ def rabbit(url, password_file, plan, *, development=False, client=None):
 
 
 async def jetstream(url, password_file, plan, *, development=False, connect=None):
-    parsed = urlsplit(url)
-    require(parsed.scheme == ("nats" if development else "tls") and parsed.hostname
-            and not parsed.username and not parsed.password and not parsed.query and not parsed.fragment
-            and "?" not in url and "#" not in url,
+    try:
+        parsed = urlsplit(url)
+        port = parsed.port
+    except (TypeError, ValueError):
+        raise PermanentError("PROVISION_TLS_REQUIRED") from None
+    require(isinstance(url, str) and parsed.scheme == ("nats" if development else "tls")
+            and bool(parsed.hostname) and not parsed.username and not parsed.password
+            and not parsed.query and not parsed.fragment
+            and "?" not in url and "#" not in url and not any(c.isspace() for c in url)
+            and parsed.path in {"", "/"} and (port is None or 1 <= port <= 65535),
             "PROVISION_TLS_REQUIRED")
     if connect is None:
         import nats

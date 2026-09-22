@@ -55,12 +55,17 @@ def cloud_event(envelope: Envelope) -> dict[str, Any]:
 class DaprPublisher:
     def __init__(self, url: str = "http://127.0.0.1:3500", component: str = "bus",
                  api_token: str = "", timeout: float = 5.0, client: httpx.AsyncClient | None = None):
-        parsed = urlsplit(url)
-        require(parsed.scheme in {"http", "https"} and bool(parsed.netloc)
+        try:
+            parsed = urlsplit(url)
+            port = parsed.port
+        except (TypeError, ValueError):
+            raise PermanentError("INVALID_DAPR_URL") from None
+        require(isinstance(url, str) and parsed.scheme in {"http", "https"} and bool(parsed.hostname)
                 and not parsed.username and not parsed.password and not parsed.query
                 and not parsed.fragment and "?" not in url and "#" not in url
                 and not any(c.isspace() for c in url)
-                and parsed.path in {"", "/"}, "INVALID_DAPR_URL")
+                and parsed.path in {"", "/"} and (port is None or 1 <= port <= 65535),
+                "INVALID_DAPR_URL")
         require(type(timeout) in {int, float} and 0 < timeout <= 60, "INVALID_TIMEOUT")
         self.url, self.component = url.rstrip("/"), token(component)
         self.timeout = timeout

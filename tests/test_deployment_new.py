@@ -222,13 +222,18 @@ async def test_native_jetstream_api_bootstrap_and_existing_verification(tmp_path
     assert len(calls)==(1 if exists else 2)
 
 
-@pytest.mark.parametrize("url", ["http://rabbit?", "http://rabbit#"])
+@pytest.mark.parametrize("url", ["http://rabbit?", "http://rabbit#", "http://:15672",
+                                 "http://rabbit:70000", "http://rabbit:bad",
+                                 "http://rabbit\n", "http://rabbit/path"])
 def test_rabbit_provisioning_rejects_empty_query_fragment_delimiters(url):
     with pytest.raises(PermanentError, match="PROVISION_TLS_REQUIRED"):
         rabbit(url, "unused", {}, development=True, client=object())
 
 
-@pytest.mark.parametrize("url", ["nats://localhost:4222?", "nats://localhost:4222#"])
+@pytest.mark.parametrize("url", ["nats://localhost:4222?", "nats://localhost:4222#",
+                                 "nats://:4222", "nats://localhost:70000",
+                                 "nats://localhost:bad", "nats://localhost:4222\n",
+                                 "nats://localhost:4222/path"])
 async def test_jetstream_provisioning_rejects_empty_query_fragment_delimiters(url):
     with pytest.raises(PermanentError, match="PROVISION_TLS_REQUIRED"):
         await jetstream(url, "unused", {}, development=True, connect=object())

@@ -16,14 +16,19 @@ from .identity import BearerIdentity, current_principal
 
 def create_bridge(api, verifier, *, public_url: str, profile: str = "workflow",
                   allow_insecure_loopback: bool = False):
-    parsed = urlsplit(public_url)
+    try:
+        parsed = urlsplit(public_url)
+        port = parsed.port
+    except (TypeError, ValueError):
+        raise PermanentError("PUBLIC_HTTPS_URL_REQUIRED") from None
     secure = parsed.scheme == "https"
     loopback = (allow_insecure_loopback and parsed.scheme == "http"
                 and parsed.hostname in {"127.0.0.1", "localhost", "::1"})
-    require((secure or loopback) and bool(parsed.hostname) and not parsed.username
-            and not parsed.password and not parsed.query and not parsed.fragment
+    require(isinstance(public_url, str) and (secure or loopback) and bool(parsed.hostname)
+            and not parsed.username and not parsed.password and not parsed.query and not parsed.fragment
             and "?" not in public_url and "#" not in public_url
-            and parsed.path in {"", "/"},
+            and not any(c.isspace() for c in public_url)
+            and parsed.path in {"", "/"} and (port is None or 1 <= port <= 65535),
             "PUBLIC_HTTPS_URL_REQUIRED")
     require(profile in {"workflow", "local-lite"}, "INVALID_RUNTIME_PROFILE")
     base_url = public_url.rstrip("/")
