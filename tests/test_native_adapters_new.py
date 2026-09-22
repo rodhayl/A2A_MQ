@@ -75,6 +75,21 @@ async def test_official_a2a_client_routes_and_owner_isolation(tmp_path, binding)
                         "configuration": {"returnImmediately": True}}, pb.SendMessageRequest())
             cancel_target = [item async for item in client.send_message(cancel_request)][0].task
 
+            # a2a-sdk 1.1.2's default live-task registry has had owner-isolation
+            # regressions on cancel/subscribe. Our custom handler must keep both
+            # paths owner-scoped before delegating to the durable TaskAPI.
+            from a2a.utils.errors import TaskNotFoundError
+            from a2a_mq.live_probe import require_access_denial
+            http.headers["Authorization"] = "Bearer " + issue("mallory")
+            with pytest.raises(Exception) as denied:
+                await client.cancel_task(pb.CancelTaskRequest(id=cancel_target.id))
+            require_access_denial(denied.value, TaskNotFoundError)
+            intruder_stream = client.subscribe(pb.SubscribeToTaskRequest(id=cancel_target.id))
+            with pytest.raises(Exception) as denied:
+                await anext(intruder_stream)
+            require_access_denial(denied.value, TaskNotFoundError)
+            http.headers["Authorization"] = "Bearer " + issue()
+
             async def owner_cancel():
                 while not ledger.pending(("cancel",)):
                     await asyncio.sleep(.005)
@@ -94,8 +109,6 @@ async def test_official_a2a_client_routes_and_owner_isolation(tmp_path, binding)
 
             http.headers["Authorization"] = "Bearer " + issue("mallory")
             assert not (await client.list_tasks(pb.ListTasksRequest(page_size=10))).tasks
-            from a2a.utils.errors import TaskNotFoundError
-            from a2a_mq.live_probe import require_access_denial
             with pytest.raises(Exception) as denied:
                 await client.get_task(pb.GetTaskRequest(id=task.id))
             require_access_denial(denied.value, TaskNotFoundError)
