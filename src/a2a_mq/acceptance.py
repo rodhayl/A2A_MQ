@@ -185,6 +185,14 @@ def package_gate(root, output, env, timeout):
     return result
 
 
+
+def _file_sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as stream:
+        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
 def evidence_hashes(root):
     """Hash every regular evidence file recursively and report unsafe path types."""
     hashes={}
@@ -196,7 +204,7 @@ def evidence_hashes(root):
         if path.is_symlink():
             unsafe.append(relative)
         elif path.is_file():
-            hashes[relative]=hashlib.sha256(path.read_bytes()).hexdigest()
+            hashes[relative]=_file_sha256(path)
         elif not path.is_dir():
             unsafe.append(relative)
     return hashes, unsafe
