@@ -48,6 +48,23 @@ def test_worker_and_dlq_require_dapr_to_app_token_but_api_does_not():
 
 
 
+def test_public_key_input_is_bounded_regular_file(tmp_path):
+    key = tmp_path / "public.pem"
+    key.write_text(PUBLIC_KEY)
+    assert deploy.read_file(str(key), limit=65536) == PUBLIC_KEY
+
+    oversized = tmp_path / "oversized.pem"
+    oversized.write_text("x" * 65537)
+    with pytest.raises(PermanentError, match="INVALID_CONFIG_FILE"):
+        deploy.read_file(str(oversized), limit=65536)
+
+    link = tmp_path / "public-link.pem"
+    link.symlink_to(key)
+    with pytest.raises(PermanentError, match="CONFIG_FILE_UNAVAILABLE"):
+        deploy.read_file(str(link), limit=65536)
+
+
+
 def test_output_writer_is_exclusive_and_rejects_dangling_symlink(tmp_path):
     output = tmp_path / "manifest.json"
     deploy.write_output(output, '{"ok":true}\n')

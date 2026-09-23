@@ -10,7 +10,7 @@ from pathlib import Path
 import re
 
 from a2a_mq.broker_profiles import assert_portability_contract, platform_profiles
-from a2a_mq.configuration import https_issuer, https_origin
+from a2a_mq.configuration import https_issuer, https_origin, read_file
 from a2a_mq.domain import PermanentError, require, token
 
 IMAGE = re.compile(r"^[A-Za-z0-9._/:@-]+@sha256:[0-9a-f]{64}$")
@@ -182,7 +182,7 @@ def main() -> int:
     parser.add_argument("--output", required=True, type=Path)
     args = parser.parse_args()
     require(args.output.parent.is_dir(), "INVALID_OUTPUT")
-    public_key = args.jwt_public_key.read_text(encoding="ascii")
+    public_key = read_file(str(args.jwt_public_key), limit=65536)
     manifest = generate(namespace=args.namespace, tenant=args.tenant, broker=args.broker,
                         image=args.image, public_url=args.public_url, issuer=args.issuer,
                         jwt_kid=args.jwt_kid, public_key=public_key)
