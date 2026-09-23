@@ -4,7 +4,7 @@ import pytest
 from a2a_mq.acceptance import (FULL_REQUIRED, GROUPS, MODEL_CREDENTIAL, _file_sha256, evidence_hashes, full_status,
                                git_snapshot, junit, package_gate, provenance_status,
                                test_gate as execute_gate)
-from a2a_mq.live_probe import wait_until
+from a2a_mq.live_probe import broker_service, wait_until
 
 
 @pytest.mark.parametrize('xml',[
@@ -92,6 +92,13 @@ def test_git_snapshot_requires_clean_exact_head_and_tree(tmp_path,monkeypatch):
     monkeypatch.setattr("a2a_mq.acceptance.subprocess.check_output",
                         lambda *a,**k: next(values))
     assert git_snapshot(tmp_path) is None
+
+
+@pytest.mark.parametrize("broker,service", [("jetstream","nats"),("rabbitmq","rabbitmq")])
+def test_live_broker_recovery_targets_real_broker_service(broker,service):
+    assert broker_service(broker)==service
+    with pytest.raises(Exception):
+        broker_service("fixture")
 
 
 async def test_live_deadline_does_not_accept_false_condition():

@@ -79,6 +79,11 @@ asyncio.run(run())
         return checked_publish_status(json.loads(raw)["status"], expected_status)
 
 
+def broker_service(broker: str) -> str:
+    require(broker in {"jetstream", "rabbitmq"}, "INVALID_BROKER")
+    return "nats" if broker == "jetstream" else "rabbitmq"
+
+
 def checked_publish_status(status, expected=None):
     require(type(status) is int, "INVALID_PUBLISH_STATUS")
     require(status == expected if expected is not None else 200 <= status < 300,
@@ -176,6 +181,20 @@ async def run_probe(fixture, *, broker):
             await wait_until(lambda:observed("observer-a",18001))
             await wait_until(lambda:observed("observer-b",18002))
         facts["checks"].append("actual-broker-fanout-two-independent-projections")
+
+        # A healthy-at-start broker is insufficient production evidence. Keep all
+        # daprd sidecars alive while the broker disappears and returns, then prove
+        # a durably admitted task drains without sidecar/application restart.
+        broker_name=broker_service(broker)
+        await asyncio.to_thread(fixture.run,"stop",broker_name)
+        outage=await send("broker-outage-recovery",text="broker recovers")
+        require(outage.status.state==pb.TASK_STATE_SUBMITTED,"BROKER_OUTAGE_NOT_DURABLY_ADMITTED")
+        require((await client.get_task(pb.GetTaskRequest(id=outage.id))).status.state!=pb.TASK_STATE_COMPLETED,
+                "BROKER_OUTAGE_COMPLETED_WITHOUT_BROKER")
+        await asyncio.to_thread(fixture.run,"up","-d",broker_name)
+        recovered=await wait_until(lambda:state(outage.id,{"COMPLETED"}),timeout=180)
+        require(recovered.artifacts[0].parts[0].text=="broker recovers","BROKER_RECOVERY_ARTIFACT_MISMATCH")
+        facts["checks"].append("broker-outage-recovery-without-sidecar-restart")
         paused=await send("input-auth",inputRequired=True,authRequired=True,transform="upper")
         await wait_until(lambda:state(paused.id,{"INPUT_REQUIRED"}))
         req=ParseDict({"message":{"messageId":"continuation-1","role":"ROLE_USER","taskId":paused.id,
