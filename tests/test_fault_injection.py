@@ -1,6 +1,4 @@
 from types import SimpleNamespace
-import pytest
-
 from a2a_mq import fault_injection
 
 
