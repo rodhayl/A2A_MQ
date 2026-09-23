@@ -1,6 +1,10 @@
+import importlib.util
 from pathlib import Path
 import tomllib
 
+import pytest
+
+from a2a_mq.domain import PermanentError
 from a2a_mq.local_runtime import APP_ID, DAPR_INTERNAL_GRPC_PORT, _workflow_state_component
 from a2a_mq.local_workflow import LocalWorkflowSettings
 from a2a_mq.local_workflow_runtime import _placement_command, _scheduler_command
@@ -60,3 +64,34 @@ def test_local_workflow_extra_only_adds_official_dapr_workflow_sdks():
 
 def test_workflow_sidecar_internal_grpc_port_is_reserved():
     assert DAPR_INTERNAL_GRPC_PORT == 50002
+
+
+def _workflow_gate_module():
+    path = Path(__file__).resolve().parents[1] / "scripts/local_workflow_gate.py"
+    spec = importlib.util.spec_from_file_location("local_workflow_gate", path)
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_workflow_evidence_paths_must_be_fresh_and_distinct(tmp_path):
+    gate = _workflow_gate_module()
+    json_path = tmp_path / "workflow.json"
+    log_path = tmp_path / "workflow.log"
+    gate._prepare_evidence_paths(json_path, log_path)
+
+    existing = tmp_path / "existing.json"
+    existing.write_text("{}")
+    with pytest.raises(PermanentError, match="EVIDENCE_OUTPUT_EXISTS"):
+        gate._prepare_evidence_paths(existing, log_path)
+
+    target = tmp_path / "target.log"
+    target.write_text("target")
+    link = tmp_path / "link.log"
+    link.symlink_to(target)
+    with pytest.raises(PermanentError, match="EVIDENCE_OUTPUT_EXISTS"):
+        gate._prepare_evidence_paths(json_path, link)
+
+    with pytest.raises(PermanentError, match="EVIDENCE_PATH_CONFLICT"):
+        gate._prepare_evidence_paths(tmp_path / "same", tmp_path / "same")

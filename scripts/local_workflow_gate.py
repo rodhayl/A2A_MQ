@@ -868,6 +868,14 @@ async def run_workflow_gate(tools_dir: Path, native_verification: Path, work_dir
     }
 
 
+def _prepare_evidence_paths(json_path: Path, log_path: Path) -> None:
+    for path in (json_path, log_path):
+        require(not path.exists() and not path.is_symlink(), "EVIDENCE_OUTPUT_EXISTS")
+    require(json_path.resolve() != log_path.resolve(), "EVIDENCE_PATH_CONFLICT")
+    json_path.parent.mkdir(parents=True, exist_ok=True)
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--tools-dir", required=True, type=Path)
@@ -878,13 +886,12 @@ def main() -> int:
     args = parser.parse_args()
 
     args.work_dir.mkdir(parents=True, exist_ok=True)
-    args.json_path.parent.mkdir(parents=True, exist_ok=True)
-    args.log.parent.mkdir(parents=True, exist_ok=True)
+    _prepare_evidence_paths(args.json_path, args.log)
 
     result = asyncio.run(run_workflow_gate(args.tools_dir, args.native_verification, args.work_dir))
-    with args.json_path.open("w", encoding="utf-8") as f:
+    with args.json_path.open("x", encoding="utf-8") as f:
         json.dump(result, f, indent=2, sort_keys=True)
-    with args.log.open("w", encoding="utf-8") as f:
+    with args.log.open("x", encoding="utf-8") as f:
         f.write(json.dumps(result, indent=2, sort_keys=True) + "\n")
 
     print(json.dumps({
