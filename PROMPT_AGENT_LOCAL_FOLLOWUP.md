@@ -3,15 +3,13 @@
 Start a NEW conversation in `rodhayl/A2A_MQ` on branch
 `implementation/production-hardening-20260916`. Read `AGENTS.md`,
 `docs/STATUS.md`, `docs/VALIDATION.md`,
-`docs/validation/local-run-20260922.md` and this file before changing code.
+`docs/validation/local-certification-20260924.md` and this file before changing code.
 
-Record the actual starting SHA. The latest source-hardening baseline before the
-documentation-only handoff is
-`9dafa7d5e2917027fe8d2741569f68ff022de075`. If the branch is later than that,
-inspect the intervening diff before changing code. The exact-SHA historical
-`LOCAL_PASS` belongs to
-`3415b10ddcfc5c721f9872c926fead5e11897543`; do not attribute it to a later
-HEAD without rerunning acceptance.
+Record the actual starting SHA. The latest local-tier certified source baseline is
+`d72112641ee4a43a1a668426402c01e35f316b54`, with documentation and production gate
+hardening at `76a9dfe7bfa48e7cec3c9fae872ee7a5b8db108d`.
+`PASS_LOCAL_TIER_COMPLETE` has been fully re-established across all local resource,
+functional, resilience, and soak gates under the corrected ADR 0011 Workflow policy.
 
 ## Preserve repository and evidence invariants
 
@@ -120,19 +118,12 @@ python -m pip check
 python -m a2a_mq.acceptance --mode local --root <repo> --output <fresh-external-dir> --timeout 1800
 ```
 
-This is mandatory because the historical `LOCAL_PASS` is tied to `3415b10`.
+The local tier has been recertified on validated SHA `d72112641ee4a43a1a668426402c01e35f316b54`
+with `LOCAL_PASS` (1100 tests passed), `PASS_LOCAL_LITE_RESILIENCE`, `PASS_LOCAL_WORKFLOW` (5 processes,
+370.69 MiB RSS, 4.23% CPU, 61.26 MiB state), and `PASS_LOCAL_SOAK` (23.03 minutes).
 
-Before deciding whether to skip the expensive resource probes, inspect the raw
-`.local-validation` evidence from the `3415b10` run if it still exists. The
-committed validation report contains resource-probe command strings that do not
-match the CLI accepted by those scripts at `3415b10`, so exact command provenance
-is not established by Git history alone.
-
-If the raw JSON/logs and shell history/agent transcript establish valid invocations,
-preserve that historical evidence and only rerun resource probes when relevant
-runtime/probe bytes changed. If the raw evidence is absent or cannot resolve the
-mismatch, rerun core, warmed Python and native local-lite probes once with the
-current documented CLI before treating their measurements as reproducible evidence.
+When modifying runtime/probe source, rerun the full local certification suite with the
+current documented CLIs before treating measurements as reproducible evidence:
 
 Use the actual current CLIs; do not reconstruct the old transcription:
 
