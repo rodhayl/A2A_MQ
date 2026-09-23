@@ -328,3 +328,25 @@ def test_integrated_deployment_dapr_patch_matches_python_sdk_pin():
     assert IMAGES["control"] == "daprio/dapr:1.18.3"
     dockerfile = (Path(__file__).resolve().parents[1] / "deploy" / "Dockerfile.sidecar").read_text()
     assert "ARG DAPR_IMAGE=daprio/daprd:1.18.3" in dockerfile
+
+
+def test_deployment_cli_kubernetes_rejects_existing_and_symlink_output(tmp_path, monkeypatch):
+    import json
+    import sys
+    from a2a_mq.deployment import main
+
+    cfg = tmp_path / "config.json"
+    cfg.write_text(json.dumps(config()))
+
+    out = tmp_path / "manifest.json"
+    out.write_text("{}")
+    monkeypatch.setattr(sys, "argv", ["deployment.py", "kubernetes", "--config", str(cfg), "--output", str(out)])
+    with pytest.raises(PermanentError, match="OUTPUT_ALREADY_EXISTS"):
+        main()
+
+    target = tmp_path / "target.json"
+    dangling = tmp_path / "dangling.json"
+    dangling.symlink_to(target)
+    monkeypatch.setattr(sys, "argv", ["deployment.py", "kubernetes", "--config", str(cfg), "--output", str(dangling)])
+    with pytest.raises(PermanentError, match="OUTPUT_ALREADY_EXISTS"):
+        main()

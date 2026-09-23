@@ -526,7 +526,7 @@ def main():
                       images=_json_config(args.images) if args.images else None))
     else:
         values = kubernetes(_json_config(args.config))
-        require(not args.output.exists(), "OUTPUT_ALREADY_EXISTS")
+        require(not args.output.exists() and not args.output.is_symlink(), "OUTPUT_ALREADY_EXISTS")
         with args.output.open("x") as file:
             json.dump({"apiVersion": "v1", "kind": "List", "items": values}, file, indent=2)
 
