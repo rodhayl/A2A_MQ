@@ -21,7 +21,6 @@ def test_fault_mode_and_sync_dir_require_explicit_validation_enable(tmp_path, mo
     monkeypatch.setattr(fault_injection, "_ENABLE", None)
     monkeypatch.setattr(fault_injection, "_MODE", "unacked_delivery")
     monkeypatch.setattr(fault_injection, "_TARGET", "*")
-    monkeypatch.setattr(fault_injection, "_ENABLE", "local-validation-v1")
     monkeypatch.setattr(fault_injection, "_RECORD_FILE", str(rec_file))
     monkeypatch.setattr(fault_injection, "_SYNC_DIR", str(sync_dir))
 
@@ -33,6 +32,7 @@ def test_fault_mode_and_sync_dir_require_explicit_validation_enable(tmp_path, mo
 
 def test_fault_injection_records_events_when_configured(tmp_path, monkeypatch):
     rec_file = tmp_path / "records.jsonl"
+    monkeypatch.setattr(fault_injection, "_ENABLE", "local-validation-v1")
     monkeypatch.setattr(fault_injection, "_RECORD_FILE", str(rec_file))
     monkeypatch.setattr(fault_injection, "_MODE", "test_mode")
     monkeypatch.setattr(fault_injection, "_TARGET", "target-1")
