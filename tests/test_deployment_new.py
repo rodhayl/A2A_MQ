@@ -87,6 +87,29 @@ def test_failed_compose_generation_leaves_no_partial_secret_tree(tmp_path,monkey
     assert not list(tmp_path.glob('failed.*.tmp'))
 
 
+
+def test_deployment_json_config_is_bounded_regular_and_duplicate_safe(tmp_path):
+    path=tmp_path/'config.json'
+    path.write_text('{"broker":"jetstream"}')
+    assert deployment._json_config(path)=={"broker":"jetstream"}
+
+    duplicate=tmp_path/'duplicate.json'
+    duplicate.write_text('{"broker":"jetstream","broker":"rabbitmq"}')
+    with pytest.raises(PermanentError,match='DUPLICATE_JSON_KEY'):
+        deployment._json_config(duplicate)
+
+    target=tmp_path/'target.json'
+    target.write_text('{}')
+    link=tmp_path/'config-link.json'
+    link.symlink_to(target)
+    with pytest.raises(PermanentError,match='CONFIG_FILE_UNAVAILABLE'):
+        deployment._json_config(link)
+
+    oversized=tmp_path/'oversized.json'
+    oversized.write_text('x'*(deployment.MAX_BYTES+1))
+    with pytest.raises(PermanentError,match='INVALID_CONFIG_FILE'):
+        deployment._json_config(oversized)
+
 def config(broker='jetstream'):
     return {'namespace':'tenant','image':'registry.example/a2a@sha256:'+'1'*64,'broker':broker,
         'brokerEndpoint':'tls://nats.internal:4222' if broker=='jetstream' else 'amqps://rabbit.internal:5671',

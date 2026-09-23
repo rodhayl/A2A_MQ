@@ -18,8 +18,8 @@ import shutil
 from typing import Any
 from urllib.parse import urlsplit
 
-from .configuration import https_issuer, https_origin
-from .domain import PermanentError, require, token
+from .configuration import https_issuer, https_origin, read_file
+from .domain import MAX_BYTES, PermanentError, load_json, require, token
 
 IMAGES = {"python": "python:3.13.5-slim-bookworm", "dapr": "daprio/daprd:1.18.3",
           "control": "daprio/dapr:1.18.3", "postgres": "postgres:17-alpine", "redis": "redis:7.4-alpine",
@@ -503,6 +503,12 @@ def kubernetes(config: dict) -> list[dict]:
     return docs
 
 
+
+def _json_config(path: Path) -> dict[str, Any]:
+    value = load_json(read_file(str(path), limit=MAX_BYTES), MAX_BYTES)
+    require(isinstance(value, dict), "INVALID_CONFIG_FILE")
+    return value
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     sub = parser.add_subparsers(dest="profile", required=True)
@@ -517,9 +523,9 @@ def main():
     args = parser.parse_args()
     if args.profile == "compose":
         print(compose(args.output, broker=args.broker, source_root=args.source,
-                      images=json.loads(args.images.read_text()) if args.images else None))
+                      images=_json_config(args.images) if args.images else None))
     else:
-        values = kubernetes(json.loads(args.config.read_text()))
+        values = kubernetes(_json_config(args.config))
         require(not args.output.exists(), "OUTPUT_ALREADY_EXISTS")
         with args.output.open("x") as file:
             json.dump({"apiVersion": "v1", "kind": "List", "items": values}, file, indent=2)
