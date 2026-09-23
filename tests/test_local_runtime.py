@@ -206,6 +206,8 @@ def test_local_child_environments_keep_app_tokens_sidecar_only(tmp_path, monkeyp
     monkeypatch.setenv("APP_API_TOKEN", "host-app-secret")
     monkeypatch.setenv("DAPR_API_TOKEN", "host-dapr-secret")
     monkeypatch.setenv("UNRELATED_SECRET", "must-not-reach-helper")
+    monkeypatch.setenv("OPENAI_API_KEY", "must-not-reach-app")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "must-not-reach-app")
     profile = {
         "issuer": "https://local-a2amq.invalid",
         "publicUrl": "http://127.0.0.1:18000",
@@ -219,6 +221,8 @@ def test_local_child_environments_keep_app_tokens_sidecar_only(tmp_path, monkeyp
     assert "APP_API_TOKEN" not in child and "DAPR_API_TOKEN" not in child
     assert "UNRELATED_SECRET" not in child and "UNRELATED_SECRET" not in sidecar
     assert app["UNRELATED_SECRET"] == "must-not-reach-helper"
+    assert "OPENAI_API_KEY" not in app and "ANTHROPIC_API_KEY" not in app
+    assert app["A2AMQ_NO_LLM_TOKENS"] == "1"
     assert sidecar["APP_API_TOKEN"] == "a" * 32
     assert sidecar["DAPR_API_TOKEN"] == "d" * 32
     assert app["APP_API_TOKEN_FILE"].endswith("app-api-token")

@@ -20,14 +20,7 @@ import time
 import tarfile
 import xml.etree.ElementTree as ET
 
-from .domain import PermanentError
-
-
-MODEL_CREDENTIAL = re.compile(
-    r"^(?:OPENAI|ANTHROPIC|AZURE_OPENAI|GEMINI|GOOGLE|MISTRAL|COHERE|GROQ|"
-    r"DEEPSEEK|TOGETHER|OPENROUTER|HUGGING_FACE|HF_|XAI|CEREBRAS|REPLICATE).*(?:KEY|TOKEN|CREDENTIAL)",
-    re.I,
-)
+from .domain import MODEL_CREDENTIAL, PermanentError
 
 
 GROUPS = {

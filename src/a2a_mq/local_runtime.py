@@ -17,7 +17,7 @@ import time
 from urllib.parse import urlsplit
 
 from .configuration import read_file
-from .domain import require, token
+from .domain import MODEL_CREDENTIAL, require, token
 
 APP_ID = "a2amq-local"
 CLIENT_TOKEN_LIFETIME_SECONDS = 3600
@@ -428,6 +428,10 @@ def _runtime_environments(root: Path, profile: dict) -> tuple[dict[str, str], di
     app = os.environ.copy()
     app.pop("APP_API_TOKEN", None)
     app.pop("DAPR_API_TOKEN", None)
+    for name in tuple(app):
+        if MODEL_CREDENTIAL.match(name):
+            app.pop(name, None)
+    app["A2AMQ_NO_LLM_TOKENS"] = "1"
     app["PYTHONNOUSERSITE"] = "1"
 
     safe_names = {"PATH", "HOME", "TMPDIR", "TMP", "TEMP", "LANG", "TZ",
