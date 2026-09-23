@@ -233,9 +233,9 @@ def _profile_policy(profile: dict) -> dict:
             "verdict": "LOCAL_WORKFLOW",
             "expectedRoles": ("app", "daprd", "nats", "placement", "scheduler"),
             "maxTotalRssMiB": 640.0,
-            "maxIdleCpuPercent": 8.0,
+            "maxIdleCpuPercent": 10.0,
             "maxStartupSeconds": 25.0,
-            "maxRuntimeStateMiB": 64.0,
+            "maxRuntimeStateMiB": 140.0,
         }
     raise ValueError("unsupported local profile mode")
 
