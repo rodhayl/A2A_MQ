@@ -51,6 +51,22 @@ from a2a_mq.transport import cloud_event
 
 
 FAULT_ENABLE = {"A2AMQ_FAULT_INJECTION_ENABLE": "local-validation-v1"}
+FAULT_ENV_NAMES = frozenset({
+    "A2AMQ_FAULT_INJECTION_ENABLE",
+    "A2AMQ_FAULT_INJECTION_MODE",
+    "A2AMQ_FAULT_INJECTION_TARGET",
+    "A2AMQ_FAULT_RECORD_FILE",
+    "A2AMQ_FAULT_SYNC_DIR",
+})
+
+
+def _stack_environment(tools_bin: Path, overrides: dict[str, str]) -> dict[str, str]:
+    env = os.environ.copy()
+    for name in FAULT_ENV_NAMES:
+        env.pop(name, None)
+    env["PATH"] = str(tools_bin) + os.pathsep + env.get("PATH", "")
+    env.update(overrides)
+    return env
 
 
 def _mib(bytes_val: int | float) -> float:
@@ -164,9 +180,7 @@ class ManagedStack:
                 except OSError:
                     probe.close()
                     time.sleep(0.15)
-        env = os.environ.copy()
-        env["PATH"] = str(self.tools_bin) + os.pathsep + env.get("PATH", "")
-        env.update(self.env_overrides)
+        env = _stack_environment(self.tools_bin, self.env_overrides)
         log_path = self.profile_dir / "stack.log"
         self._log_file = log_path.open("a", encoding="utf-8")
         self.process = subprocess.Popen(

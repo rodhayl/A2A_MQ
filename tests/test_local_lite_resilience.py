@@ -18,6 +18,21 @@ def _gate_module():
     return module
 
 
+def test_resilience_stack_scrubs_parent_fault_environment(tmp_path, monkeypatch):
+    gate = _gate_module()
+    for name in gate.FAULT_ENV_NAMES:
+        monkeypatch.setenv(name, "parent-value")
+    tools = tmp_path / "bin"
+    tools.mkdir()
+
+    env = gate._stack_environment(tools, {"A2AMQ_FAULT_RECORD_FILE": "/tmp/explicit.jsonl"})
+
+    assert env["A2AMQ_FAULT_RECORD_FILE"] == "/tmp/explicit.jsonl"
+    for name in gate.FAULT_ENV_NAMES - {"A2AMQ_FAULT_RECORD_FILE"}:
+        assert name not in env
+    assert env["PATH"].split(":")[0] == str(tools)
+
+
 def test_sqlite_integrity_checker_verifies_clean_schema(tmp_path):
     from a2a_mq.storage import SQLiteStore
     from a2a_mq.tasks import TaskLedger
