@@ -4,6 +4,7 @@ import pytest
 from a2a_mq.acceptance import (FULL_REQUIRED, GROUPS, MODEL_CREDENTIAL, _file_sha256, evidence_hashes, full_status,
                                git_snapshot, junit, package_gate, provenance_status,
                                test_gate as execute_gate)
+from a2a_mq.domain import PermanentError
 from a2a_mq.live_probe import broker_service, wait_until
 
 
@@ -97,7 +98,7 @@ def test_git_snapshot_requires_clean_exact_head_and_tree(tmp_path,monkeypatch):
 @pytest.mark.parametrize("broker,service", [("jetstream","nats"),("rabbitmq","rabbitmq")])
 def test_live_broker_recovery_targets_real_broker_service(broker,service):
     assert broker_service(broker)==service
-    with pytest.raises(Exception):
+    with pytest.raises(PermanentError, match="INVALID_BROKER"):
         broker_service("fixture")
 
 
