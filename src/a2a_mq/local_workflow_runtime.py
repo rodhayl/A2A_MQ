@@ -88,6 +88,7 @@ def _scheduler_command(binary: str, root: Path) -> list[str]:
         "--etcd-backend-batch-interval=50ms",
         f"--etcd-initial-cluster={node}=http://127.0.0.1:{SCHEDULER_ETCD_PEER_PORT}",
         f"--override-broadcast-host-port=127.0.0.1:{SCHEDULER_PORT}",
+        "--workers=32",
     ]
 
 

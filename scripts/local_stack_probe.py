@@ -99,6 +99,8 @@ def _tree_bytes(path: Path) -> int:
                 raise MeasurementUnavailable("symlinked runtime state cannot be measured")
             info = candidate.stat()
             if stat.S_ISREG(info.st_mode):
+                if candidate.suffix == ".tmp":
+                    continue
                 total += info.st_size
     except OSError:
         raise MeasurementUnavailable("runtime state measurement unavailable") from None

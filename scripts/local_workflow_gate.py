@@ -584,8 +584,13 @@ async def run_workflow_functional(stack: ManagedWorkflowStack, profile_dir: Path
     require(transformed_texts == ["ITEM 0", "ITEM 1", "ITEM 2", "ITEM 3"], f"FANOUT_RESULT_MISMATCH: {transformed_texts}")
     scenarios["fanOutFanIn"] = {"verdict": "PASS", "taskId": tid_fanout, "partsCount": 4}
 
-    # Verify SQLite integrity
-    check = _check_sqlite_integrity(db_path)
+    # Verify SQLite integrity after allowing relay to drain
+    check: dict[str, Any] = {"clean": False}
+    for _ in range(30):
+        check = _check_sqlite_integrity(db_path)
+        if check["clean"]:
+            break
+        await asyncio.sleep(0.1)
     require(check["clean"], "SQLITE_INTEGRITY_COMPROMISED_AFTER_FUNCTIONAL")
     scenarios["sqliteIntegrity"] = check
     scenarios["verdict"] = "PASS_LOCAL_WORKFLOW_FUNCTIONAL"
@@ -782,8 +787,13 @@ async def run_workflow_resilience(stack: ManagedWorkflowStack, profile_dir: Path
     require(final_r5["artifacts"][0]["parts"][0]["text"] == "SEQUENTIAL RESUMED", "TRANSFORM_CORRUPTED_R5")
     scenarios["sequentialAllRestarts"] = {"verdict": "PASS", "taskId": tid_r5}
 
-    # Verify SQLite integrity
-    check = _check_sqlite_integrity(db_path)
+    # Verify SQLite integrity after allowing relay to drain
+    check: dict[str, Any] = {"clean": False}
+    for _ in range(30):
+        check = _check_sqlite_integrity(db_path)
+        if check["clean"]:
+            break
+        await asyncio.sleep(0.1)
     require(check["clean"], "SQLITE_INTEGRITY_COMPROMISED_AFTER_RESILIENCE")
     scenarios["sqliteIntegrity"] = check
     scenarios["verdict"] = "PASS_LOCAL_WORKFLOW_RESILIENCE"

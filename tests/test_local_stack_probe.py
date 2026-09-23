@@ -22,6 +22,7 @@ def test_stack_probe_proc_helpers_and_tree_size(tmp_path):
     nested = tmp_path / "nested"
     nested.mkdir()
     (nested / "b").write_bytes(b"y" * 50)
+    (nested / "scratch.tmp").write_bytes(b"z" * 1000)
     assert probe._tree_bytes(tmp_path) == 150
 
 

@@ -36,6 +36,7 @@ from .workflows import ActionRelay, DaprActions
 @dataclass(frozen=True)
 class LocalWorkflowSettings(LocalLiteSettings):
     dapr_grpc_port: int = 50001
+    relay_interval: float = 0.25
 
     def __post_init__(self):
         super().__post_init__()
@@ -45,8 +46,10 @@ class LocalWorkflowSettings(LocalLiteSettings):
     @classmethod
     def from_env(cls, env=None):
         env = os.environ if env is None else env
-        base = LocalLiteSettings.from_env(env)
-        return cls(**asdict(base), dapr_grpc_port=_integer(env, "DAPR_GRPC_PORT", 50001, 1, 65535))
+        payload = asdict(LocalLiteSettings.from_env(env))
+        if "A2A_RELAY_INTERVAL" not in env:
+            payload["relay_interval"] = 0.25
+        return cls(**payload, dapr_grpc_port=_integer(env, "DAPR_GRPC_PORT", 50001, 1, 65535))
 
 
 async def _reconcile(ledger, database, actions, stop, interval):
@@ -197,10 +200,7 @@ def create_app(settings: LocalWorkflowSettings):
                 jobs = [
                     asyncio.create_task(_runtime_worker(runtime, status, stop),
                                         name="a2amq-local-workflow-runtime"),
-                    asyncio.create_task(ActionRelay(ledger, database, publisher=bus)
-                                        .run(stop, settings.relay_interval),
-                                        name="a2amq-local-workflow-publish"),
-                    asyncio.create_task(ActionRelay(ledger, database, actions=actions)
+                    asyncio.create_task(ActionRelay(ledger, database, publisher=bus, actions=actions)
                                         .run(stop, settings.relay_interval),
                                         name="a2amq-local-workflow-actions"),
                     asyncio.create_task(OutboxRelay(database, bus)
@@ -208,8 +208,7 @@ def create_app(settings: LocalWorkflowSettings):
                                         name="a2amq-local-workflow-outbox"),
                     asyncio.create_task(AdmissionRepair(ledger).run(database, stop),
                                         name="a2amq-local-workflow-admission-repair"),
-                    asyncio.create_task(_reconcile(ledger, database, actions, stop,
-                                                   settings.relay_interval),
+                    asyncio.create_task(_reconcile(ledger, database, actions, stop, 1.0),
                                         name="a2amq-local-workflow-reconcile"),
                     asyncio.create_task(replay.run(stop), name="a2amq-local-workflow-replay"),
                 ]
