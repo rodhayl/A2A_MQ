@@ -11,7 +11,7 @@ import re
 
 from a2a_mq.broker_profiles import assert_portability_contract, platform_profiles
 from a2a_mq.configuration import https_issuer, https_origin
-from a2a_mq.domain import require, token
+from a2a_mq.domain import PermanentError, require, token
 
 IMAGE = re.compile(r"^[A-Za-z0-9._/:@-]+@sha256:[0-9a-f]{64}$")
 
