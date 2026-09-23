@@ -67,17 +67,17 @@ def test_aggregate_keeps_all_missing_gates(statuses,expected):
     assert full_status([{'name':'local','status':'PASSED'}],'local')=='LOCAL_PASS'
 
 
+def test_acceptance_git_override_guard_covers_repository_redirection():
+    assert {"GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE",
+            "GIT_OBJECT_DIRECTORY", "GIT_ALTERNATE_OBJECT_DIRECTORIES"} <= GIT_OVERRIDES
+
+
 @pytest.mark.parametrize("initial,final", [
     (None, {"head":"a" * 40,"tree":"b" * 40}),
     ({"head":"a" * 40,"tree":"b" * 40}, None),
     ({"head":"a" * 40,"tree":"b" * 40}, {"head":"c" * 40,"tree":"d" * 40}),
     ({"head":"a" * 40,"tree":"b" * 40}, {"head":"a" * 40,"tree":"d" * 40}),
 ])
-def test_acceptance_git_override_guard_covers_repository_redirection():
-    assert {"GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE",
-            "GIT_OBJECT_DIRECTORY", "GIT_ALTERNATE_OBJECT_DIRECTORIES"} <= GIT_OVERRIDES
-
-
 def test_passing_acceptance_requires_stable_git_provenance(initial,final):
     assert provenance_status("LOCAL_PASS", initial, final) == "INCOMPLETE"
     assert provenance_status("FULL_PASS", initial, final) == "INCOMPLETE"
