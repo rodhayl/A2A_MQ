@@ -10,6 +10,7 @@ from a2a_mq.local_runtime import (
     CLIENT_TOKEN_REFRESH_SECONDS,
     DAPR_INTERNAL_GRPC_PORT,
     SUPERVISOR_INTERVAL_SECONDS,
+    _apply_app_environment,
     _bus_component,
     _dlq_component,
     _load_profile,
@@ -228,6 +229,23 @@ def test_local_child_environments_keep_app_tokens_sidecar_only(tmp_path, monkeyp
     assert app["APP_API_TOKEN_FILE"].endswith("app-api-token")
     assert app["DAPR_API_TOKEN_FILE"].endswith("dapr-api-token")
 
+
+
+def test_apply_app_environment_removes_inherited_model_and_inline_app_tokens(monkeypatch):
+    monkeypatch.setenv("OPENAI_API_KEY", "model-secret")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "model-secret")
+    monkeypatch.setenv("APP_API_TOKEN", "inline-app")
+    monkeypatch.setenv("DAPR_API_TOKEN", "inline-dapr")
+    monkeypatch.setenv("UNRELATED_SECRET", "preserved")
+
+    _apply_app_environment({"A2AMQ_NO_LLM_TOKENS": "1", "PYTHONNOUSERSITE": "1"})
+
+    assert "OPENAI_API_KEY" not in __import__("os").environ
+    assert "ANTHROPIC_API_KEY" not in __import__("os").environ
+    assert "APP_API_TOKEN" not in __import__("os").environ
+    assert "DAPR_API_TOKEN" not in __import__("os").environ
+    assert __import__("os").environ["UNRELATED_SECRET"] == "preserved"
+    assert __import__("os").environ["A2AMQ_NO_LLM_TOKENS"] == "1"
 
 def test_prepare_failure_leaves_no_partial_profile(tmp_path, monkeypatch):
     target = tmp_path / "profile"

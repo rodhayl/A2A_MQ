@@ -467,6 +467,14 @@ def _runtime_environments(root: Path, profile: dict) -> tuple[dict[str, str], di
     return app, sidecar, child
 
 
+
+def _apply_app_environment(app: dict[str, str]) -> None:
+    """Replace inherited application secrets that the local product never needs."""
+    for name in tuple(os.environ):
+        if name in {"APP_API_TOKEN", "DAPR_API_TOKEN"} or MODEL_CREDENTIAL.match(name):
+            os.environ.pop(name, None)
+    os.environ.update(app)
+
 def _native_binary(name: str) -> str | None:
     found = shutil.which(name)
     if found:
@@ -527,9 +535,7 @@ def run(root: Path) -> int:
 
     # The current process becomes the ASGI application. Only NATS and daprd are
     # child processes, so the steady-state product process count is exactly three.
-    os.environ.pop("APP_API_TOKEN", None)
-    os.environ.pop("DAPR_API_TOKEN", None)
-    os.environ.update(app_env)
+    _apply_app_environment(app_env)
     nats = sidecar = None
     try:
         nats = subprocess.Popen([nats_server, "-c", str(root / "nats.conf")], cwd=root, env=child_env)
