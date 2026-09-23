@@ -16,11 +16,16 @@ class Verifier:
 
 
 class API:
-    async def get(self, *args, **kwargs): return {"id": "task"}
-    async def list(self, *args, **kwargs): return {"tasks": []}
-    async def send(self, *args, **kwargs): return {"id": "task"}
-    async def cancel(self, *args, **kwargs): return {"id": "task"}
-    async def approve(self, *args, **kwargs): return {"id": "task"}
+    async def get(self, *args, **kwargs):
+        return {"id": "task"}
+    async def list(self, *args, **kwargs):
+        return {"tasks": []}
+    async def send(self, *args, **kwargs):
+        return {"id": "task"}
+    async def cancel(self, *args, **kwargs):
+        return {"id": "task"}
+    async def approve(self, *args, **kwargs):
+        return {"id": "task"}
 
 
 async def test_official_server_registers_bounded_task_tools():
@@ -48,7 +53,8 @@ def test_mcp_adapter_requires_exact_https_resource_before_sdk_import(url):
 
 
 def test_mcp_requires_exact_resource_audience_before_sdk_import():
-    verifier = Verifier(); verifier.audience = "https://other.example/mcp"
+    verifier = Verifier()
+    verifier.audience = "https://other.example/mcp"
     with pytest.raises(PermanentError, match="MCP_AUDIENCE_MISMATCH"):
         create_mcp(API(), verifier, resource_url="https://mcp.example/mcp")
 

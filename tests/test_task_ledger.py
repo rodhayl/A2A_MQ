@@ -33,7 +33,8 @@ def test_admission_restart_duplicate_and_conflict(ledger):
 
 
 def test_owner_isolation_and_same_request_id(ledger):
-    a=ledger.submit(ALICE,request());b=ledger.submit(BOB,request())
+    a=ledger.submit(ALICE,request())
+    b=ledger.submit(BOB,request())
     assert a["id"] != b["id"]
     assert ledger.list(ALICE)[0]==[a]
     with pytest.raises(PermanentError,match="FORBIDDEN"):
@@ -45,7 +46,8 @@ def test_owner_isolation_and_same_request_id(ledger):
 
 
 def test_queued_control_and_idempotent_steps(ledger):
-    task=ledger.submit(ALICE,request());tid=task["id"]
+    task=ledger.submit(ALICE,request())
+    tid=task["id"]
     ledger.accept(ledger.command(tid))
     assert len(ledger.pending(("start",)))==1
     ledger.step(tid,"working","WORKING")
@@ -68,7 +70,8 @@ def test_queued_control_and_idempotent_steps(ledger):
 
 
 def test_explicit_cancel_does_not_lie_about_completion(ledger):
-    task=ledger.submit(ALICE,request());tid=task["id"]
+    task=ledger.submit(ALICE,request())
+    tid=task["id"]
     assert state_of(ledger.control(ALICE,tid,"cancel","cancel"))=="SUBMITTED"
     ledger.step(tid,"cancelled","CANCELED")
     assert state_of(ledger.control(ALICE,tid,"cancel","cancel"))=="CANCELED"
@@ -99,13 +102,16 @@ def test_action_ack_idempotent_and_strict(ledger):
     item=ledger.pending(("publish",))[0]
     with pytest.raises(PermanentError,match="CONTROL_ID_CONFLICT"):
         ledger.delivered(replace(item,body="{}"))
-    ledger.delivered(item);ledger.delivered(item)
+    ledger.delivered(item)
+    ledger.delivered(item)
     assert ledger.pending(("publish",))==[]
 
 
 def test_control_conflict_after_consumption(ledger):
-    task=ledger.submit(ALICE,request());tid=task["id"]
-    ledger.step(tid,"working","WORKING");ledger.step(tid,"pause","INPUT_REQUIRED")
+    task=ledger.submit(ALICE,request())
+    tid=task["id"]
+    ledger.step(tid,"working","WORKING")
+    ledger.step(tid,"pause","INPUT_REQUIRED")
     msg={**request("m2")["message"],"taskId":tid}
     ledger.control(ALICE,tid,"input","m2",msg)
     with pytest.raises(PermanentError,match="CONTROL_ID_CONFLICT"):
@@ -121,7 +127,8 @@ def test_executor_adjacent_state_guards(ledger,state):
 
 
 def test_pagination_filters_scope(ledger):
-    for i in range(5):ledger.submit(ALICE,request(f"m{i}"))
+    for i in range(5):
+        ledger.submit(ALICE,request(f"m{i}"))
     ledger.submit(BOB,request("m0"))
     first,cursor=ledger.list(ALICE,limit=2)
     second,cursor2=ledger.list(ALICE,limit=2,after=cursor)
@@ -131,9 +138,11 @@ def test_pagination_filters_scope(ledger):
 
 
 def test_transaction_rolls_back_on_result_failure(ledger,monkeypatch):
-    def fail(*args,**kwargs):raise RuntimeError("fixture")
+    def fail(*args,**kwargs):
+        raise RuntimeError("fixture")
     monkeypatch.setattr(ledger.store,"_project",fail)
-    with pytest.raises(RuntimeError):ledger.submit(ALICE,request())
+    with pytest.raises(RuntimeError):
+        ledger.submit(ALICE,request())
     assert not ledger.pending(("publish",))
     with ledger.store._connection() as db:
         assert db.execute("SELECT count(*) FROM a2amq_jobs").fetchone()[0]==0

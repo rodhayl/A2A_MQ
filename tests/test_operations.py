@@ -20,8 +20,10 @@ def setup(tmp_path):
 
 
 class Publisher:
-    def __init__(self): self.items = []
-    async def publish(self, envelope): self.items.append(envelope)
+    def __init__(self):
+        self.items = []
+    async def publish(self, envelope):
+        self.items.append(envelope)
 
 
 async def test_dlq_is_deduplicated_verified_and_replayed(setup):
@@ -45,7 +47,8 @@ def _terminal_job(ledger, store, user):
     ledger.step(task_id, "working", "WORKING")
     ledger.step(task_id, "completed", "COMPLETED",
                 artifacts=[{"artifactId": "result", "parts": [{"text": "hello"}]}])
-    for action in ledger.pending(("publish",), limit=50): ledger.delivered(action)
+    for action in ledger.pending(("publish",), limit=50):
+        ledger.delivered(action)
     with store._transaction() as db:
         db.execute("INSERT INTO a2amq_runtime_end VALUES (?,?,?,?)", (*ledger.keys, task_id, 100.0))
     return task_id
@@ -56,7 +59,8 @@ def test_retention_waits_for_outbox_then_preserves_tombstone(setup):
     task_id = _terminal_job(ledger, store, user)
     assert ops.retire(admin, retention_seconds=10) == []
     for item in store.pending_outbox(limit=50):
-        assert store.record_publish_attempt(item); store.mark_published(item)
+        assert store.record_publish_attempt(item)
+        store.mark_published(item)
     assert ops.retire(admin, retention_seconds=10) == [task_id]
     assert store.get_task(task_id) is None
     with store._connection() as db:
@@ -82,7 +86,8 @@ def test_admin_operations_reject_non_admin(setup):
     store, ledger, ops, admin, user = setup
     for call in (lambda: ops.stats(user), lambda: ops.list_dlq(user),
                  lambda: ops.backup_sqlite(user, Path(store.path).with_suffix(".copy"))):
-        with pytest.raises(PermanentError, match="FORBIDDEN"): call()
+        with pytest.raises(PermanentError, match="FORBIDDEN"):
+            call()
 
 
 @pytest.mark.parametrize("value", [float("nan"), float("inf"), -1, True, "1"])

@@ -15,14 +15,19 @@ from a2a_mq.transport import cloud_event
 
 class Bus:
     component = "bus"
-    def __init__(self): self.closed = False
-    async def ready(self): return True
-    async def close(self): self.closed = True
+    def __init__(self):
+        self.closed = False
+    async def ready(self):
+        return True
+    async def close(self):
+        self.closed = True
 
 
 class Publisher:
-    def __init__(self): self.items = []
-    async def publish(self, envelope): self.items.append(envelope)
+    def __init__(self):
+        self.items = []
+    async def publish(self, envelope):
+        self.items.append(envelope)
 
 
 def event(original: bytes):
@@ -39,7 +44,8 @@ def event(original: bytes):
 async def test_verified_deadletter_is_persisted_with_origin(tmp_path):
     store = SQLiteStore(tmp_path / "state.db", tenant="demo", consumer="operations", clock=lambda: 1000.0)
     ops = CentralDLQ(store)
-    bus = Bus(); app = create_dlq_collector(store, bus, ops, app_token="fixture-token")
+    bus = Bus()
+    app = create_dlq_collector(store, bus, ops, app_token="fixture-token")
     original = b'{"arbitrary":"poison"}'
     async with app.router.lifespan_context(app):
         async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://app") as client:
@@ -57,7 +63,8 @@ async def test_verified_deadletter_is_persisted_with_origin(tmp_path):
 async def test_collector_replays_real_dapr_cloudevent_bytes(tmp_path):
     store = SQLiteStore(tmp_path / "state.db", tenant="demo", consumer="operations")
     ops = CentralDLQ(store)
-    bus = Bus(); app = create_dlq_collector(store, bus, ops, app_token="fixture-token")
+    bus = Bus()
+    app = create_dlq_collector(store, bus, ops, app_token="fixture-token")
     original = command("hello", tenant="demo", skill="echo")
     delivered = {**cloud_event(original), "pubsubname": "bus", "topic": original.route}
     raw = canonical(delivered).encode()
@@ -100,8 +107,10 @@ async def test_central_replay_rejects_unsafe_original_delivery(tmp_path, case):
 async def test_corrupt_deadletter_is_dropped_without_recursive_dlq(tmp_path):
     store = SQLiteStore(tmp_path / "state.db", tenant="demo", consumer="operations", clock=lambda: 1000.0)
     ops = CentralDLQ(store)
-    bus = Bus(); app = create_dlq_collector(store, bus, ops, app_token="fixture-token")
-    bad = event(b"x"); bad["data"]["capturedBytesSha256"] = "0" * 64
+    bus = Bus()
+    app = create_dlq_collector(store, bus, ops, app_token="fixture-token")
+    bad = event(b"x")
+    bad["data"]["capturedBytesSha256"] = "0" * 64
     async with app.router.lifespan_context(app):
         async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://app") as client:
             response = await client.post("/events", json=bad, headers={"dapr-api-token": "fixture-token"})

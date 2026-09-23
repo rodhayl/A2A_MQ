@@ -107,7 +107,8 @@ async def test_protected_metadata_mutation_rejected(protector, field):
 async def test_ciphertext_mutation_rejected(protector):
     e = command("private")
     value = json.loads(await protector.seal(e))
-    data = bytearray(base64.b64decode(value["ciphertext"])); data[0] ^= 1
+    data = bytearray(base64.b64decode(value["ciphertext"]))
+    data[0] ^= 1
     value["ciphertext"] = base64.b64encode(data).decode()
     with pytest.raises(PermanentError, match="DECRYPTION_FAILED"):
         await protector.open(canonical(value).encode(), expected_route=e.route)
@@ -133,10 +134,13 @@ async def test_malformed_sealed(protector, raw):
 
 
 def test_file_token_rotation_and_permissions(tmp_path):
-    path = tmp_path/"secret";path.write_text("first\n");path.chmod(0o600)
+    path = tmp_path/"secret"
+    path.write_text("first\n")
+    path.chmod(0o600)
     provider = FileToken(path)
     assert provider() == "first"
-    path.write_text("second\n");assert provider() == "second"
+    path.write_text("second\n")
+    assert provider() == "second"
     path.chmod(0o644)
     with pytest.raises(PermanentError,match="UNSAFE_SECRET_FILE"):
         provider()
@@ -193,7 +197,9 @@ async def test_encrypted_publication_is_stable_after_restart(tmp_path, protector
 
 async def test_encrypted_callback_and_plaintext_downgrade(protector):
     from a2a_mq.transport import DaprPublisher, cloud_event, subscriber
-    e = command("private content"); calls=[]; dlq=[]
+    e = command("private content")
+    calls=[]
+    dlq=[]
     async def handle(envelope):
         calls.append(envelope)
     def respond(request):

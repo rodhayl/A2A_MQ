@@ -50,7 +50,8 @@ def test_real_postgres_claim_commit_outbox_restart_and_consumer_isolation():
         assert reopened.get_task(result.as_dict()["taskId"]) == result.as_dict()["payload"]
         assert other.get_task(result.as_dict()["taskId"]) is None
     finally:
-        reopened.close(); other.close()
+        reopened.close()
+        other.close()
 
 
 def test_real_postgres_replicas_serialize_same_command_claim():
@@ -69,4 +70,5 @@ def test_real_postgres_replicas_serialize_same_command_claim():
             outcomes = list(pool.map(lambda pair: claim(*pair), [(first, "a"), (second, "b")]))
         assert sorted(outcomes) == ["acquired", "busy"]
     finally:
-        first.close(); second.close()
+        first.close()
+        second.close()
