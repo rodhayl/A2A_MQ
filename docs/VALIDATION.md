@@ -28,6 +28,13 @@ The latest exact-SHA local execution evidence is
   with 0 errors across 54 source files;
 - overall local tier certification achieved: `PASS_LOCAL_TIER_COMPLETE`.
 
+
+Subsequent source/test/harness hardening through `75f886b1` removed full-lint
+blockers and tightened validation-only fault injection. Those commits are not part
+of the executed evidence above. Until they are rerun, the current branch HEAD is
+**not** an exact-SHA `PASS_LOCAL_TIER_COMPLETE` even though the prior certification
+remains valid historical evidence for its recorded SHA.
+
 ## Historical environment
 
 Environment observed: Python 3.13.5; local SQLite; no Docker, Dapr runtime,

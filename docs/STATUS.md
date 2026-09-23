@@ -4,13 +4,24 @@
 
 Branch: `implementation/production-hardening-20260916`.
 
-Executable/source hardening establishes complete local tier certification:
-- Overall verdict: `PASS_LOCAL_TIER_COMPLETE` (see `docs/validation/local-certification-20260923.md`).
-- Formal local-lite resilience gate: `PASS_LOCAL_LITE_RESILIENCE` across all failure domains, verified with real broker/runtime fault injection (unacked broker delivery, publish-before-bookkeeping crash, execution crash in WORKING state, and deterministic commit boundary races).
-- Optional 5-process native local Workflow tier gate: separated into `PASS_LOCAL_WORKFLOW_RESOURCE`, `PASS_LOCAL_WORKFLOW_FUNCTIONAL`, and `PASS_LOCAL_WORKFLOW_RESILIENCE` (overall `PASS_LOCAL_WORKFLOW`).
-- Continuous soak & leak gate: `PASS_LOCAL_SOAK` across a 23.02-minute mixed workload (2716 tasks, stable post-warmup/post-drain RSS, zero FD/thread leak, intact SQLite integrity).
-- Exact-current-SHA acceptance: `LOCAL_PASS` (1077 tests, 0 failures, 0 errors, 0 skipped); 1103 broker-independent suite passed.
-- Baseline economic gates preserved: `PASS_CORE_LIGHT`, `PASS_LOCAL_PYTHON`, `PASS_LOCAL_LITE`, `SDK_PASS`.
+The most recent executed local-tier certification remains the evidence recorded in
+`docs/validation/local-certification-20260923.md`, with validated source at
+`1dd1938dff5cbf58a803ec23617143b5d998465e` and documentation subsequently
+published through `7a667a4f`.
+
+That evidence established:
+
+- overall verdict `PASS_LOCAL_TIER_COMPLETE`;
+- `PASS_LOCAL_LITE_RESILIENCE` with real broker/runtime fault injection;
+- optional five-process Workflow resource, functional and resilience passes;
+- `PASS_LOCAL_SOAK` across the 23.02-minute / 2716-task soak;
+- `LOCAL_PASS` with 1077 tests and a 1103-test broker-independent suite;
+- `PASS_CORE_LIGHT`, `PASS_LOCAL_PYTHON`, `PASS_LOCAL_LITE` and `SDK_PASS`.
+
+The branch has source/test/harness changes after that certification. Those later
+commits do not inherit exact-SHA PASS evidence. See
+`docs/validation/post-certification-audit-20260923.md` for the current rerun
+boundary.
 
 `main` remains unchanged at
 `66c17153d7ec75b9ad85808ef141b9dba43a9d91`.
@@ -224,6 +235,31 @@ exact-SHA gates in `PROMPT_AGENT_LOCAL_FOLLOWUP.md`.
 Hosted Actions for these commits still created the three expected jobs but each
 job completed with zero steps and no runner execution. That remains platform-side
 pre-runner failure evidence, not a repository test result.
+
+
+### Post-certification audit after `7a667a4f`
+
+A connector-based audit after the completed local certification added narrowly
+scoped hardening through `75f886b1`:
+
+- removed known E701/E702 blockers that made the formal `ruff check .` FULL_PASS
+  gate impossible even when all external infrastructure was available
+  (`711f83fb`, `75f886b1`);
+- required an explicit validation-only sentinel before fault-injection mode,
+  record or synchronization hooks can activate (`dbd714e0`);
+- scrubbed inherited `A2AMQ_FAULT_*` variables from resilience child-process
+  environments so a parent shell cannot contaminate an allegedly disarmed run
+  (`cffb423f`);
+- removed a new unused-import lint defect and corrected the sentinel regression
+  tests themselves (`5b718cf6`, `b836dbac`).
+
+These changes were source-reviewed through the GitHub connector. They were not
+executed in this connector environment. The latest hosted Actions run for
+`75f886b1` again created `postgres`, `local (3.12)` and `local (3.13)`
+jobs with no steps or logs, so hosted CI remains pre-runner/unexecuted evidence.
+
+The current branch therefore requires focused regressions plus exact-SHA local
+revalidation before `PASS_LOCAL_TIER_COMPLETE` can be reattached to the new HEAD.
 
 ## Evidence that exists
 
