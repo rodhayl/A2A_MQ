@@ -144,8 +144,10 @@ class ManagedStack:
                 pass
         self._log_file = None
 
-    def start(self, timeout: float = 25.0) -> None:
+    def start(self, timeout: float = 25.0, env_overrides: dict[str, str] | None = None) -> None:
         self.stop()
+        if env_overrides is not None:
+            self.env_overrides = env_overrides
         # Ensure fixed loopback ports are completely free before launching
         for port in (18000, 3500, 4222):
             deadline_port = time.monotonic() + 10.0
@@ -193,24 +195,41 @@ class ManagedStack:
             raise RuntimeError(f"Local runtime readiness timeout: {out}")
         self.child_pids = [p for p in _descendants(self.process.pid) if p != self.process.pid]
 
-    def sigkill_app(self) -> None:
-        """Abruptly SIGKILL the Python application process, then kill any orphaned child processes."""
-        if self.process and self.process.poll() is None:
-            pid = self.process.pid
-            children = _descendants(pid)
+    def wait_for_exit(self, timeout: float = 10.0) -> int:
+        """Wait for the app process to terminate abruptly, then kill any orphaned child processes."""
+        deadline = time.monotonic() + timeout
+        code = None
+        while time.monotonic() < deadline:
+            if self.process is not None:
+                code = self.process.poll()
+                if code is not None:
+                    break
+            time.sleep(0.05)
+        for child in self.child_pids:
             try:
-                os.kill(pid, signal.SIGKILL)
-                self.process.wait(timeout=5)
+                os.kill(child, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
             except Exception:
                 pass
-            for child in children:
-                if child != pid:
-                    try:
-                        os.kill(child, signal.SIGKILL)
-                    except ProcessLookupError:
-                        pass
-                    except Exception:
-                        pass
+        self._close_log()
+        self.process = None
+        time.sleep(0.3)
+        return code if code is not None else -1
+
+    def sigkill_app(self) -> None:
+        """Abruptly SIGKILL the Python application process, then kill any orphaned child processes."""
+        pids = []
+        if self.process and self.process.poll() is None:
+            pids.append(self.process.pid)
+        pids.extend(self.child_pids)
+        for pid in pids:
+            try:
+                os.kill(pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+            except Exception:
+                pass
         self._close_log()
         self.process = None
         time.sleep(0.3)
@@ -312,16 +331,41 @@ def _check_sqlite_integrity(db_path: Path) -> dict[str, Any]:
 # SECTION 3: Crash / Restart / Redelivery Acceptance
 # ==============================================================================
 
+def _read_records(record_file: Path) -> list[dict[str, Any]]:
+    if not record_file.exists():
+        return []
+    records = []
+    for line in record_file.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if line:
+            try:
+                records.append(json.loads(line))
+            except Exception:
+                pass
+    return records
+
+
 async def run_crash_scenarios(stack: ManagedStack, profile_dir: Path) -> dict[str, Any]:
     results: dict[str, Any] = {}
     db_path = profile_dir / "state/a2amq.db"
 
-    # --- Scenario A: App crash after task admission ---
-    stack.start()
+    # =========================================================================
+    # SCENARIO A: Real Unacked Broker Delivery Fault Injection
+    # =========================================================================
+    rec_a = profile_dir / "state/records_scenario_a.jsonl"
+    if rec_a.exists():
+        rec_a.unlink()
+
+    # Launch stack with unacked_delivery fault injection armed for msg-crash-a
+    stack.start(env_overrides={
+        "A2AMQ_FAULT_INJECTION_MODE": "unacked_delivery",
+        "A2AMQ_FAULT_INJECTION_TARGET": "msg-crash-a",
+        "A2AMQ_FAULT_RECORD_FILE": str(rec_a),
+    })
     jwt_token = stack.client_jwt()
     headers = {"Authorization": f"Bearer {jwt_token}", "A2A-Version": "1.0"}
 
-    # Submit task via public A2A interface
+    # Submit task via real public path
     req_a = {
         "message": {
             "messageId": "msg-crash-a",
@@ -332,265 +376,412 @@ async def run_crash_scenarios(stack: ManagedStack, profile_dir: Path) -> dict[st
         "metadata": {"a2amq": {"transform": "upper"}},
     }
     r = httpx.post("http://127.0.0.1:18000/rpc", json={"jsonrpc": "2.0", "id": 1, "method": "SendMessage", "params": req_a}, headers=headers, timeout=5)
-    require(r.status_code == 200, "SUBMISSION_FAILED")
-    task_a = r.json()["result"]["task"]
-    task_id_a = task_a["id"]
+    require(r.status_code == 200, "SUBMISSION_A_FAILED")
+    task_id_a = r.json()["result"]["task"]["id"]
 
-    # Abrupt SIGKILL immediately after admission
-    stack.sigkill_app()
+    # Wait for process crash triggered by hook_before_ack before HTTP 200 ack
+    exit_code_a = stack.wait_for_exit(timeout=10.0)
+    require(exit_code_a is not None and exit_code_a != 0, f"SCENARIO_A_EXPECTED_CRASH_EXIT: got {exit_code_a}")
 
-    # Verify durable admission in SQLite
+    # Verify task was admitted in SQLite before the crash
     with closing(sqlite3.connect(str(db_path))) as conn:
         conn.row_factory = sqlite3.Row
         row = conn.execute("SELECT task_id, state, payload_json FROM a2amq_tasks WHERE task_id=?", (task_id_a,)).fetchone()
-        require(row is not None and row["task_id"] == task_id_a, "TASK_LOST_FROM_SQLITE")
-        payload = json.loads(row["payload_json"])
-        history = payload.get("history", [])
-        require(any(m.get("messageId") == "msg-crash-a" for m in history), "MESSAGE_ID_CORRUPTED")
+        require(row is not None and row["task_id"] == task_id_a, "TASK_A_LOST_FROM_SQLITE")
 
-    # Restart stack against the same state
-    stack.start()
-    # Wait for completion
+    # Restart stack with fault injection disarmed
+    stack.start(env_overrides={
+        "A2AMQ_FAULT_RECORD_FILE": str(rec_a),
+    })
+    # Wait for JetStream/Dapr redelivery and eventual completion
     completed_a = False
     final_task_a = None
     for _ in range(80):
-        r = httpx.post("http://127.0.0.1:18000/rpc", json={"jsonrpc": "2.0", "id": 2, "method": "GetTask", "params": {"id": task_id_a}}, headers=headers, timeout=5)
-        if r.status_code == 200:
-            final_task_a = r.json().get("result")
-            if final_task_a and final_task_a.get("status", {}).get("state") == "TASK_STATE_COMPLETED":
-                completed_a = True
-                break
+        try:
+            r = httpx.post("http://127.0.0.1:18000/rpc", json={"jsonrpc": "2.0", "id": 2, "method": "GetTask", "params": {"id": task_id_a}}, headers=headers, timeout=5)
+            if r.status_code == 200:
+                final_task_a = r.json().get("result")
+                if final_task_a and final_task_a.get("status", {}).get("state") == "TASK_STATE_COMPLETED":
+                    completed_a = True
+                    break
+        except Exception:
+            pass
         await asyncio.sleep(0.2)
-    require(completed_a and final_task_a is not None, "TASK_A_FAILED_EVENTUAL_COMPLETION")
+    require(completed_a and final_task_a is not None, "TASK_A_FAILED_REDELIVERY_COMPLETION")
     assert final_task_a is not None
     require(final_task_a["artifacts"][0]["parts"][0]["text"] == "CRASH A ADMISSION TEST", "TASK_A_TRANSFORM_INCORRECT")
 
-    # Verify no duplicate terminal rows in runtime_end
+    # Verify physical broker redelivery counts and logical idempotency
+    records_a = _read_records(rec_a)
+    deliveries_a = [rec for rec in records_a if rec.get("event") == "broker_delivery" and (rec.get("messageId") == "msg-crash-a" or rec.get("userMessageId") == "msg-crash-a" or rec.get("taskId") == task_id_a)]
+    crashes_a = [rec for rec in records_a if rec.get("event") == "unacked_delivery_crash" and (rec.get("messageId") == "msg-crash-a" or rec.get("userMessageId") == "msg-crash-a" or rec.get("taskId") == task_id_a)]
+    require(len(crashes_a) == 1, f"EXPECTED_EXACTLY_ONE_CRASH_IN_A: got {len(crashes_a)}")
+    require(len(deliveries_a) >= 2, f"EXPECTED_PHYSICAL_DELIVERIES_GTE_2: got {len(deliveries_a)}")
+
     with closing(sqlite3.connect(str(db_path))) as conn:
-        count = conn.execute("SELECT COUNT(*) FROM a2amq_runtime_end WHERE task_id=?", (task_id_a,)).fetchone()[0]
-        require(count == 1, "DUPLICATE_RUNTIME_END_DETECTED")
+        count_end = conn.execute("SELECT COUNT(*) FROM a2amq_runtime_end WHERE task_id=?", (task_id_a,)).fetchone()[0]
+        require(count_end == 1, "DUPLICATE_RUNTIME_END_DETECTED_SCENARIO_A")
         pending_actions = conn.execute("SELECT COUNT(*) FROM a2amq_actions WHERE task_id=? AND delivered_at IS NULL", (task_id_a,)).fetchone()[0]
-        require(pending_actions == 0, "ORPHANED_ACTION_DETECTED")
+        require(pending_actions == 0, "ORPHANED_ACTION_DETECTED_SCENARIO_A")
+        job_count = conn.execute("SELECT COUNT(*) FROM a2amq_jobs WHERE task_id=?", (task_id_a,)).fetchone()[0]
+        require(job_count == 1, "JOB_DEDUPE_ROW_CORRUPTED_SCENARIO_A")
 
     results["scenarioA"] = {
         "verdict": "PASS",
+        "scenario": "real_broker_unacked_redelivery",
         "taskId": task_id_a,
         "messageId": "msg-crash-a",
+        "physicalDeliveryCount": len(deliveries_a),
+        "crashCount": len(crashes_a),
         "terminalState": "TASK_STATE_COMPLETED",
         "runtimeEndCount": 1,
         "pendingActionsRemaining": 0,
     }
 
-    # --- Scenario B: Crash before publication acknowledgment / Redelivery retry ---
+    # =========================================================================
+    # SCENARIO B: Real Publish Succeeded Before Local Bookkeeping Fault Injection
+    # =========================================================================
+    rec_b = profile_dir / "state/records_scenario_b.jsonl"
+    if rec_b.exists():
+        rec_b.unlink()
+
+    # Launch stack with publish_before_bookkeeping fault armed
+    stack.start(env_overrides={
+        "A2AMQ_FAULT_INJECTION_MODE": "publish_before_bookkeeping",
+        "A2AMQ_FAULT_INJECTION_TARGET": "*",
+        "A2AMQ_FAULT_RECORD_FILE": str(rec_b),
+    })
+
     req_b = {
         "message": {
             "messageId": "msg-crash-b",
             "role": "ROLE_USER",
-            "parts": [{"text": "crash b redelivery test"}],
+            "parts": [{"text": "crash b publish bookkeeping test"}],
         },
         "configuration": {"returnImmediately": True},
         "metadata": {"a2amq": {"transform": "upper"}},
     }
-    # Create deterministic point where durable outgoing work exists but delivery is not yet acknowledged:
-    stack.sigkill_app()
-    store_b = SQLiteStore(db_path, tenant="demo", consumer="local")
-    ledger_b = TaskLedger(store_b, source="local-worker")
-    princ_b = Principal("local-owner", "demo", frozenset({"a2a:send", "a2a:read", "a2a:cancel"}))
-    task_b = ledger_b.submit(princ_b, req_b)
-    task_id_b = task_b["id"]
+    r = httpx.post("http://127.0.0.1:18000/rpc", json={"jsonrpc": "2.0", "id": 3, "method": "SendMessage", "params": req_b}, headers=headers, timeout=5)
+    require(r.status_code == 200, "SUBMISSION_B_FAILED")
+    task_id_b = r.json()["result"]["task"]["id"]
 
-    # Verify durable outgoing work exists with delivered_at IS NULL
+    # Wait for crash after Dapr/NATS publish succeeds but before local bookkeeping
+    exit_code_b = stack.wait_for_exit(timeout=10.0)
+    require(exit_code_b is not None and exit_code_b != 0, f"SCENARIO_B_EXPECTED_CRASH_EXIT: got {exit_code_b}")
+
+    # Verify that the publish action exists in SQLite and has delivered_at IS NULL
     with closing(sqlite3.connect(str(db_path))) as conn:
         conn.row_factory = sqlite3.Row
-        act_b = conn.execute("SELECT * FROM a2amq_actions WHERE task_id=? AND delivered_at IS NULL", (task_id_b,)).fetchone()
-        require(act_b is not None and act_b["kind"] == "publish", "PENDING_ACTION_NOT_FOUND")
+        act_b = conn.execute("SELECT * FROM a2amq_actions WHERE task_id=? AND kind='publish'", (task_id_b,)).fetchone()
+        require(act_b is not None, "ACTION_B_NOT_FOUND_IN_SQLITE")
+        require(act_b["delivered_at"] is None, "ACTION_B_WAS_BOOKKEPT_BEFORE_CRASH")
 
-    # Restart stack; verify redelivery/recovery completes task B
-    stack.start()
+    # Restart stack with fault injection disarmed; ActionRelay will retry publication
+    stack.start(env_overrides={
+        "A2AMQ_FAULT_RECORD_FILE": str(rec_b),
+    })
+
     completed_b = False
-    for _ in range(60):
-        r = httpx.post("http://127.0.0.1:18000/rpc", json={"jsonrpc": "2.0", "id": 4, "method": "GetTask", "params": {"id": task_id_b}}, headers=headers, timeout=5)
-        if r.status_code == 200 and r.json()["result"].get("status", {}).get("state") == "TASK_STATE_COMPLETED":
-            completed_b = True
-            break
+    for _ in range(80):
+        try:
+            r = httpx.post("http://127.0.0.1:18000/rpc", json={"jsonrpc": "2.0", "id": 4, "method": "GetTask", "params": {"id": task_id_b}}, headers=headers, timeout=5)
+            if r.status_code == 200 and r.json().get("result", {}).get("status", {}).get("state") == "TASK_STATE_COMPLETED":
+                completed_b = True
+                break
+        except Exception:
+            pass
         await asyncio.sleep(0.2)
-    require(completed_b, "TASK_B_FAILED_REDELIVERY_COMPLETION")
+    require(completed_b, "TASK_B_FAILED_COMPLETION_AFTER_REDELIVERY")
 
-    # Now verify duplicate physical delivery of the same message does not produce a second terminal result
+    # Verify physical publish attempts >= 2
+    records_b = _read_records(rec_b)
+    pub_attempts_b = [rec for rec in records_b if rec.get("event") == "publish_attempt" and rec.get("taskId") == task_id_b]
+    pub_crashes_b = [rec for rec in records_b if rec.get("event") == "publish_before_bookkeeping_crash" and rec.get("taskId") == task_id_b]
+    require(len(pub_crashes_b) == 1, f"EXPECTED_EXACTLY_ONE_CRASH_IN_B: got {len(pub_crashes_b)}")
+    require(len(pub_attempts_b) >= 2, f"EXPECTED_PHYSICAL_PUBLISH_ATTEMPTS_GTE_2: got {len(pub_attempts_b)}")
+
+    # Invariants: 1 terminal result, 0 pending actions
     with closing(sqlite3.connect(str(db_path))) as conn:
-        conn.row_factory = sqlite3.Row
-        row_b = conn.execute("SELECT * FROM a2amq_tasks WHERE task_id=?", (task_id_b,)).fetchone()
-        require(row_b is not None and row_b["state"] == "COMPLETED", "TASK_B_ROW_MISSING")
-        job_b = conn.execute("SELECT * FROM a2amq_jobs WHERE task_id=?", (task_id_b,)).fetchall()
-        require(len(job_b) == 1, "JOB_DEDUPE_ROW_MISSING")
-        ends_b = conn.execute("SELECT * FROM a2amq_runtime_end WHERE task_id=?", (task_id_b,)).fetchall()
-        require(len(ends_b) == 1, "RUNTIME_END_NOT_EXACTLY_ONE")
-        cmd_envelope_b = Envelope(job_b[0]["wire"])
-
-    dup_ce_b = cloud_event(cmd_envelope_b)
-    dup_ce_b["pubsubname"] = "bus"
-    dup_ce_b["topic"] = cmd_envelope_b.route
-    app_token = stack.app_token()
-    dup_resp_b = httpx.post("http://127.0.0.1:18000/events", json=dup_ce_b,
-                            headers={"dapr-api-token": app_token, "Content-Type": "application/cloudevents+json"}, timeout=5)
-    require(dup_resp_b.status_code == 200, "DUPLICATE_DELIVERY_B_FAILED")
-
-    # Invariant: exactly one logical outcome exists
-    with closing(sqlite3.connect(str(db_path))) as conn:
-        ends_b_post = conn.execute("SELECT * FROM a2amq_runtime_end WHERE task_id=?", (task_id_b,)).fetchall()
-        require(len(ends_b_post) == 1, "DUPLICATE_PHYSICAL_DELIVERY_CORRUPTED_RUNTIME_END")
+        row_b = conn.execute("SELECT state FROM a2amq_tasks WHERE task_id=?", (task_id_b,)).fetchone()
+        require(row_b is not None and row_b[0] == "COMPLETED", "TASK_B_NOT_COMPLETED")
+        ends_b = conn.execute("SELECT COUNT(*) FROM a2amq_runtime_end WHERE task_id=?", (task_id_b,)).fetchone()[0]
+        require(ends_b == 1, "RUNTIME_END_NOT_EXACTLY_ONE_B")
+        pending_b = conn.execute("SELECT COUNT(*) FROM a2amq_actions WHERE task_id=? AND delivered_at IS NULL", (task_id_b,)).fetchone()[0]
+        require(pending_b == 0, "PENDING_ACTION_REMAINS_B")
 
     results["scenarioB"] = {
         "verdict": "PASS",
+        "scenario": "real_publish_succeeded_before_local_bookkeeping",
         "taskId": task_id_b,
+        "physicalPublishAttempts": len(pub_attempts_b),
+        "crashCount": len(pub_crashes_b),
         "terminalState": "TASK_STATE_COMPLETED",
-        "jobDedupeCount": 1,
         "runtimeEndCount": 1,
+        "pendingActionsRemaining": 0,
     }
 
-    # --- Scenario C: Crash after publication but before local delivery bookkeeping ---
-    # Exercise at-least-once duplicate window:
-    # Submit task C
+    # =========================================================================
+    # SCENARIO C: Real Crash During Genuine Execution (WORKING state)
+    # =========================================================================
+    rec_c = profile_dir / "state/records_scenario_c.jsonl"
+    if rec_c.exists():
+        rec_c.unlink()
+
+    # Launch stack with execution_crash fault armed
+    stack.start(env_overrides={
+        "A2AMQ_FAULT_INJECTION_MODE": "execution_crash",
+        "A2AMQ_FAULT_INJECTION_TARGET": "*",
+        "A2AMQ_FAULT_RECORD_FILE": str(rec_c),
+    })
+
     req_c = {
         "message": {
             "messageId": "msg-crash-c",
             "role": "ROLE_USER",
-            "parts": [{"text": "crash c duplicate window"}],
+            "parts": [{"text": "crash c genuine execution test"}],
         },
         "configuration": {"returnImmediately": True},
         "metadata": {"a2amq": {"transform": "upper"}},
     }
     r = httpx.post("http://127.0.0.1:18000/rpc", json={"jsonrpc": "2.0", "id": 5, "method": "SendMessage", "params": req_c}, headers=headers, timeout=5)
+    require(r.status_code == 200, "SUBMISSION_C_FAILED")
     task_id_c = r.json()["result"]["task"]["id"]
 
-    # Wait until task completes
+    # Wait for crash during execution while in WORKING state
+    exit_code_c = stack.wait_for_exit(timeout=10.0)
+    require(exit_code_c is not None and exit_code_c != 0, f"SCENARIO_C_EXPECTED_CRASH_EXIT: got {exit_code_c}")
+
+    # Verify task in SQLite reached genuine WORKING state and action is undelivered
+    with closing(sqlite3.connect(str(db_path))) as conn:
+        conn.row_factory = sqlite3.Row
+        task_row_c = conn.execute("SELECT state FROM a2amq_tasks WHERE task_id=?", (task_id_c,)).fetchone()
+        require(task_row_c is not None and task_row_c["state"] == "WORKING", "TASK_C_NOT_IN_WORKING_STATE")
+        action_c = conn.execute("SELECT * FROM a2amq_actions WHERE task_id=? AND kind='start' AND delivered_at IS NULL", (task_id_c,)).fetchone()
+        require(action_c is not None, "START_ACTION_C_LOST_OR_ALREADY_DELIVERED")
+
+    # Restart stack with fault injection disarmed; ActionRelay recovers task
+    stack.start(env_overrides={
+        "A2AMQ_FAULT_RECORD_FILE": str(rec_c),
+    })
+
+    completed_c = False
+    for _ in range(80):
+        try:
+            r = httpx.post("http://127.0.0.1:18000/rpc", json={"jsonrpc": "2.0", "id": 6, "method": "GetTask", "params": {"id": task_id_c}}, headers=headers, timeout=5)
+            if r.status_code == 200 and r.json().get("result", {}).get("status", {}).get("state") == "TASK_STATE_COMPLETED":
+                completed_c = True
+                break
+        except Exception:
+            pass
+        await asyncio.sleep(0.2)
+    require(completed_c, "TASK_C_RECOVERY_FAILED")
+
+    # Verify execution records
+    records_c = _read_records(rec_c)
+    working_events_c = [rec for rec in records_c if rec.get("event") == "executor_working" and rec.get("taskId") == task_id_c]
+    crash_events_c = [rec for rec in records_c if rec.get("event") == "execution_crash_kill" and rec.get("taskId") == task_id_c]
+    require(len(working_events_c) >= 1, "WORKING_EVENT_NOT_RECORDED_C")
+    require(len(crash_events_c) == 1, "CRASH_EVENT_NOT_RECORDED_C")
+
+    with closing(sqlite3.connect(str(db_path))) as conn:
+        ends_c = conn.execute("SELECT COUNT(*) FROM a2amq_runtime_end WHERE task_id=?", (task_id_c,)).fetchone()[0]
+        require(ends_c == 1, "RUNTIME_END_NOT_EXACTLY_ONE_C")
+        pending_c = conn.execute("SELECT COUNT(*) FROM a2amq_actions WHERE task_id=? AND delivered_at IS NULL", (task_id_c,)).fetchone()[0]
+        require(pending_c == 0, "ORPHAN_ACTION_REMAINS_C")
+
+    results["scenarioC"] = {
+        "verdict": "PASS",
+        "scenario": "real_execution_crash_in_working_state",
+        "taskId": task_id_c,
+        "terminalState": "TASK_STATE_COMPLETED",
+        "runtimeEndCount": 1,
+        "pendingActionsRemaining": 0,
+    }
+
+    # =========================================================================
+    # SCENARIO E: Deterministic Terminal Commit Boundary Synchronization
+    # =========================================================================
+    sync_dir = profile_dir / "state/sync_race"
+    sync_dir.mkdir(parents=True, exist_ok=True)
+    rec_e = profile_dir / "state/records_scenario_e.jsonl"
+    if rec_e.exists():
+        rec_e.unlink()
+
+    stack.start(env_overrides={
+        "A2AMQ_FAULT_SYNC_DIR": str(sync_dir),
+        "A2AMQ_FAULT_RECORD_FILE": str(rec_e),
+    })
+
+    # Sub-case 1: Cancellation arrives BEFORE terminal commit (before_completed)
+    req_e1 = {
+        "message": {"messageId": "msg-race-e1", "role": "ROLE_USER", "parts": [{"text": "race before commit"}]},
+        "configuration": {"returnImmediately": True},
+        "metadata": {"a2amq": {"transform": "upper"}},
+    }
+    r = httpx.post("http://127.0.0.1:18000/rpc", json={"jsonrpc": "2.0", "id": 10, "method": "SendMessage", "params": req_e1}, headers=headers, timeout=5)
+    tid_e1 = r.json()["result"]["task"]["id"]
+
+    # Signal hook to pause before completing
+    (sync_dir / f"pause_before_completed_{tid_e1}").touch()
+
+    # Wait until hook enters pause
+    paused_e1 = False
+    for _ in range(50):
+        if any(rec.get("event") == "terminal_paused" and rec.get("taskId") == tid_e1 and rec.get("phase") == "before_completed"
+               for rec in _read_records(rec_e)):
+            paused_e1 = True
+            break
+        await asyncio.sleep(0.05)
+    require(paused_e1, "RACE_E1_FAILED_TO_PAUSE_BEFORE_COMPLETED")
+
+    # Issue public cancel request concurrently while paused and resume hook
+    async with httpx.AsyncClient() as client:
+        cancel_future = asyncio.create_task(client.post("http://127.0.0.1:18000/rpc", json={"jsonrpc": "2.0", "id": 11, "method": "CancelTask", "params": {"id": tid_e1}}, headers=headers, timeout=10))
+        await asyncio.sleep(0.1)
+        (sync_dir / f"resume_before_completed_{tid_e1}").touch()
+        await cancel_future
+
+    # Poll for terminal state
+    state_e1 = None
+    for _ in range(50):
+        r = httpx.post("http://127.0.0.1:18000/rpc", json={"jsonrpc": "2.0", "id": 12, "method": "GetTask", "params": {"id": tid_e1}}, headers=headers, timeout=5)
+        if r.status_code == 200:
+            st = r.json().get("result", {}).get("status", {}).get("state")
+            if st in ("TASK_STATE_CANCELED", "TASK_STATE_COMPLETED"):
+                state_e1 = st
+                break
+        await asyncio.sleep(0.1)
+    require(state_e1 in ("TASK_STATE_CANCELED", "TASK_STATE_COMPLETED"), f"RACE_E1_NOT_TERMINAL: {state_e1}")
+
+    with closing(sqlite3.connect(str(db_path))) as conn:
+        ends_e1 = conn.execute("SELECT COUNT(*) FROM a2amq_runtime_end WHERE task_id=?", (tid_e1,)).fetchone()[0]
+        require(ends_e1 == 1, "RACE_E1_RUNTIME_END_NOT_ONE")
+
+    # Sub-case 2: Cancellation arrives AFTER terminal commit (after_completed)
+    req_e2 = {
+        "message": {"messageId": "msg-race-e2", "role": "ROLE_USER", "parts": [{"text": "race after commit"}]},
+        "configuration": {"returnImmediately": True},
+        "metadata": {"a2amq": {"transform": "upper"}},
+    }
+    r = httpx.post("http://127.0.0.1:18000/rpc", json={"jsonrpc": "2.0", "id": 13, "method": "SendMessage", "params": req_e2}, headers=headers, timeout=5)
+    tid_e2 = r.json()["result"]["task"]["id"]
+
+    # Signal hook to pause after completing
+    (sync_dir / f"pause_after_completed_{tid_e2}").touch()
+
+    # Wait until hook enters pause
+    paused_e2 = False
+    for _ in range(50):
+        if any(rec.get("event") == "terminal_paused" and rec.get("taskId") == tid_e2 and rec.get("phase") == "after_completed"
+               for rec in _read_records(rec_e)):
+            paused_e2 = True
+            break
+        await asyncio.sleep(0.05)
+    require(paused_e2, "RACE_E2_FAILED_TO_PAUSE_AFTER_COMPLETED")
+
+    # Task is already COMPLETED in SQLite; CancelTask must not override completion
+    async with httpx.AsyncClient() as client:
+        cancel_future2 = asyncio.create_task(client.post("http://127.0.0.1:18000/rpc", json={"jsonrpc": "2.0", "id": 14, "method": "CancelTask", "params": {"id": tid_e2}}, headers=headers, timeout=10))
+        await asyncio.sleep(0.1)
+        (sync_dir / f"resume_after_completed_{tid_e2}").touch()
+        await cancel_future2
+
+    # Poll for terminal state
+    state_e2 = None
+    for _ in range(50):
+        r = httpx.post("http://127.0.0.1:18000/rpc", json={"jsonrpc": "2.0", "id": 15, "method": "GetTask", "params": {"id": tid_e2}}, headers=headers, timeout=5)
+        if r.status_code == 200:
+            st = r.json().get("result", {}).get("status", {}).get("state")
+            if st in ("TASK_STATE_COMPLETED", "TASK_STATE_CANCELED"):
+                state_e2 = st
+                break
+        await asyncio.sleep(0.1)
+    require(state_e2 == "TASK_STATE_COMPLETED", f"RACE_E2_TERMINAL_GUARD_FAILED: got {state_e2}")
+
+    with closing(sqlite3.connect(str(db_path))) as conn:
+        ends_e2 = conn.execute("SELECT COUNT(*) FROM a2amq_runtime_end WHERE task_id=?", (tid_e2,)).fetchone()[0]
+        require(ends_e2 == 1, "RACE_E2_RUNTIME_END_NOT_ONE")
+
+    # Sub-case 3: Crash right around terminal finish
+    req_e3 = {
+        "message": {"messageId": "msg-race-e3", "role": "ROLE_USER", "parts": [{"text": "crash at terminal commit"}]},
+        "configuration": {"returnImmediately": True},
+        "metadata": {"a2amq": {"transform": "upper"}},
+    }
+    stack.start(env_overrides={
+        "A2AMQ_FAULT_INJECTION_MODE": "terminal_commit_crash",
+        "A2AMQ_FAULT_INJECTION_TARGET": "*",
+        "A2AMQ_FAULT_RECORD_FILE": str(rec_e),
+    })
+    r = httpx.post("http://127.0.0.1:18000/rpc", json={"jsonrpc": "2.0", "id": 16, "method": "SendMessage", "params": req_e3}, headers=headers, timeout=5)
+    tid_e3 = r.json()["result"]["task"]["id"]
+
+    exit_code_e3 = stack.wait_for_exit(timeout=10.0)
+    require(exit_code_e3 is not None and exit_code_e3 != 0, f"RACE_E3_EXPECTED_CRASH: got {exit_code_e3}")
+    # Restart stack with fault injection disarmed
+    stack.start(env_overrides={"A2AMQ_FAULT_RECORD_FILE": str(rec_e)})
+    completed_e3 = False
     for _ in range(60):
-        r = httpx.post("http://127.0.0.1:18000/rpc", json={"jsonrpc": "2.0", "id": 6, "method": "GetTask", "params": {"id": task_id_c}}, headers=headers, timeout=5)
+        try:
+            r = httpx.post("http://127.0.0.1:18000/rpc", json={"jsonrpc": "2.0", "id": 17, "method": "GetTask", "params": {"id": tid_e3}}, headers=headers, timeout=5)
+            if r.status_code == 200 and r.json().get("result", {}).get("status", {}).get("state") == "TASK_STATE_COMPLETED":
+                completed_e3 = True
+                break
+        except Exception:
+            pass
+        await asyncio.sleep(0.2)
+    require(completed_e3, "RACE_E3_RECOVERY_FAILED")
+
+    with closing(sqlite3.connect(str(db_path))) as conn:
+        ends_e3 = conn.execute("SELECT COUNT(*) FROM a2amq_runtime_end WHERE task_id=?", (tid_e3,)).fetchone()[0]
+        require(ends_e3 == 1, "RACE_E3_RUNTIME_END_NOT_ONE")
+
+    results["scenarioE"] = {
+        "verdict": "PASS",
+        "scenario": "deterministic_terminal_commit_boundary_races",
+        "beforeCommitOutcome": state_e1,
+        "afterCommitOutcome": state_e2,
+        "crashAfterCommitOutcome": "TASK_STATE_COMPLETED",
+    }
+
+    # =========================================================================
+    # SUPPLEMENTARY: Simulated In-Memory Fixtures (Clearly labeled)
+    # =========================================================================
+    # 1. Simulated duplicate delivery directly to /events
+    dup_req = {
+        "message": {"messageId": "msg-sim-dup", "role": "ROLE_USER", "parts": [{"text": "sim dup"}]},
+        "configuration": {"returnImmediately": True},
+        "metadata": {"a2amq": {"transform": "upper"}},
+    }
+    r = httpx.post("http://127.0.0.1:18000/rpc", json={"jsonrpc": "2.0", "id": 30, "method": "SendMessage", "params": dup_req}, headers=headers, timeout=5)
+    tid_sim = r.json()["result"]["task"]["id"]
+    for _ in range(50):
+        r = httpx.post("http://127.0.0.1:18000/rpc", json={"jsonrpc": "2.0", "id": 31, "method": "GetTask", "params": {"id": tid_sim}}, headers=headers, timeout=5)
         if r.json()["result"].get("status", {}).get("state") == "TASK_STATE_COMPLETED":
             break
         await asyncio.sleep(0.2)
 
-    # Now simulate duplicate arrival of the exact same message to /events
     with closing(sqlite3.connect(str(db_path))) as conn:
         conn.row_factory = sqlite3.Row
-        job_c = conn.execute("SELECT * FROM a2amq_jobs WHERE task_id=?", (task_id_c,)).fetchone()
-        require(job_c is not None, "JOB_C_NOT_FOUND")
-        cmd_envelope = Envelope(job_c["wire"])
-    dup_cloudevent = cloud_event(cmd_envelope)
-    dup_cloudevent["pubsubname"] = "bus"
-    dup_cloudevent["topic"] = cmd_envelope.route
-
-    # Deliver to /events with app token
+        job_sim = conn.execute("SELECT * FROM a2amq_jobs WHERE task_id=?", (tid_sim,)).fetchone()
+        cmd_env = Envelope(job_sim["wire"])
+    dup_ce = cloud_event(cmd_env)
+    dup_ce["pubsubname"] = "bus"
+    dup_ce["topic"] = cmd_env.route
     app_token = stack.app_token()
-    dup_resp = httpx.post("http://127.0.0.1:18000/events", json=dup_cloudevent,
+    dup_resp = httpx.post("http://127.0.0.1:18000/events", json=dup_ce,
                           headers={"dapr-api-token": app_token, "Content-Type": "application/cloudevents+json"}, timeout=5)
-    require(dup_resp.status_code == 200, "DUPLICATE_DELIVERY_FAILED_HTTP")
+    require(dup_resp.status_code == 200, "SIM_DUPLICATE_DELIVERY_FAILED")
 
-    # Verify task C state remains exactly COMPLETED, exactly one runtime_end, no second outcome
     with closing(sqlite3.connect(str(db_path))) as conn:
-        count_c = conn.execute("SELECT COUNT(*) FROM a2amq_runtime_end WHERE task_id=?", (task_id_c,)).fetchone()[0]
-        require(count_c == 1, "DUPLICATE_EXECUTION_CORRUPTED_RUNTIME_END")
-        row_c = conn.execute("SELECT state FROM a2amq_tasks WHERE task_id=?", (task_id_c,)).fetchone()
-        require(row_c is not None and row_c[0] == "COMPLETED", "TASK_C_STATE_CORRUPTED")
+        count_sim = conn.execute("SELECT COUNT(*) FROM a2amq_runtime_end WHERE task_id=?", (tid_sim,)).fetchone()[0]
+        require(count_sim == 1, "SIM_DUPLICATE_DELIVERY_CORRUPTED_END")
 
-    results["scenarioC"] = {
+    results["supplementary_simulated_cloudevent_deduplication"] = {
         "verdict": "PASS",
-        "taskId": task_id_c,
-        "duplicateDeliveryStatus": dup_resp.status_code,
-        "runtimeEndCount": 1,
-    }
-
-    # --- Scenario D: Crash during task execution ---
-    req_d = {
-        "message": {
-            "messageId": "msg-crash-d",
-            "role": "ROLE_USER",
-            "parts": [{"text": "crash d during execution"}],
-        },
-        "configuration": {"returnImmediately": True},
-        "metadata": {"a2amq": {"transform": "upper"}},
-    }
-    # Create deterministic point where task is in WORKING state with pending start action
-    stack.sigkill_app()
-    store_d = SQLiteStore(db_path, tenant="demo", consumer="local")
-    ledger_d = TaskLedger(store_d, source="local-worker")
-    princ_d = Principal("local-owner", "demo", frozenset({"a2a:send", "a2a:read", "a2a:cancel"}))
-    task_d = ledger_d.submit(princ_d, req_d)
-    task_id_d = task_d["id"]
-
-    # Step to WORKING state and insert pending start action
-    ledger_d.step(task_id_d, "local-working", "WORKING")
-    with store_d._transaction() as db:
-        job_d = ledger_d._job(db, task_id_d)
-        env_d = Envelope(job_d["wire"])
-        ledger_d._action(db, task_id_d, "start", env_d.as_dict()["messageId"], env_d.as_dict())
-
-    # Verify task is currently WORKING in SQLite
-    with closing(sqlite3.connect(str(db_path))) as conn:
-        conn.row_factory = sqlite3.Row
-        r_d = conn.execute("SELECT state FROM a2amq_tasks WHERE task_id=?", (task_id_d,)).fetchone()
-        require(r_d is not None and r_d["state"] == "WORKING", "TASK_D_NOT_IN_WORKING_STATE")
-
-    # Restart stack; verify recovery completes task D
-    stack.start()
-    completed_d = False
-    for _ in range(60):
-        r = httpx.post("http://127.0.0.1:18000/rpc", json={"jsonrpc": "2.0", "id": 8, "method": "GetTask", "params": {"id": task_id_d}}, headers=headers, timeout=5)
-        if r.status_code == 200 and r.json()["result"].get("status", {}).get("state") == "TASK_STATE_COMPLETED":
-            completed_d = True
-            break
-        await asyncio.sleep(0.2)
-    require(completed_d, "TASK_D_RECOVERY_FAILED")
-
-    results["scenarioD"] = {
-        "verdict": "PASS",
-        "taskId": task_id_d,
-        "terminalState": "TASK_STATE_COMPLETED",
-    }
-
-    # --- Scenario E: Crash around terminal commit ---
-    # Fast repetition: 3 cycles racing submission/execution with SIGKILL
-    rep_results = []
-    for cycle in range(3):
-        req_e = {
-            "message": {
-                "messageId": f"msg-crash-e-{cycle}",
-                "role": "ROLE_USER",
-                "parts": [{"text": f"terminal race {cycle}"}],
-            },
-            "configuration": {"returnImmediately": True},
-            "metadata": {"a2amq": {"transform": "upper"}},
-        }
-        r = httpx.post("http://127.0.0.1:18000/rpc", json={"jsonrpc": "2.0", "id": 9 + cycle, "method": "SendMessage", "params": req_e}, headers=headers, timeout=5)
-        task_id_e = r.json()["result"]["task"]["id"]
-        # Micro-sleep to race near completion
-        await asyncio.sleep(0.05 + cycle * 0.03)
-        stack.sigkill_app()
-        stack.start()
-
-        # Check recovery
-        comp_e = False
-        final_e = None
-        for _ in range(60):
-            r = httpx.post("http://127.0.0.1:18000/rpc", json={"jsonrpc": "2.0", "id": 20 + cycle, "method": "GetTask", "params": {"id": task_id_e}}, headers=headers, timeout=5)
-            if r.status_code == 200:
-                final_e = r.json()["result"]
-                if final_e.get("status", {}).get("state") in ("TASK_STATE_COMPLETED", "TASK_STATE_CANCELED"):
-                    comp_e = True
-                    break
-            await asyncio.sleep(0.2)
-        require(comp_e and final_e is not None, f"TASK_E_CYCLE_{cycle}_FAILED")
-        assert final_e is not None
-
-        # Invariant check: exactly one runtime_end
-        with closing(sqlite3.connect(str(db_path))) as conn:
-            cnt = conn.execute("SELECT COUNT(*) FROM a2amq_runtime_end WHERE task_id=?", (task_id_e,)).fetchone()[0]
-            require(cnt == 1, f"CORRUPT_RUNTIME_END_IN_CYCLE_{cycle}")
-        rep_results.append({"cycle": cycle, "taskId": task_id_e, "state": final_e["status"]["state"]})
-
-    results["scenarioE"] = {
-        "verdict": "PASS",
-        "repetitions": rep_results,
+        "description": "Direct /events replay verification of application deduplication guard",
+        "taskId": tid_sim,
+        "statusCode": dup_resp.status_code,
     }
 
     # Final DB integrity verification
