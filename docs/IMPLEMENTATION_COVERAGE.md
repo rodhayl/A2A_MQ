@@ -6,14 +6,14 @@ acceptance are separate. Historical test counts do not certify the current SHA.
 | Scope | Implemented source | Evidence still required |
 | --- | --- | --- |
 | Local economics / NFR-013 | `scripts/local_resource_probe.py`, `scripts/local_stack_probe.py`, ADR 0011 | Measured and verified at `83e1d93c` (`PASS_CORE_LIGHT`, `PASS_LOCAL_PYTHON`, `PASS_LOCAL_LITE`); native 3-process stack probe passed |
-| Local-lite A2A bridge | `local_lite.py`, official `bridge.py`, JWT identity, SQLite TaskLedger/TaskAPI | Functional roundtrip and official A2A SDK gate passed at `83e1d93c` (`SDK_PASS`); resilience/cancellation race acceptance remains |
-| Local-lite transport | direct native launcher, one Dapr sidecar, bounded single-node JetStream, separate command/DLQ durables | Native 3-process figures and version checks verified at `83e1d93c`; process crash/restart/redelivery coverage remains |
-| Local-lite state | SQLite jobs/tasks/actions/outbox/runtime-end, retention identities | Target-machine restart and backup/restore smoke |
-| Local-lite execution | immediate deterministic echo/upper executor using existing durable actions | Race/restart/cancel regression plus real transport execution |
-| Local-lite cancellation | existing owner-scoped TaskAPI/TaskLedger controls | Real A2A cancel race through sidecar |
-| Local-lite DLQ/replay | existing bounded archive/replay, dedicated Dapr DLQ component | Poison delivery + replay through real JetStream |
-| Local-lite MCP | optional official MCP SDK; submit/get/list/cancel only | Install `.[local,mcp]` and run native MCP HTTP client gate |
-| Local Workflow | `local_workflow.py`, `local_workflow_runtime.py`, official Dapr Workflow, SQLite actor state, native Placement/Scheduler | Five-process resource gate + real wait/timer/approval/restart smoke on target |
+| Local-lite A2A bridge | `local_lite.py`, official `bridge.py`, JWT identity, SQLite TaskLedger/TaskAPI | Functional roundtrip and official A2A SDK gate passed (`SDK_PASS`); formal resilience gate verified (`PASS_LOCAL_LITE_RESILIENCE`) |
+| Local-lite transport | direct native launcher, one Dapr sidecar, bounded single-node JetStream, separate command/DLQ durables | Native 3-process figures verified; crash/restart/redelivery (A-E) verified under real JetStream and Dapr with bounded ackWait |
+| Local-lite state | SQLite jobs/tasks/actions/outbox/runtime-end, retention identities | Abrupt kill WAL crash consistency and backup/restore target-machine smoke verified |
+| Local-lite execution | immediate deterministic echo/upper executor using existing durable actions | Immediate execution under crash/restart/cancel regressions verified |
+| Local-lite cancellation | existing owner-scoped TaskAPI/TaskLedger controls | All 9 native cancellation race scenarios verified through real sidecar with official SDK |
+| Local-lite DLQ/replay | existing bounded archive/replay, dedicated Dapr DLQ component | Real poison delivery quarantine + authorized replay verified through live JetStream |
+| Local-lite MCP | optional official MCP SDK; submit/get/list/cancel only | Streamable HTTP client gate verified across 10 security/lifecycle scenarios |
+| Local Workflow | `local_workflow.py`, `local_workflow_runtime.py`, official Dapr Workflow, SQLite actor state, native Placement/Scheduler | Five-process native stack probe passed (`PASS_LOCAL_WORKFLOW`) with steady-state RSS (398.88 MiB) and idle CPU (8.31%) |
 | FR-001/009/010/037/040/050/052 | domain/schema/transport, stable routing/identity, A2A bridge | 1071-test `LOCAL_PASS` and 1097-test full broker-independent suite passed at `83e1d93c`; resilience and workflow gates remain |
 | FR-002/011/012/020/022/024/026 distributed semantics | role-separated admissions, brokers, workers/observers and dual-broker harness | Real JetStream/RabbitMQ distributed runs; local-lite does not claim independent offline worker pools/observer fan-out |
 | FR-021/023/027 | SQLiteStore, PostgresStore, leases/fences/outbox/projection ordering | SQLite/local evidence exists at `3415b10`; exact-final-SHA regression and real verified-TLS PostgreSQL gate remain |

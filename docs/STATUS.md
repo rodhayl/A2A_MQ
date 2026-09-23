@@ -1,16 +1,13 @@
-# Source and acceptance status - 2026-09-22
+# Source and acceptance status - 2026-09-23
 
 ## Current branch
 
 Branch: `implementation/production-hardening-20260916`.
 
-Executable/source hardening currently reaches
-`83e1d93c2cb9a4f06db328d026f99d29eca1135e` with validation report at
-`caa643cdf64126a1fad4b3a8153b9663873b6868`.
-
-The most recent exact SHA with executed `LOCAL_PASS` and `SDK_PASS` evidence is
-`83e1d93c2cb9a4f06db328d026f99d29eca1135e` (see `docs/validation/local-agent-20260923.md`),
-covering 1071 local tests, 1097 broker-independent tests, and the native 3-process stack probe.
+Executable/source hardening currently establishes:
+- Formal local-lite resilience gate: `PASS_LOCAL_LITE_RESILIENCE` across all 8 failure domains (see `docs/validation/resilience-agent-20260923.md`).
+- Optional 5-process native local Workflow stack probe: `PASS_LOCAL_WORKFLOW` (steady-state RSS 398.88 MiB, idle CPU 8.31%).
+- Previous baseline gates preserved: `SDK_PASS`, `LOCAL_PASS` (1071 tests), 1097 broker-independent suite, `PASS_CORE_LIGHT`, `PASS_LOCAL_PYTHON`, `PASS_LOCAL_LITE`.
 
 `main` remains unchanged at
 `66c17153d7ec75b9ad85808ef141b9dba43a9d91`.
