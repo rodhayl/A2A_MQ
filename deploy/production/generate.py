@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import copy
 import json
+import os
 from pathlib import Path
 import re
 
@@ -21,6 +22,30 @@ def env(name: str, value: str) -> dict:
 
 def secret_env(name: str, secret: str, key: str = "token") -> dict:
     return {"name": name, "valueFrom": {"secretKeyRef": {"name": secret, "key": key}}}
+
+
+def write_output(path: Path, data: str) -> None:
+    """Create one complete output file without following or replacing a raced path."""
+    require(path.parent.is_dir(), "INVALID_OUTPUT")
+    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0)
+    try:
+        fd = os.open(path, flags, 0o644)
+    except OSError:
+        raise PermanentError("INVALID_OUTPUT") from None
+    info = os.fstat(fd)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as stream:
+            stream.write(data)
+            stream.flush()
+            os.fsync(stream.fileno())
+    except BaseException:
+        try:
+            current = os.lstat(path)
+            if (current.st_dev, current.st_ino) == (info.st_dev, info.st_ino):
+                path.unlink()
+        except OSError:
+            pass
+        raise
 
 
 def deployment(*, namespace: str, role: str, app_id: str, image: str,
@@ -156,12 +181,12 @@ def main() -> int:
     parser.add_argument("--jwt-public-key", required=True, type=Path)
     parser.add_argument("--output", required=True, type=Path)
     args = parser.parse_args()
-    require(not args.output.exists() and args.output.parent.is_dir(), "INVALID_OUTPUT")
+    require(args.output.parent.is_dir(), "INVALID_OUTPUT")
     public_key = args.jwt_public_key.read_text(encoding="ascii")
     manifest = generate(namespace=args.namespace, tenant=args.tenant, broker=args.broker,
                         image=args.image, public_url=args.public_url, issuer=args.issuer,
                         jwt_kid=args.jwt_kid, public_key=public_key)
-    args.output.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
+    write_output(args.output, json.dumps(manifest, indent=2) + "\n")
     return 0
 
 

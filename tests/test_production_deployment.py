@@ -47,6 +47,23 @@ def test_worker_and_dlq_require_dapr_to_app_token_but_api_does_not():
     assert "dapr.io/app-token-secret" not in api and api["dapr.io/api-token-secret"] == "dapr-api-token"
 
 
+
+def test_output_writer_is_exclusive_and_rejects_dangling_symlink(tmp_path):
+    output = tmp_path / "manifest.json"
+    deploy.write_output(output, '{"ok":true}\n')
+    assert output.read_text() == '{"ok":true}\n'
+    with pytest.raises(PermanentError, match="INVALID_OUTPUT"):
+        deploy.write_output(output, '{"overwrite":true}\n')
+    assert output.read_text() == '{"ok":true}\n'
+
+    target = tmp_path / "missing-target.json"
+    link = tmp_path / "dangling.json"
+    link.symlink_to(target)
+    with pytest.raises(PermanentError, match="INVALID_OUTPUT"):
+        deploy.write_output(link, '{"unsafe":true}\n')
+    assert link.is_symlink()
+    assert not target.exists()
+
 def test_image_must_be_immutable_digest():
     with pytest.raises(PermanentError, match="IMAGE_DIGEST_REQUIRED"):
         deploy.generate(namespace="a2amq", tenant="demo", broker="jetstream",
