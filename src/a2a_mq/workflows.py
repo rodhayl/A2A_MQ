@@ -208,6 +208,8 @@ class ActionRelay:
                     async with asyncio.timeout(self.timeout):
                         if action.kind == "publish":
                             await self.publisher.publish(Envelope(action.body))
+                            from .fault_injection import hook_publish_before_bookkeeping
+                            hook_publish_before_bookkeeping(action)
                             await self.database.call(self.ledger.delivered, action)
                         else:
                             await self.database.call(self.actions.dispatch, action)

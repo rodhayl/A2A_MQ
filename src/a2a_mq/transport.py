@@ -223,7 +223,10 @@ def subscriber(handler: Handler, bus: DaprPublisher, *, tenant: str, consumer: s
                         and ce["source"] == "urn:a2a-mq:" + e["source"]
                         and ce["type"] == "a2a-mq." + e["operation"], "IDENTIFIER_MISMATCH")
                 identifiers.update({k: e[k] for k in ("messageId", "taskId", "contextId", "correlationId") if k in e})
+                from .fault_injection import hook_broker_delivery, hook_before_ack
+                hook_broker_delivery(e)
                 await handler(envelope)
+                hook_before_ack(e)
             LOG.info(canonical({"event": "ack", **identifiers}))
             return {"status": "SUCCESS"}
         except TimeoutError:

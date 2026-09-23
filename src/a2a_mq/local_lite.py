@@ -202,17 +202,26 @@ class LocalLiteActions:
                 and policy["delaySeconds"] == 0, "WORKFLOW_FEATURE_UNAVAILABLE")
         parts = text_parts(payload["message"])
         self.ledger.step(action.task_id, "local-working", "WORKING")
+        from .fault_injection import hook_execution_crash, hook_terminal_commit
+        hook_execution_crash(action)
         transformed = [value.upper() if policy["transform"] == "upper" else value for value in parts]
         artifacts = [{"artifactId": "result", "parts": [{"text": value} for value in transformed]}]
+        hook_terminal_commit(action, "before_completed")
         self.ledger.step(action.task_id, "local-completed", "COMPLETED", artifacts=artifacts)
+        hook_terminal_commit(action, "after_completed")
         self.ledger.finish(action.task_id)
+        hook_terminal_commit(action, "after_finish")
         self.ledger.delivered(action)
 
     def _cancel(self, action: Action) -> None:
+        from .fault_injection import hook_terminal_commit
         self.ledger.verify_control(action.task_id, "cancel", load_json(action.body))
+        hook_terminal_commit(action, "before_cancel")
         if self._state(action.task_id) not in TERMINAL:
             self.ledger.step(action.task_id, "local-canceled", "CANCELED")
+        hook_terminal_commit(action, "after_cancel")
         self.ledger.finish(action.task_id)
+        hook_terminal_commit(action, "after_cancel_finish")
         self.ledger.delivered(action)
 
     def dispatch(self, action: Action) -> None:
