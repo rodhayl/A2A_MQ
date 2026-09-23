@@ -39,7 +39,12 @@ def test_fault_injection_records_events_when_configured(tmp_path, monkeypatch):
 
     assert fault_injection.is_active("test_mode", "target-1") is True
     assert fault_injection.is_active("test_mode", "other") is False
+    assert fault_injection.is_active("test_mode", None) is False
     assert fault_injection.is_active("other_mode", "target-1") is False
+
+    monkeypatch.setattr(fault_injection, "_TARGET", "*")
+    assert fault_injection.is_active("test_mode", None) is True
+    assert fault_injection.is_active("test_mode", "any") is True
 
     fault_injection.record_event("custom_event", {"foo": "bar"})
     assert rec_file.exists()

@@ -33,8 +33,8 @@ def enabled() -> bool:
 def is_active(mode: str, target: str | None = None) -> bool:
     if not enabled() or not _MODE or _MODE != mode:
         return False
-    if _TARGET and _TARGET != "*" and target is not None:
-        return _TARGET == target
+    if _TARGET and _TARGET != "*":
+        return target is not None and _TARGET == target
     return True
 
 
