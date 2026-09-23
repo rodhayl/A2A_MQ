@@ -64,8 +64,14 @@ def preflight(sha: str, output: Path) -> str:
     common = Path(git("rev-parse", "--path-format=absolute", "--git-common-dir")).resolve()
     if output == common or common in output.parents:
         raise EvidenceError("Evidence must be outside Git metadata")
-    for name in git("ls-files", "-z").split("\0"):
+    for record in git("ls-files", "-s", "-z").split("\0"):
+        if not record:
+            continue
+        metadata, name = record.split("\t", 1)
+        mode = metadata.split(" ", 1)[0]
         path = Path(name)
+        if mode == "120000" and (name == "src" or name.startswith("src/")):
+            raise EvidenceError("Tracked source symlink present")
         if (FORBIDDEN_DIRS.intersection(path.parts) or path.name == ".env"
                 or path.suffix.lower() in {".pem", ".key", ".p12", ".pfx"}):
             raise EvidenceError("Tracked recovery/runtime/secret artifact present")

@@ -91,6 +91,18 @@ def test_review_evidence_hash_rejects_symlink(repository, tmp_path, monkeypatch)
         module.evidence_sha256(link)
 
 
+def test_tracked_source_symlink_is_rejected(repository, tmp_path):
+    src = repository / "src"
+    src.mkdir()
+    (src / "linked.py").symlink_to(repository / "tracked.txt")
+    commit(repository)
+
+    result = invoke(repository, tmp_path / "evidence", "--scope", "local")
+
+    assert result.returncode == 2
+    assert "Tracked source symlink present" in result.stderr
+
+
 def test_local_pass_has_exact_binding_and_hashed_evidence(repository, tmp_path):
     output = tmp_path / "evidence"
     result = invoke(repository, output, "--scope", "local")
