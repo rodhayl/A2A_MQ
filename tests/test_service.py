@@ -12,7 +12,7 @@ from a2a_mq.service import ServiceSettings, create_app, from_env
 from a2a_mq.storage import SQLiteStore
 from a2a_mq.transport import DaprPublisher, cloud_event
 from test_runtime import until
-from test_storage import NOW, counts, request, result, store  # noqa: F401
+from test_storage import NOW, counts, request, result
 
 TOKEN = "local-test-token-123456789"
 

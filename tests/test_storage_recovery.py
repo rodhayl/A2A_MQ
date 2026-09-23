@@ -4,8 +4,8 @@ import sqlite3
 
 import pytest
 
-from a2a_mq.domain import RetryableError, PermanentError, canonical
-from test_storage import complete, request, result, store  # noqa: F401
+from a2a_mq.domain import PermanentError, RetryableError, canonical
+from test_storage import complete, request, result
 
 
 @pytest.mark.parametrize("stored", [None, "{}", "broken", "OTHER_TENANT", "OTHER_COMMAND"])

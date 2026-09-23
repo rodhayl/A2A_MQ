@@ -10,7 +10,7 @@ from a2a_mq.domain import Envelope, PermanentError, RetryableError
 from a2a_mq.reference import echo_events
 from a2a_mq.runtime import AsyncSQLite, DurableEchoWorker, OutboxRelay, SnapshotObserver
 from a2a_mq.storage import SQLiteStore
-from test_storage import NOW, complete, counts, request, result, store  # noqa: F401
+from test_storage import NOW, complete, counts, request, result
 
 
 async def until(predicate):
