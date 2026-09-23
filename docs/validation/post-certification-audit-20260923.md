@@ -5,7 +5,7 @@
 - Branch: `implementation/production-hardening-20260916`
 - Last completed local-tier certification documentation head: `7a667a4f`
 - Exact validated source recorded by that certification: `1dd1938dff5cbf58a803ec23617143b5d998465e`
-- Source/test/harness hardening reviewed here: through `4037cf6c36f014f2cbf91d841bf92861bdc074b6`
+- Source/test/harness hardening reviewed here: through `64548bd46c3a2e204a4c6730ecc73e23691a004b`
 - `main`: unchanged at `66c17153d7ec75b9ad85808ef141b9dba43a9d91`
 - Package version: `0.1.0`
 
@@ -33,6 +33,17 @@
     commits remain part of the current rerun boundary and do not inherit the
     earlier exact-SHA local certification.
 
+11. `aa184bd9`, `0f788e74` — source evidence hashing now streams regular
+    files and rejects file or directory symlinks under `src/`.
+12. `f5890a75`, `e48ef12d`, `cd27472d`, `9dbab1f0` — the independent
+    reviewer disables external pytest plugin autoload, hashes evidence without
+    following links, and rejects tracked source symlinks.
+13. `283a5d67`, `70670da7` — formal acceptance rejects Git provenance
+    environment overrides and requires `--root` to be the exact Git top-level.
+14. `383bab34`, `f2430a9a`, `64548bd4` — resilience, Workflow and soak
+    gates require fresh, distinct evidence outputs and use exclusive final writes
+    so previous evidence or symlinks cannot be overwritten.
+
 ## What was and was not verified here
 
 The connector audit inspected the committed source and preserved branch history
@@ -47,14 +58,16 @@ not repository test evidence.
 
 Before reattaching current-SHA local certification, execute at minimum:
 
-- focused tests for fault injection, resilience harness and every lint-only test
-  module changed after certification;
+- focused tests for acceptance provenance/source hashing, independent review,
+  fault injection and all three evidence-output guards;
 - `ruff check .`;
 - `mypy`;
+- repository contract and package/dependency smoke;
 - formal exact-SHA `a2a_mq.acceptance --mode local`;
-- local-lite resilience gate, because both the hooks and its harness changed;
-- optional Workflow functional/resilience gate and soak gate if the goal is to
-  restore the full `PASS_LOCAL_TIER_COMPLETE` verdict to the new exact SHA.
+- local-lite resilience gate;
+- Workflow resource/functional/resilience gate;
+- soak gate, if restoring the complete `PASS_LOCAL_TIER_COMPLETE` verdict to
+  the new exact SHA.
 
 External verified-TLS PostgreSQL, Vault Transit and dual real-broker gates remain
 separate prerequisites for `FULL_PASS`.

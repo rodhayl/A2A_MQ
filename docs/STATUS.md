@@ -269,6 +269,14 @@ local-environment, evidence-hashing and broker-matrix hardening. These commits a
 inside the same current-SHA rerun boundary; no historical PASS is promoted to the
 new HEAD without execution.
 
+
+The same post-certification audit subsequently hardened source/provenance and
+local-tier evidence handling through `64548bd4`: source hashes reject symlinked
+source trees, the independent reviewer is plugin-isolated and no-follow, formal
+acceptance rejects Git redirection and non-root checkout provenance, and
+resilience/Workflow/soak outputs are fresh and exclusive. These changes also
+require exact-SHA rerun before current HEAD can carry the local certification.
+
 ## Evidence that exists
 
 Historical evidence must stay attached to the SHA it actually tested.
