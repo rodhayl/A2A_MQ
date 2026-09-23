@@ -397,6 +397,7 @@ def _require_ports_free(ports: tuple[int, ...]) -> None:
         require(type(port) is int and 1 <= port <= 65535 and port not in seen, "INVALID_LOCAL_PORTS")
         seen.add(port)
         probe = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        probe.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         try:
             probe.bind(("127.0.0.1", port))
         except OSError:

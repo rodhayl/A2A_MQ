@@ -305,6 +305,17 @@ def test_local_port_preflight_rejects_occupied_loopback_port():
         occupied.close()
 
 
+def test_local_port_preflight_allows_port_reuse_after_close():
+    import socket
+
+    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    s.bind(("127.0.0.1", 0))
+    port = s.getsockname()[1]
+    s.close()
+    # Preflight should pass cleanly immediately after close
+    _require_ports_free((port,))
+
+
 def test_local_port_preflight_rejects_duplicate_or_invalid_ports():
     for ports in ((18000, 18000), (0,), (65536,), (True,)):
         with pytest.raises(PermanentError, match="INVALID_LOCAL_PORTS"):
