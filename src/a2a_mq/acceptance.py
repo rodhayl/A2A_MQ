@@ -264,13 +264,16 @@ def full_status(results,requested):
 def git_snapshot(root):
     """Return one clean exact Git HEAD/tree snapshot, or None when provenance is unusable."""
     try:
+        top = subprocess.check_output(["git","rev-parse","--show-toplevel"],
+                                      cwd=root,text=True,timeout=5).strip()
         head = subprocess.check_output(["git","rev-parse","HEAD"],cwd=root,text=True,timeout=5).strip()
         tree = subprocess.check_output(["git","rev-parse","HEAD^{tree}"],cwd=root,text=True,timeout=5).strip()
         status = subprocess.check_output(["git","status","--porcelain=v1","--untracked-files=all"],
                                          cwd=root,text=True,timeout=5).strip()
     except (OSError, subprocess.SubprocessError):
         return None
-    if (status or re.fullmatch(r"[0-9a-f]{40}", head) is None
+    if (Path(top).resolve() != Path(root).resolve() or status
+            or re.fullmatch(r"[0-9a-f]{40}", head) is None
             or re.fullmatch(r"[0-9a-f]{40}", tree) is None):
         return None
     return {"head":head,"tree":tree}

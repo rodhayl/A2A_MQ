@@ -91,11 +91,15 @@ def test_stable_git_provenance_preserves_pass_and_failure():
 
 
 def test_git_snapshot_requires_clean_exact_head_and_tree(tmp_path,monkeypatch):
-    values=iter(["a" * 40, "b" * 40, ""])
+    values=iter([str(tmp_path), "a" * 40, "b" * 40, ""])
     monkeypatch.setattr("a2a_mq.acceptance.subprocess.check_output",
                         lambda *a,**k: next(values))
     assert git_snapshot(tmp_path)=={"head":"a" * 40,"tree":"b" * 40}
-    values=iter(["a" * 40, "b" * 40, "?? untracked"])
+    values=iter([str(tmp_path), "a" * 40, "b" * 40, "?? untracked"])
+    monkeypatch.setattr("a2a_mq.acceptance.subprocess.check_output",
+                        lambda *a,**k: next(values))
+    assert git_snapshot(tmp_path) is None
+    values=iter([str(tmp_path / "other"), "a" * 40, "b" * 40, ""])
     monkeypatch.setattr("a2a_mq.acceptance.subprocess.check_output",
                         lambda *a,**k: next(values))
     assert git_snapshot(tmp_path) is None
