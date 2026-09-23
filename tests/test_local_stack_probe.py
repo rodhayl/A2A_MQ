@@ -30,9 +30,17 @@ def test_stack_probe_has_distinct_lite_and_workflow_budgets():
     lite = probe._profile_policy({"mode": "local-lite"})
     workflow = probe._profile_policy({"mode": "local-workflow"})
     assert lite["expectedRoles"] == ("app", "daprd", "nats")
+    assert lite["maxTotalRssMiB"] == 384.0
+    assert lite["maxIdleCpuPercent"] == 5.0
+    assert lite["maxStartupSeconds"] == 15.0
+    assert lite["maxRuntimeStateMiB"] == 32.0
+
     assert workflow["expectedRoles"] == ("app", "daprd", "nats", "placement", "scheduler")
-    assert workflow["maxTotalRssMiB"] > lite["maxTotalRssMiB"]
-    assert workflow["maxStartupSeconds"] > lite["maxStartupSeconds"]
+    assert workflow["maxTotalRssMiB"] == 640.0
+    assert workflow["maxIdleCpuPercent"] == 8.0
+    assert workflow["maxStartupSeconds"] == 25.0
+    assert workflow["maxRuntimeStateMiB"] == 64.0
+
 
 
 def test_stack_probe_profile_reader_rejects_symlink_and_oversize(tmp_path):
