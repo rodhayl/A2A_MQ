@@ -5,12 +5,12 @@
 Branch: `implementation/production-hardening-20260916`.
 
 Executable/source hardening currently reaches
-`9dafa7d5e2917027fe8d2741569f68ff022de075`.
-This status update itself changes documentation only.
+`83e1d93c2cb9a4f06db328d026f99d29eca1135e` with validation report at
+`caa643cdf64126a1fad4b3a8153b9663873b6868`.
 
-The most recent exact SHA with executed `LOCAL_PASS` evidence remains
-`3415b10ddcfc5c721f9872c926fead5e11897543`; later source/harness commits
-require an exact-SHA rerun before a current-head PASS can be claimed.
+The most recent exact SHA with executed `LOCAL_PASS` and `SDK_PASS` evidence is
+`83e1d93c2cb9a4f06db328d026f99d29eca1135e` (see `docs/validation/local-agent-20260923.md`),
+covering 1071 local tests, 1097 broker-independent tests, and the native 3-process stack probe.
 
 `main` remains unchanged at
 `66c17153d7ec75b9ad85808ef141b9dba43a9d91`.

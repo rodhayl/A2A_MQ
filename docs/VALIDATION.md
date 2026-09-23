@@ -8,42 +8,22 @@ The branch contains both local tiers described in ADR 0011 plus the distributed
 production-like implementation.
 
 The latest exact-SHA local execution evidence is
-[local-run-20260922.md](validation/local-run-20260922.md) at
-`3415b10ddcfc5c721f9872c926fead5e11897543`. On that SHA:
+[local-agent-20260923.md](validation/local-agent-20260923.md) at
+`83e1d93c2cb9a4f06db328d026f99d29eca1135e` (recorded at `caa643cdf64126a1fad4b3a8153b9663873b6868`). On that SHA:
 
-- core economics and the warmed Python local product were reported as passing,
-  but their recorded command lines are inconsistent with the scripts at that SHA
-  and require raw-evidence inspection or rerun for reproducible provenance;
-- 118 selected local regressions passed;
+- core economics (`PASS_CORE_LIGHT`) and warmed Python product (`PASS_LOCAL_PYTHON`) passed;
+- 259 focused regressions passed;
 - repository-pinned Dapr 1.18.3 all-components and NATS Server 2.15.0 were
-  checksum/version verified;
-- the real native three-process local-lite stack was reported as passing its
-  resource budget and functional roundtrip, with the same command-transcription
-  caveat;
-- repository contracts and isolated wheel packaging smoke passed;
-- formal local acceptance produced `LOCAL_PASS` with 929 tests and clean exact
-  Git provenance.
+  checksum and version verified (`PASS_NATIVE_VERSION`);
+- the real native three-process local-lite stack passed its resource budget and
+  functional roundtrip (`PASS_LOCAL_LITE`);
+- official A2A SDK gate passed (`SDK_PASS`);
+- formal local acceptance produced `LOCAL_PASS` with 1071 tests; full broker-independent
+  suite passed with 1097 tests; mypy passed with 0 errors across 53 source files.
 
-That evidence remains attached to `3415b10`. Later source/harness hardening on
-this branch does not inherit the verdict. Read [current status](STATUS.md) for the
-current source SHA and the exact rerun boundary.
-
-The latest connector-based source audit reaches `9dafa7d5` before its
-documentation-only status update. It added focused regressions for alternate
-operations/DLQ replay and metrics, malformed external/internal service URLs, and
-fail-clean/no-overwrite disposable Compose generation. Those changes were reviewed
-against their call sites but were **not executed in the connector environment**
-because no private checkout could be materialized there. The next local run must
-execute those focused regressions before assigning any PASS to the latest source.
-
-The optional five-process local Workflow tier still has no equivalent native
-resource/restart acceptance evidence. Distributed PostgreSQL verified-TLS, Vault,
-official SDK and dual-broker/full-stack gates also remain separate and incomplete.
-
-The next machine run should first verify the post-`3415b10` commits with focused
-regressions, then rerun exact-SHA local acceptance. Repeating the expensive resource
-probes is only required when their relevant runtime/measurement bytes changed or
-when a new target-machine measurement is explicitly needed.
+The current phase moves from "the local product works" to "the local product survives
+failures without losing, duplicating or corrupting work" via `LOCAL_LITE_RESILIENCE`,
+followed by the optional local Workflow tier and external infrastructure gates.
 
 ## Historical environment
 
