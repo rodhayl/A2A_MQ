@@ -4,10 +4,13 @@
 
 Branch: `implementation/production-hardening-20260916`.
 
-Executable/source hardening currently establishes:
-- Formal local-lite resilience gate: `PASS_LOCAL_LITE_RESILIENCE` across all 8 failure domains (see `docs/validation/resilience-agent-20260923.md`).
-- Optional 5-process native local Workflow stack probe: `PASS_LOCAL_WORKFLOW` (steady-state RSS 398.88 MiB, idle CPU 8.31%).
-- Previous baseline gates preserved: `SDK_PASS`, `LOCAL_PASS` (1071 tests), 1097 broker-independent suite, `PASS_CORE_LIGHT`, `PASS_LOCAL_PYTHON`, `PASS_LOCAL_LITE`.
+Executable/source hardening establishes complete local tier certification:
+- Overall verdict: `PASS_LOCAL_TIER_COMPLETE` (see `docs/validation/local-certification-20260923.md`).
+- Formal local-lite resilience gate: `PASS_LOCAL_LITE_RESILIENCE` across all failure domains, verified with real broker/runtime fault injection (unacked broker delivery, publish-before-bookkeeping crash, execution crash in WORKING state, and deterministic commit boundary races).
+- Optional 5-process native local Workflow tier gate: separated into `PASS_LOCAL_WORKFLOW_RESOURCE`, `PASS_LOCAL_WORKFLOW_FUNCTIONAL`, and `PASS_LOCAL_WORKFLOW_RESILIENCE` (overall `PASS_LOCAL_WORKFLOW`).
+- Continuous soak & leak gate: `PASS_LOCAL_SOAK` across a 23.02-minute mixed workload (2716 tasks, stable post-warmup/post-drain RSS, zero FD/thread leak, intact SQLite integrity).
+- Exact-current-SHA acceptance: `LOCAL_PASS` (1077 tests, 0 failures, 0 errors, 0 skipped); 1103 broker-independent suite passed.
+- Baseline economic gates preserved: `PASS_CORE_LIGHT`, `PASS_LOCAL_PYTHON`, `PASS_LOCAL_LITE`, `SDK_PASS`.
 
 `main` remains unchanged at
 `66c17153d7ec75b9ad85808ef141b9dba43a9d91`.
@@ -253,13 +256,13 @@ currently exact-command reproducible evidence from repository history:
 
 ## Distributed and external gates status
 
-The following gates remain execution/evidence gates with real prerequisites:
+The following external infrastructure gates remain execution/evidence gates with real prerequisites:
 
-1. PostgreSQL verified-TLS gate: `UNAVAILABLE` / `INCOMPLETE` (verified-TLS DSN file and psycopg not provided).
-2. Vault Transit gate: `UNAVAILABLE` / `INCOMPLETE` (Vault test config file not provided).
-3. Disposable JetStream / RabbitMQ gates: `UNAVAILABLE` / `INCOMPLETE` (container opt-in absent; prohibited per user rules).
-4. Official SDK gate: `UNAVAILABLE` / `INCOMPLETE` (missing `dapr.ext.workflow`, `mcp`, `httpx2`).
-5. Historical local acceptance: `LOCAL_PASS` is established at exact SHA `3415b10`. The current branch HEAD has later source/harness changes and is therefore **INCOMPLETE until rerun on the exact final SHA**. Full acceptance remains **INCOMPLETE** (`productionCertified=false`, `upstreamBindingCertified=false`).
+1. PostgreSQL verified-TLS gate: `UNAVAILABLE` / not authorized (verified-TLS DSN file and psycopg not provided).
+2. Vault Transit gate: `UNAVAILABLE` / not authorized (Vault test config file not provided).
+3. Disposable JetStream / RabbitMQ gates: `UNAVAILABLE` / not authorized (container opt-in absent; prohibited per user rules).
+4. Python 3.13 gate: `UNAVAILABLE` (Python 3.13 not installed system-wide).
+5. Exact-current-SHA local acceptance: `LOCAL_PASS` is established on the clean committed Git tree (1077 tests, 0 failures, 0 errors, 0 skipped at `1dd1938dff5cbf58a803ec23617143b5d998465e`). Full acceptance remains **INCOMPLETE** (`productionCertified=false`, `upstreamBindingCertified=false`) as distributed external prerequisites remain separate.
 
 ## Hosted CI status
 

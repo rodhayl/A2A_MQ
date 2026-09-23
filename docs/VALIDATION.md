@@ -8,22 +8,25 @@ The branch contains both local tiers described in ADR 0011 plus the distributed
 production-like implementation.
 
 The latest exact-SHA local execution evidence is
-[local-agent-20260923.md](validation/local-agent-20260923.md) at
-`83e1d93c2cb9a4f06db328d026f99d29eca1135e` (recorded at `caa643cdf64126a1fad4b3a8153b9663873b6868`). On that SHA:
+[local-certification-20260923.md](validation/local-certification-20260923.md) at
+`1dd1938dff5cbf58a803ec23617143b5d998465e`. On that SHA:
 
 - core economics (`PASS_CORE_LIGHT`) and warmed Python product (`PASS_LOCAL_PYTHON`) passed;
-- 259 focused regressions passed;
 - repository-pinned Dapr 1.18.3 all-components and NATS Server 2.15.0 were
   checksum and version verified (`PASS_NATIVE_VERSION`);
 - the real native three-process local-lite stack passed its resource budget and
   functional roundtrip (`PASS_LOCAL_LITE`);
 - official A2A SDK gate passed (`SDK_PASS`);
-- formal local acceptance produced `LOCAL_PASS` with 1071 tests; full broker-independent
-  suite passed with 1097 tests; mypy passed with 0 errors across 53 source files.
-
-The current phase moves from "the local product works" to "the local product survives
-failures without losing, duplicating or corrupting work" via `LOCAL_LITE_RESILIENCE`,
-followed by the optional local Workflow tier and external infrastructure gates.
+- formal local resilience gate passed with real broker/runtime fault injection
+  (`PASS_LOCAL_LITE_RESILIENCE`);
+- five-process native local Workflow tier passed separated resource, functional,
+  and resilience gates (`PASS_LOCAL_WORKFLOW`);
+- 23.02-minute continuous soak test verified stable post-warmup RSS, zero FD/thread
+  leak, and clean post-drain state (`PASS_LOCAL_SOAK`);
+- formal local acceptance produced `LOCAL_PASS` with 1077 tests (0 failures, 0 errors,
+  0 skipped); full broker-independent suite passed with 1103 tests; mypy passed
+  with 0 errors across 54 source files;
+- overall local tier certification achieved: `PASS_LOCAL_TIER_COMPLETE`.
 
 ## Historical environment
 
