@@ -74,11 +74,17 @@ def preflight(sha: str, output: Path) -> str:
     return tree
 
 
-def run(command: list[str], log: Path, timeout: float) -> int:
-    env = dict(os.environ, PYTHONDONTWRITEBYTECODE="1", A2AMQ_NO_LLM_TOKENS="1")
+def review_env() -> dict[str, str]:
+    env = dict(os.environ, PYTHONDONTWRITEBYTECODE="1", A2AMQ_NO_LLM_TOKENS="1",
+               PYTEST_DISABLE_PLUGIN_AUTOLOAD="1")
     env["PYTHONPATH"] = str(ROOT / "src")
     env.pop("PYTEST_ADDOPTS", None)
     env.pop("PYTEST_PLUGINS", None)
+    return env
+
+
+def run(command: list[str], log: Path, timeout: float) -> int:
+    env = review_env()
     with log.open("xb") as stream:
         try:
             result = subprocess.run(command, cwd=ROOT, env=env, stdout=stream,

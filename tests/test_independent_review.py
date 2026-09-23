@@ -53,6 +53,17 @@ def commit(root):
     git(root, "commit", "-qm", "fixture variant")
 
 
+def test_review_environment_disables_external_pytest_plugins(monkeypatch):
+    module = reviewer_module()
+    monkeypatch.setenv("PYTEST_ADDOPTS", "-p arbitrary")
+    monkeypatch.setenv("PYTEST_PLUGINS", "arbitrary")
+    env = module.review_env()
+    assert env["PYTEST_DISABLE_PLUGIN_AUTOLOAD"] == "1"
+    assert "PYTEST_ADDOPTS" not in env
+    assert "PYTEST_PLUGINS" not in env
+    assert env["A2AMQ_NO_LLM_TOKENS"] == "1"
+
+
 def test_local_pass_has_exact_binding_and_hashed_evidence(repository, tmp_path):
     output = tmp_path / "evidence"
     result = invoke(repository, output, "--scope", "local")
