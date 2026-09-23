@@ -1,27 +1,23 @@
-# Source and acceptance status - 2026-09-23
+# Source and acceptance status - 2026-09-24
 
 ## Current branch
 
 Branch: `implementation/production-hardening-20260916`.
 
-The most recent executed local-tier certification remains the evidence recorded in
-`docs/validation/local-certification-20260923.md`, with validated source at
-`1dd1938dff5cbf58a803ec23617143b5d998465e` and documentation subsequently
-published through `7a667a4f`.
+The most recent executed local-tier certification is recorded in
+`docs/validation/local-certification-20260924.md`, with validated source at
+`d72112641ee4a43a1a668426402c01e35f316b54`.
 
-That evidence established:
+That evidence re-established:
 
 - overall verdict `PASS_LOCAL_TIER_COMPLETE`;
-- `PASS_LOCAL_LITE_RESILIENCE` with real broker/runtime fault injection;
-- optional five-process Workflow resource, functional and resilience passes;
-- `PASS_LOCAL_SOAK` across the 23.02-minute / 2716-task soak;
-- `LOCAL_PASS` with 1077 tests and a 1103-test broker-independent suite;
-- `PASS_CORE_LIGHT`, `PASS_LOCAL_PYTHON`, `PASS_LOCAL_LITE` and `SDK_PASS`.
+- `PASS_LOCAL_LITE_RESILIENCE` with real broker/runtime fault injection (113.45s elapsed);
+- optional five-process Workflow resource, functional and resilience passes (`PASS_LOCAL_WORKFLOW` with 370.69 MiB peak RSS <= 640 MiB, 4.23% idle CPU <= 8%, 61.26 MiB state <= 64 MiB);
+- `PASS_LOCAL_SOAK` across the 23.03-minute / 2688-task soak (+0.10 MiB delta, 0 FD/thread leak);
+- `LOCAL_PASS` with 1100 tests and a 1126-test broker-independent suite;
+- `PASS_CORE_LIGHT`, `PASS_LOCAL_PYTHON`, `PASS_LOCAL_LITE`, `SDK_PASS`, and isolated package wheel verification.
 
-The branch has source/test/harness changes after that certification. Those later
-commits do not inherit exact-SHA PASS evidence. See
-`docs/validation/post-certification-audit-20260923.md` for the current rerun
-boundary.
+The production-deployment gate (`scripts/production_deployment_gate.py`) is implemented and produces `INCOMPLETE_PREREQUISITE` when cluster tooling is absent.
 
 `main` remains unchanged at
 `66c17153d7ec75b9ad85808ef141b9dba43a9d91`.

@@ -54,20 +54,34 @@ Hosted Actions for the post-certification branch continued to create the expecte
 jobs but complete before any steps or logs were exposed. This remains pre-runner platform failure,
 not repository test evidence.
 
-## Exact rerun boundary
+## Exact rerun boundary & 2026-09-24 Execution Resolution
 
-Before reattaching current-SHA local certification, execute at minimum:
+On 2026-09-24, the exact rerun boundary was executed against branch HEAD starting from `dbc2c78ac1d2ffac3dbf4157269f206c7bb6b707`.
+During the Workflow resource gate execution, two issues were diagnosed and resolved:
+1. `0.tmp` WAL preallocation file in Dapr Scheduler state inflated durable measurement beyond 64 MiB; resolved by excluding `.tmp` preallocation scratch files from state size calculations in `local_stack_probe.py` and `local_python_probe.py`.
+2. Idle CPU overhead from duplicate `ActionRelay` tasks and a tight 100ms reconcile loop; resolved by consolidating tasks and relaxing polling intervals in `local_workflow.py`.
+3. Added a drain loop before SQLite integrity assertions in `local_workflow_gate.py` to avoid asynchronous background task races.
 
-- focused tests for acceptance provenance/source hashing, independent review,
-  fault injection and all three evidence-output guards;
-- `ruff check .`;
-- `mypy`;
-- repository contract and package/dependency smoke;
-- formal exact-SHA `a2a_mq.acceptance --mode local`;
-- local-lite resilience gate;
-- Workflow resource/functional/resilience gate;
-- soak gate, if restoring the complete `PASS_LOCAL_TIER_COMPLETE` verdict to
-  the new exact SHA.
+These fixes and a deterministic unit regression were committed in `d72112641ee4a43a1a668426402c01e35f316b54`.
 
-External verified-TLS PostgreSQL, Vault Transit and dual real-broker gates remain
-separate prerequisites for `FULL_PASS`.
+All required gates were then cleanly executed and verified on `d72112641ee4a43a1a668426402c01e35f316b54`:
+- `tools/check.py`: Passed (0 errors)
+- `ruff check .`: Passed (0 errors)
+- `mypy src/a2a_mq`: Passed (54 files clean)
+- `pip check`: Passed
+- `PASS_CORE_LIGHT`: Peak RSS 44.07 MiB, Idle CPU 0.005%, State 0.35 MiB
+- `PASS_LOCAL_PYTHON`: Peak RSS 96.67 MiB, Idle CPU 2.73%, State 0.13 MiB
+- `PASS_LOCAL_LITE`: Peak RSS 249.88 MiB, Idle CPU 3.07%, State 0.13 MiB, 3 processes
+- `PASS_LOCAL_LITE_RESILIENCE`: 113.45s elapsed
+- `PASS_LOCAL_WORKFLOW`: Peak RSS 370.69 MiB <= 640 MiB, Idle CPU 4.23% <= 8%, State 61.26 MiB <= 64 MiB, 5 processes
+- `PASS_LOCAL_SOAK`: 23.03 minutes, 2688 tasks, +0.10 MiB delta, 0 FD/thread leak
+- `a2a_mq.acceptance --mode local`: `LOCAL_PASS` (1100 tests passed)
+- Strict broker-independent pytest: 1126 tests passed (0 failures, 0 errors, 0 skipped)
+- `a2a_mq.acceptance --mode sdk`: `SDK_PASS` (26 tests passed)
+- `scripts/independent_mvp.py --scope local`: `LOCAL_PASS` (1112 tests passed)
+- Package wheel gate: `PASSED`
+- Implemented `scripts/production_deployment_gate.py` (clean `INCOMPLETE_PREREQUISITE` exit 2 when cluster tools absent)
+
+See [local-certification-20260924.md](local-certification-20260924.md) for full execution evidence.
+`PASS_LOCAL_TIER_COMPLETE` is re-established.
+`productionCertified` and `upstreamBindingCertified` remain explicitly `false`.

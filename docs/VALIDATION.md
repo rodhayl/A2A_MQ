@@ -8,8 +8,8 @@ The branch contains both local tiers described in ADR 0011 plus the distributed
 production-like implementation.
 
 The latest exact-SHA local execution evidence is
-[local-certification-20260923.md](validation/local-certification-20260923.md) at
-`1dd1938dff5cbf58a803ec23617143b5d998465e`. On that SHA:
+[local-certification-20260924.md](validation/local-certification-20260924.md) at
+`d72112641ee4a43a1a668426402c01e35f316b54`. On that SHA:
 
 - core economics (`PASS_CORE_LIGHT`) and warmed Python product (`PASS_LOCAL_PYTHON`) passed;
 - repository-pinned Dapr 1.18.3 all-components and NATS Server 2.15.0 were
@@ -18,22 +18,18 @@ The latest exact-SHA local execution evidence is
   functional roundtrip (`PASS_LOCAL_LITE`);
 - official A2A SDK gate passed (`SDK_PASS`);
 - formal local resilience gate passed with real broker/runtime fault injection
-  (`PASS_LOCAL_LITE_RESILIENCE`);
+  (`PASS_LOCAL_LITE_RESILIENCE`, 113.45s);
 - five-process native local Workflow tier passed separated resource, functional,
-  and resilience gates (`PASS_LOCAL_WORKFLOW`);
-- 23.02-minute continuous soak test verified stable post-warmup RSS, zero FD/thread
-  leak, and clean post-drain state (`PASS_LOCAL_SOAK`);
-- formal local acceptance produced `LOCAL_PASS` with 1077 tests (0 failures, 0 errors,
-  0 skipped); full broker-independent suite passed with 1103 tests; mypy passed
+  and resilience gates (`PASS_LOCAL_WORKFLOW`) with peak RSS 370.69 MiB <= 640 MiB,
+  idle CPU 4.23% <= 8%, runtime state 61.26 MiB <= 64 MiB;
+- 23.03-minute continuous soak test verified stable post-warmup RSS (+0.10 MiB delta),
+  zero FD/thread leak, and clean post-drain state (`PASS_LOCAL_SOAK`);
+- formal local acceptance produced `LOCAL_PASS` with 1100 tests (0 failures, 0 errors,
+  0 skipped); full broker-independent suite passed with 1126 tests; mypy passed
   with 0 errors across 54 source files;
-- overall local tier certification achieved: `PASS_LOCAL_TIER_COMPLETE`.
-
-
-Subsequent source/test/harness hardening through `75f886b1` removed full-lint
-blockers and tightened validation-only fault injection. Those commits are not part
-of the executed evidence above. Until they are rerun, the current branch HEAD is
-**not** an exact-SHA `PASS_LOCAL_TIER_COMPLETE` even though the prior certification
-remains valid historical evidence for its recorded SHA.
+- independent reviewer verified `LOCAL_PASS` with 1112 tests;
+- isolated package wheel build and clean import smoke passed;
+- overall local tier certification re-established: `PASS_LOCAL_TIER_COMPLETE`.
 
 ## Historical environment
 
