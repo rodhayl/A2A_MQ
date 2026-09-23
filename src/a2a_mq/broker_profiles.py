@@ -67,7 +67,12 @@ def rabbitmq_component(*, component: str, consumer: str, app_ids: tuple[str, ...
 def jetstream_component(*, component: str, consumer: str, app_ids: tuple[str, ...],
                         stream: str = "a2a", secret: str = "nats",
                         max_ack_pending: int = 256, replicas: int = 3) -> BrokerProfile:
-    """JetStream: explicit durable/queue identity with retained all-delivery semantics."""
+    """JetStream: durable queues over server-verified TLS with token authentication.
+
+    Dapr's tls_client_cert/tls_client_key fields are filesystem paths, while a
+    component secretKeyRef resolves to secret contents. Keep token auth here
+    unless the deployment also mounts certificate files into the daprd sidecar.
+    """
     component, consumer, stream, secret = map(token, (component, consumer, stream, secret))
     require(bool(app_ids) and all(token(app) for app in app_ids), "INVALID_ROUTE")
     max_ack_pending = _positive(max_ack_pending, "INVALID_BACKPRESSURE", 1000000)
@@ -78,8 +83,6 @@ def jetstream_component(*, component: str, consumer: str, app_ids: tuple[str, ..
         ("ackPolicy", "explicit"), ("deliverPolicy", "all"), ("ackWait", "30s"),
         ("maxDeliver", 10), ("backOff", "1s,5s,30s,2m"),
         ("maxAckPending", max_ack_pending), ("replicas", replicas), ("memoryStorage", False),
-        ("tls_client_cert", _secret(secret, "client-cert")),
-        ("tls_client_key", _secret(secret, "client-key")),
     ])
     body = {"apiVersion": "dapr.io/v1alpha1", "kind": "Component", "metadata": {"name": component},
             "spec": {"type": "pubsub.jetstream", "version": "v1", "metadata": metadata},

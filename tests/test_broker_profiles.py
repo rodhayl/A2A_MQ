@@ -24,6 +24,16 @@ def test_rabbitmq_profile_is_persistent_confirmed_tls_and_manual_ack():
     assert profile.component["scopes"] == ["worker-a", "worker-b"]
 
 
+
+
+def test_jetstream_profile_does_not_treat_secret_pem_as_client_cert_path():
+    profile = jetstream_component(component="bus-workers", consumer="demo-workers",
+                                  app_ids=("worker-a", "worker-b"), replicas=3)
+    metadata = values(profile)
+    assert "secretKeyRef" in metadata["token"]
+    assert "tls_client_cert" not in metadata
+    assert "tls_client_key" not in metadata
+
 def test_jetstream_profile_has_shared_durable_queue_identity():
     profile = jetstream_component(component="bus-workers", consumer="demo-workers",
                                   app_ids=("worker-a", "worker-b"), replicas=3)
