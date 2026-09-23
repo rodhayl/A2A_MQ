@@ -138,7 +138,8 @@ def main() -> int:
         report["excludedMarkers"] = ["live", "postgres", "upstream"]
         commands = [
             ("repository", [sys.executable, "tools/check.py"]),
-            ("local", [sys.executable, "-m", "pytest", "-p", "no:cacheprovider", "-q", "-W", "error",
+            ("local", [sys.executable, "-m", "pytest", "-p", "pytest_asyncio.plugin",
+                       "-p", "no:cacheprovider", "-q", "-W", "error",
                        "-m", EXCLUDED, "--junitxml=" + str(output / "local.junit.xml")]),
         ]
         for name, command in commands:
