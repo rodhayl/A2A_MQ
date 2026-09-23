@@ -298,6 +298,23 @@ def test_source_hashes_stream_and_reject_symlinked_python(tmp_path):
     assert "src/a2a_mq/unsafe.py" not in hashes
 
 
+def test_source_hashes_rejects_symlinked_source_directory(tmp_path):
+    source = tmp_path / "src" / "a2a_mq"
+    source.mkdir(parents=True)
+    (source / "safe.py").write_text("VALUE = 1\n")
+    outside = tmp_path / "outside-package"
+    outside.mkdir()
+    (outside / "evil.py").write_text("VALUE = 2\n")
+    link = source / "linked"
+    link.symlink_to(outside, target_is_directory=True)
+
+    hashes, unsafe = source_hashes(tmp_path)
+
+    assert "src/a2a_mq/linked" in unsafe
+    assert "src/a2a_mq/safe.py" in hashes
+    assert not any("evil.py" in name for name in hashes)
+
+
 def test_evidence_manifest_hashes_nested_files_and_rejects_symlinks(tmp_path):
     import hashlib
 

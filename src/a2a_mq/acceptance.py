@@ -200,12 +200,21 @@ def _file_sha256(path: Path) -> str:
     return digest.hexdigest()
 
 def source_hashes(root: Path) -> tuple[dict[str, str], list[str]]:
-    """Hash executable Python source without following symlinks or special files."""
+    """Hash executable Python source and reject symlink/special entries anywhere under src."""
     hashes: dict[str, str] = {}
     unsafe: list[str] = []
     source_root = root / "src"
-    for path in sorted(source_root.rglob("*.py")):
+    if source_root.is_symlink() or not source_root.is_dir():
+        return hashes, ["src"]
+    for path in sorted(source_root.rglob("*")):
         relative = path.relative_to(root).as_posix()
+        if path.is_symlink():
+            unsafe.append(relative)
+            continue
+        if path.is_dir():
+            continue
+        if path.suffix != ".py":
+            continue
         try:
             hashes[relative] = _file_sha256(path)
         except OSError:
