@@ -14,6 +14,7 @@ import json
 import os
 from pathlib import Path
 import re
+import stat
 import subprocess
 import sys
 import time
@@ -188,7 +189,12 @@ def package_gate(root, output, env, timeout):
 
 def _file_sha256(path: Path) -> str:
     digest = hashlib.sha256()
-    with path.open("rb") as stream:
+    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0)
+    fd = os.open(path, flags)
+    with os.fdopen(fd, "rb") as stream:
+        require_regular = os.fstat(stream.fileno())
+        if not stat.S_ISREG(require_regular.st_mode):
+            raise OSError("evidence path is not a regular file")
         for chunk in iter(lambda: stream.read(1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()
@@ -204,7 +210,10 @@ def evidence_hashes(root):
         if path.is_symlink():
             unsafe.append(relative)
         elif path.is_file():
-            hashes[relative]=_file_sha256(path)
+            try:
+                hashes[relative]=_file_sha256(path)
+            except OSError:
+                unsafe.append(relative)
         elif not path.is_dir():
             unsafe.append(relative)
     return hashes, unsafe

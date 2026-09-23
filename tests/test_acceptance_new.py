@@ -263,6 +263,15 @@ def test_evidence_file_hashing_streams_without_path_read_bytes(tmp_path, monkeyp
     monkeypatch.setattr(Path,"read_bytes",lambda self: (_ for _ in ()).throw(AssertionError("read_bytes forbidden")))
     assert _file_sha256(payload)==expected
 
+def test_streaming_evidence_hash_rejects_symlink_target(tmp_path):
+    target=tmp_path/"target.log"
+    target.write_text("outside")
+    link=tmp_path/"evidence.log"
+    link.symlink_to(target)
+    with pytest.raises(OSError):
+        _file_sha256(link)
+
+
 def test_evidence_manifest_hashes_nested_files_and_rejects_symlinks(tmp_path):
     import hashlib
 
