@@ -72,6 +72,25 @@ def test_review_environment_disables_external_pytest_plugins(repository, monkeyp
     assert env["A2AMQ_NO_LLM_TOKENS"] == "1"
 
 
+def test_review_evidence_hash_rejects_symlink(repository, tmp_path, monkeypatch):
+    import importlib.util
+
+    scripts = repository / "scripts"
+    monkeypatch.syspath_prepend(str(scripts))
+    spec = importlib.util.spec_from_file_location("independent_mvp_hash_fixture",
+                                                  scripts / "independent_mvp.py")
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    target = tmp_path / "target.log"
+    target.write_text("outside")
+    link = tmp_path / "evidence.log"
+    link.symlink_to(target)
+    with pytest.raises(OSError):
+        module.evidence_sha256(link)
+
+
 def test_local_pass_has_exact_binding_and_hashed_evidence(repository, tmp_path):
     output = tmp_path / "evidence"
     result = invoke(repository, output, "--scope", "local")

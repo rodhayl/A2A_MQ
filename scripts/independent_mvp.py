@@ -8,6 +8,7 @@ import math
 import os
 from pathlib import Path
 import re
+import stat
 import subprocess
 import sys
 
@@ -83,6 +84,16 @@ def review_env() -> dict[str, str]:
     return env
 
 
+def evidence_sha256(path: Path) -> str:
+    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0)
+    fd = os.open(path, flags)
+    with os.fdopen(fd, "rb") as stream:
+        info = os.fstat(stream.fileno())
+        if not stat.S_ISREG(info.st_mode):
+            raise EvidenceError("Evidence path is not a regular file")
+        return hashlib.file_digest(stream, "sha256").hexdigest()
+
+
 def run(command: list[str], log: Path, timeout: float) -> int:
     env = review_env()
     with log.open("xb") as stream:
@@ -145,9 +156,14 @@ def main() -> int:
             code = 2
         for name in ("repository.log", "local.log", "local.junit.xml"):
             path = output / name
-            if path.is_file():
-                with path.open("rb") as stream:
-                    report["evidenceSha256"][name] = hashlib.file_digest(stream, "sha256").hexdigest()
+            if not path.exists() and not path.is_symlink():
+                continue
+            try:
+                report["evidenceSha256"][name] = evidence_sha256(path)
+            except (EvidenceError, OSError):
+                report["status"] = "INCOMPLETE"
+                report["reason"] = "Unsafe evidence path: " + name
+                code = 2
         verdict = json.dumps(report, indent=2, sort_keys=True) + "\n"
         (output / "independent-verdict.json").write_text(verdict, encoding="utf-8")
         digest = hashlib.sha256(verdict.encode()).hexdigest()
