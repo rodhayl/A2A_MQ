@@ -240,6 +240,9 @@ def test_package_gate_uses_external_git_archive_and_isolated_import(tmp_path,mon
 
 
 def test_evidence_file_hashing_streams_without_path_read_bytes(tmp_path, monkeypatch):
+    import hashlib
+    from pathlib import Path
+
     payload=tmp_path/"large.log"
     payload.write_bytes((b"0123456789abcdef"*131072)+b"tail")
     expected=hashlib.sha256(payload.read_bytes()).hexdigest()
