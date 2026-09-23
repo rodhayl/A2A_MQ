@@ -39,7 +39,12 @@ def test_required_sdk_is_installed_and_selected_without_hidden_skips():
     test = next(step for step in steps if step.get("id") == "tests")
     assert "-W error" in test["run"] and "not live and not postgres" in test["run"]
     assert "not upstream" not in test["run"]
+    assert "-p pytest_asyncio.plugin" in test["run"]
     assert workflow()["env"]["A2AMQ_NO_LLM_TOKENS"] == "1"
+    assert workflow()["env"]["PYTEST_DISABLE_PLUGIN_AUTOLOAD"] == "1"
+    postgres = next(step for step in workflow()["jobs"]["postgres"]["steps"]
+                    if step.get("name") == "Real PostgreSQL transactional gate")
+    assert "-p pytest_asyncio.plugin" in postgres["run"]
 
 
 def test_junit_gate_runs_even_when_the_report_is_missing():

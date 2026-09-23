@@ -12,6 +12,7 @@ env:
   PIP_DISABLE_PIP_VERSION_CHECK: '1'
   PYTHONDONTWRITEBYTECODE: '1'
   A2AMQ_NO_LLM_TOKENS: '1'
+  PYTEST_DISABLE_PLUGIN_AUTOLOAD: '1'
   PYTHONPATH: src
 jobs:
   local:
@@ -46,7 +47,7 @@ jobs:
         id: tests
         run: |
           mkdir -p "$RUNNER_TEMP/a2amq-validation"
-          python -m pytest -p no:cacheprovider -q -W error -m 'not live and not postgres' --junitxml="$RUNNER_TEMP/a2amq-validation/results.xml"
+          python -m pytest -p pytest_asyncio.plugin -p no:cacheprovider -q -W error -m 'not live and not postgres' --junitxml="$RUNNER_TEMP/a2amq-validation/results.xml"
       - name: Reject missing, empty, failed, errored or skipped JUnit
         id: junit
         if: always()
@@ -107,7 +108,7 @@ jobs:
       - name: Real PostgreSQL transactional gate
         run: |
           mkdir -p "$RUNNER_TEMP/a2amq-postgres"
-          python -m pytest -p no:cacheprovider -q -W error -m postgres --junitxml="$RUNNER_TEMP/a2amq-postgres/results.xml"
+          python -m pytest -p pytest_asyncio.plugin -p no:cacheprovider -q -W error -m postgres --junitxml="$RUNNER_TEMP/a2amq-postgres/results.xml"
       - name: Reject missing, empty, failed, errored or skipped PostgreSQL evidence
         if: always()
         run: python scripts/assert_junit_complete.py "$RUNNER_TEMP/a2amq-postgres/results.xml"
