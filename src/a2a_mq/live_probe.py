@@ -84,6 +84,12 @@ def broker_service(broker: str) -> str:
     return "nats" if broker == "jetstream" else "rabbitmq"
 
 
+def broker_outage_hold_seconds(broker: str) -> int:
+    """Hold outages long enough to exhaust bounded client reconnect windows."""
+    broker_service(broker)
+    return 135 if broker == "jetstream" else 5
+
+
 def checked_publish_status(status, expected=None):
     require(type(status) is int, "INVALID_PUBLISH_STATUS")
     require(status == expected if expected is not None else 200 <= status < 300,
@@ -191,6 +197,10 @@ async def run_probe(fixture, *, broker):
         require(outage.status.state==pb.TASK_STATE_SUBMITTED,"BROKER_OUTAGE_NOT_DURABLY_ADMITTED")
         require((await client.get_task(pb.GetTaskRequest(id=outage.id))).status.state!=pb.TASK_STATE_COMPLETED,
                 "BROKER_OUTAGE_COMPLETED_WITHOUT_BROKER")
+        # JetStream's upstream nats.go default is 60 reconnect attempts at 2s.
+        # Exceed that budget so this gate catches a permanently closed component,
+        # rather than only testing a short transient disconnect.
+        await asyncio.sleep(broker_outage_hold_seconds(broker))
         await asyncio.to_thread(fixture.run,"up","-d",broker_name)
         recovered=await wait_until(lambda:state(outage.id,{"COMPLETED"}),timeout=180)
         require(recovered.artifacts[0].parts[0].text=="broker recovers","BROKER_RECOVERY_ARTIFACT_MISMATCH")

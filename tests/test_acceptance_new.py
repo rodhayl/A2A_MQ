@@ -5,7 +5,7 @@ from a2a_mq.acceptance import (FULL_REQUIRED, GROUPS, MODEL_CREDENTIAL, _file_sh
                                git_snapshot, junit, package_gate, provenance_status,
                                test_gate as execute_gate)
 from a2a_mq.domain import PermanentError
-from a2a_mq.live_probe import broker_service, wait_until
+from a2a_mq.live_probe import broker_outage_hold_seconds, broker_service, wait_until
 
 
 @pytest.mark.parametrize('xml',[
@@ -100,6 +100,11 @@ def test_live_broker_recovery_targets_real_broker_service(broker,service):
     assert broker_service(broker)==service
     with pytest.raises(PermanentError, match="INVALID_BROKER"):
         broker_service("fixture")
+
+
+def test_jetstream_outage_exceeds_default_reconnect_budget():
+    assert broker_outage_hold_seconds("jetstream") > 60 * 2
+    assert 1 <= broker_outage_hold_seconds("rabbitmq") < 60
 
 
 async def test_live_deadline_does_not_accept_false_condition():
