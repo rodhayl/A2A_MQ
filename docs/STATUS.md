@@ -261,6 +261,14 @@ jobs with no steps or logs, so hosted CI remains pre-runner/unexecuted evidence.
 The current branch therefore requires focused regressions plus exact-SHA local
 revalidation before `PASS_LOCAL_TIER_COMPLETE` can be reattached to the new HEAD.
 
+
+Subsequent deployment/acceptance hardening advanced the branch through
+`4037cf6c`. This includes exclusive/no-follow alternate manifest output, bounded
+public-key and integrated JSON config inputs, plus later concurrent
+local-environment, evidence-hashing and broker-matrix hardening. These commits are
+inside the same current-SHA rerun boundary; no historical PASS is promoted to the
+new HEAD without execution.
+
 ## Evidence that exists
 
 Historical evidence must stay attached to the SHA it actually tested.
