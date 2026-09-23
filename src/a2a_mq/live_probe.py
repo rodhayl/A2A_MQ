@@ -23,6 +23,22 @@ from .deployment import compose
 from .domain import require
 
 
+LIVE_REQUIRED_CHECKS = frozenset({
+    "offline-admission-publish-confirmation-api-restart",
+    "competing-workers-single-committed-completion",
+    "actual-broker-fanout-two-independent-projections",
+    "broker-outage-recovery-without-sidecar-restart",
+    "input-approval-continuation",
+    "native-workflow-fanout-fanin",
+    "native-workflow-abrupt-worker-restart",
+    "owner-coordinated-cancellation",
+    "official-jsonrpc-rest-sse-client",
+    "cross-tenant-and-owner-rejection",
+    "live-dlq-archive-exact-replay-and-publish-scopes",
+    "official-mcp-http-authenticated-query",
+})
+
+
 class ComposeRun:
     def __init__(self, root, broker, source):
         self.root = Path(root).absolute()
@@ -297,6 +313,9 @@ async def run_probe(fixture, *, broker):
                 result=await mclient.call_tool('get_task',{'task_id':task.id})
                 require(not result.is_error,"MCP_OWNED_QUERY_FAILED")
         facts['checks'].append('official-mcp-http-authenticated-query')
+    completed=set(facts["checks"])
+    require(completed==LIVE_REQUIRED_CHECKS and len(facts["checks"])==len(completed),
+            "INCOMPLETE_LIVE_MATRIX")
     return facts
 
 

@@ -5,7 +5,7 @@ from a2a_mq.acceptance import (FULL_REQUIRED, GROUPS, MODEL_CREDENTIAL, _file_sh
                                git_snapshot, junit, package_gate, provenance_status,
                                test_gate as execute_gate)
 from a2a_mq.domain import PermanentError
-from a2a_mq.live_probe import broker_outage_hold_seconds, broker_service, wait_until
+from a2a_mq.live_probe import LIVE_REQUIRED_CHECKS, broker_outage_hold_seconds, broker_service, wait_until
 
 
 @pytest.mark.parametrize('xml',[
@@ -100,6 +100,13 @@ def test_live_broker_recovery_targets_real_broker_service(broker,service):
     assert broker_service(broker)==service
     with pytest.raises(PermanentError, match="INVALID_BROKER"):
         broker_service("fixture")
+
+
+def test_live_broker_matrix_pins_all_production_checks():
+    assert "broker-outage-recovery-without-sidecar-restart" in LIVE_REQUIRED_CHECKS
+    assert "live-dlq-archive-exact-replay-and-publish-scopes" in LIVE_REQUIRED_CHECKS
+    assert "official-mcp-http-authenticated-query" in LIVE_REQUIRED_CHECKS
+    assert len(LIVE_REQUIRED_CHECKS)==12
 
 
 def test_jetstream_outage_exceeds_default_reconnect_budget():
