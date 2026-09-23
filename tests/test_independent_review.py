@@ -53,8 +53,16 @@ def commit(root):
     git(root, "commit", "-qm", "fixture variant")
 
 
-def test_review_environment_disables_external_pytest_plugins(monkeypatch):
-    module = reviewer_module()
+def test_review_environment_disables_external_pytest_plugins(repository, monkeypatch):
+    import importlib.util
+
+    scripts = repository / "scripts"
+    monkeypatch.syspath_prepend(str(scripts))
+    path = scripts / "independent_mvp.py"
+    spec = importlib.util.spec_from_file_location("independent_mvp_fixture", path)
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
     monkeypatch.setenv("PYTEST_ADDOPTS", "-p arbitrary")
     monkeypatch.setenv("PYTEST_PLUGINS", "arbitrary")
     env = module.review_env()
