@@ -50,6 +50,9 @@ from a2a_mq.tasks import TaskLedger, options, digest, stable_id
 from a2a_mq.transport import cloud_event
 
 
+FAULT_ENABLE = {"A2AMQ_FAULT_INJECTION_ENABLE": "local-validation-v1"}
+
+
 def _mib(bytes_val: int | float) -> float:
     return round(float(bytes_val) / (1024 * 1024), 3)
 
@@ -358,6 +361,7 @@ async def run_crash_scenarios(stack: ManagedStack, profile_dir: Path) -> dict[st
 
     # Launch stack with unacked_delivery fault injection armed for msg-crash-a
     stack.start(env_overrides={
+        **FAULT_ENABLE,
         "A2AMQ_FAULT_INJECTION_MODE": "unacked_delivery",
         "A2AMQ_FAULT_INJECTION_TARGET": "msg-crash-a",
         "A2AMQ_FAULT_RECORD_FILE": str(rec_a),
@@ -391,6 +395,7 @@ async def run_crash_scenarios(stack: ManagedStack, profile_dir: Path) -> dict[st
 
     # Restart stack with fault injection disarmed
     stack.start(env_overrides={
+        **FAULT_ENABLE,
         "A2AMQ_FAULT_RECORD_FILE": str(rec_a),
     })
     # Wait for JetStream/Dapr redelivery and eventual completion
@@ -447,6 +452,7 @@ async def run_crash_scenarios(stack: ManagedStack, profile_dir: Path) -> dict[st
 
     # Launch stack with publish_before_bookkeeping fault armed
     stack.start(env_overrides={
+        **FAULT_ENABLE,
         "A2AMQ_FAULT_INJECTION_MODE": "publish_before_bookkeeping",
         "A2AMQ_FAULT_INJECTION_TARGET": "*",
         "A2AMQ_FAULT_RECORD_FILE": str(rec_b),
@@ -478,6 +484,7 @@ async def run_crash_scenarios(stack: ManagedStack, profile_dir: Path) -> dict[st
 
     # Restart stack with fault injection disarmed; ActionRelay will retry publication
     stack.start(env_overrides={
+        **FAULT_ENABLE,
         "A2AMQ_FAULT_RECORD_FILE": str(rec_b),
     })
 
@@ -529,6 +536,7 @@ async def run_crash_scenarios(stack: ManagedStack, profile_dir: Path) -> dict[st
 
     # Launch stack with execution_crash fault armed
     stack.start(env_overrides={
+        **FAULT_ENABLE,
         "A2AMQ_FAULT_INJECTION_MODE": "execution_crash",
         "A2AMQ_FAULT_INJECTION_TARGET": "*",
         "A2AMQ_FAULT_RECORD_FILE": str(rec_c),
@@ -561,6 +569,7 @@ async def run_crash_scenarios(stack: ManagedStack, profile_dir: Path) -> dict[st
 
     # Restart stack with fault injection disarmed; ActionRelay recovers task
     stack.start(env_overrides={
+        **FAULT_ENABLE,
         "A2AMQ_FAULT_RECORD_FILE": str(rec_c),
     })
 
@@ -608,6 +617,7 @@ async def run_crash_scenarios(stack: ManagedStack, profile_dir: Path) -> dict[st
         rec_e.unlink()
 
     stack.start(env_overrides={
+        **FAULT_ENABLE,
         "A2AMQ_FAULT_SYNC_DIR": str(sync_dir),
         "A2AMQ_FAULT_RECORD_FILE": str(rec_e),
     })
@@ -709,6 +719,7 @@ async def run_crash_scenarios(stack: ManagedStack, profile_dir: Path) -> dict[st
         "metadata": {"a2amq": {"transform": "upper"}},
     }
     stack.start(env_overrides={
+        **FAULT_ENABLE,
         "A2AMQ_FAULT_INJECTION_MODE": "terminal_commit_crash",
         "A2AMQ_FAULT_INJECTION_TARGET": "*",
         "A2AMQ_FAULT_RECORD_FILE": str(rec_e),
@@ -719,7 +730,7 @@ async def run_crash_scenarios(stack: ManagedStack, profile_dir: Path) -> dict[st
     exit_code_e3 = stack.wait_for_exit(timeout=10.0)
     require(exit_code_e3 is not None and exit_code_e3 != 0, f"RACE_E3_EXPECTED_CRASH: got {exit_code_e3}")
     # Restart stack with fault injection disarmed
-    stack.start(env_overrides={"A2AMQ_FAULT_RECORD_FILE": str(rec_e)})
+    stack.start(env_overrides={**FAULT_ENABLE, "A2AMQ_FAULT_RECORD_FILE": str(rec_e)})
     completed_e3 = False
     for _ in range(60):
         try:

@@ -1,7 +1,7 @@
 """Deterministic fault-injection hooks for local runtime resilience certification.
 
-Hooks are completely inert by default and activate only when A2AMQ_FAULT_INJECTION_MODE
-is explicitly configured in the environment by the validation harness.
+Hooks are completely inert by default and activate only when the validation harness sets
+the dedicated enable sentinel together with its fault configuration.
 """
 from __future__ import annotations
 
@@ -12,11 +12,13 @@ import signal
 import time
 from typing import Any
 
+ENABLE_ENV = "A2AMQ_FAULT_INJECTION_ENABLE"
 MODE_ENV = "A2AMQ_FAULT_INJECTION_MODE"
 TARGET_ENV = "A2AMQ_FAULT_INJECTION_TARGET"
 RECORD_FILE_ENV = "A2AMQ_FAULT_RECORD_FILE"
 SYNC_DIR_ENV = "A2AMQ_FAULT_SYNC_DIR"
 
+_ENABLE = os.environ.get(ENABLE_ENV)
 _MODE = os.environ.get(MODE_ENV)
 _TARGET = os.environ.get(TARGET_ENV)
 _RECORD_FILE = os.environ.get(RECORD_FILE_ENV)
@@ -24,8 +26,12 @@ _SYNC_DIR = os.environ.get(SYNC_DIR_ENV)
 _CRASHED: set[str] = set()
 
 
+def enabled() -> bool:
+    return _ENABLE == "local-validation-v1"
+
+
 def is_active(mode: str, target: str | None = None) -> bool:
-    if not _MODE or _MODE != mode:
+    if not enabled() or not _MODE or _MODE != mode:
         return False
     if _TARGET and _TARGET != "*" and target is not None:
         return _TARGET == target
@@ -33,7 +39,7 @@ def is_active(mode: str, target: str | None = None) -> bool:
 
 
 def record_event(event_type: str, data: dict[str, Any]) -> None:
-    if not _RECORD_FILE:
+    if not enabled() or not _RECORD_FILE:
         return
     payload = {
         "event": event_type,
@@ -110,7 +116,7 @@ def hook_terminal_commit(action: Any, phase: str) -> None:
     record_event("terminal_phase", {"taskId": tid, "phase": phase})
 
     # If deterministic synchronization is requested via sync files
-    if _SYNC_DIR:
+    if enabled() and _SYNC_DIR:
         sync_dir = Path(_SYNC_DIR)
         pause_file = sync_dir / f"pause_{phase}_{tid}"
         resume_file = sync_dir / f"resume_{phase}_{tid}"
