@@ -55,6 +55,13 @@ def test_resilience_evidence_paths_must_be_fresh_and_distinct(tmp_path):
         gate._prepare_evidence_paths(tmp_path / "same", tmp_path / "same")
 
 
+def test_soak_gate_source_requires_fresh_exclusive_evidence_outputs():
+    source = (Path(__file__).resolve().parents[1] / "scripts/local_soak_gate.py").read_text()
+    assert "_prepare_evidence_paths(args.json_path, args.log)" in source
+    assert 'args.json_path.open("x"' in source
+    assert 'args.log.open("x"' in source
+
+
 def test_sqlite_integrity_checker_verifies_clean_schema(tmp_path):
     from a2a_mq.storage import SQLiteStore
     from a2a_mq.tasks import TaskLedger
