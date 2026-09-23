@@ -2,6 +2,7 @@
 import pytest
 
 from a2a_mq.acceptance import (FULL_REQUIRED, GROUPS, MODEL_CREDENTIAL, _file_sha256, evidence_hashes, full_status,
+                               source_hashes,
                                git_snapshot, junit, package_gate, provenance_status,
                                test_gate as execute_gate)
 from a2a_mq.domain import PermanentError
@@ -277,6 +278,24 @@ def test_streaming_evidence_hash_rejects_symlink_target(tmp_path):
     link.symlink_to(target)
     with pytest.raises(OSError):
         _file_sha256(link)
+
+
+def test_source_hashes_stream_and_reject_symlinked_python(tmp_path):
+    source = tmp_path / "src" / "a2a_mq"
+    source.mkdir(parents=True)
+    module = source / "safe.py"
+    module.write_text("VALUE = 1\n")
+    hashes, unsafe = source_hashes(tmp_path)
+    assert unsafe == []
+    assert hashes["src/a2a_mq/safe.py"] == _file_sha256(module)
+
+    outside = tmp_path / "outside.py"
+    outside.write_text("VALUE = 2\n")
+    link = source / "unsafe.py"
+    link.symlink_to(outside)
+    hashes, unsafe = source_hashes(tmp_path)
+    assert "src/a2a_mq/unsafe.py" in unsafe
+    assert "src/a2a_mq/unsafe.py" not in hashes
 
 
 def test_evidence_manifest_hashes_nested_files_and_rejects_symlinks(tmp_path):

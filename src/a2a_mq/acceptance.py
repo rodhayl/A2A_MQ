@@ -199,6 +199,20 @@ def _file_sha256(path: Path) -> str:
             digest.update(chunk)
     return digest.hexdigest()
 
+def source_hashes(root: Path) -> tuple[dict[str, str], list[str]]:
+    """Hash executable Python source without following symlinks or special files."""
+    hashes: dict[str, str] = {}
+    unsafe: list[str] = []
+    source_root = root / "src"
+    for path in sorted(source_root.rglob("*.py")):
+        relative = path.relative_to(root).as_posix()
+        try:
+            hashes[relative] = _file_sha256(path)
+        except OSError:
+            unsafe.append(relative)
+    return hashes, unsafe
+
+
 def evidence_hashes(root):
     """Hash every regular evidence file recursively and report unsafe path types."""
     hashes={}
@@ -276,8 +290,12 @@ def main():
     # An environment guard is not network isolation. All implemented fixtures
     # are model-free; externally restrict egress for an independent attestation.
     secret_names=[k for k,v in env.items() if v and MODEL_CREDENTIAL.match(k)]
+    source,unsafe_source=source_hashes(root)
     results=[]
-    if initial_git is None:
+    if unsafe_source:
+        results.append({'name':'source-integrity','status':'FAILED',
+                        'unsafePaths':unsafe_source})
+    elif initial_git is None:
         results.append({'name':'provenance-guard','status':'UNAVAILABLE',
                         'missing':['clean exact git checkout']})
     elif secret_names:
@@ -308,8 +326,6 @@ def main():
                 except (OSError,KeyError,ValueError):
                     record['evidenceError']='MISSING_LIVE_VERDICT'
                 results.append(record)
-    source={str(path.relative_to(root)):hashlib.sha256(path.read_bytes()).hexdigest()
-            for path in sorted((root/'src').rglob('*.py'))}
     report={'status':full_status(results,args.mode),'requestedMode':args.mode,'results':results,
             'python':sys.version,'productionCertified':False,'upstreamBindingCertified':False,
             'timestamp':time.time(),'sourceSha256':source,
