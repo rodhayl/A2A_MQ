@@ -39,6 +39,7 @@ class DeadLetters:
         require(type(max_records) is int and 1 <= max_records <= 1000000, "INVALID_QUOTA")
         self.store, self.component, self.max_records = store, token(component), max_records
         self.topic = f"a2a.v1.{store.scope.tenant}.dlq"
+        self.allowed_components = {self.component, "bus", "bus-dlq"} if self.component in {"bus", "bus-dlq"} else {self.component}
         with schema_transaction(store) as db:
             for statement in DDL:
                 db.execute(statement)
@@ -46,7 +47,7 @@ class DeadLetters:
     def capture(self, event: dict) -> str:
         event = load_json(canonical(event), MAX_DLQ_BYTES)
         require(isinstance(event, dict) and event.get("specversion") == "1.0"
-                and event.get("topic") == self.topic and event.get("pubsubname") == self.component,
+                and event.get("topic") == self.topic and event.get("pubsubname") in self.allowed_components,
                 "INVALID_DLQ_DELIVERY")
         _key(event.get("id"))
         require(isinstance(event.get("source"), str) and isinstance(event.get("type"), str), "INVALID_CLOUDEVENT")
