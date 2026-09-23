@@ -1,7 +1,7 @@
 """Acceptance evidence must fail closed, independently of optional service availability."""
 import pytest
 
-from a2a_mq.acceptance import (FULL_REQUIRED, GROUPS, MODEL_CREDENTIAL, _file_sha256, evidence_hashes, full_status,
+from a2a_mq.acceptance import (FULL_REQUIRED, GIT_OVERRIDES, GROUPS, MODEL_CREDENTIAL, _file_sha256, evidence_hashes, full_status,
                                source_hashes,
                                git_snapshot, junit, package_gate, provenance_status,
                                test_gate as execute_gate)
@@ -73,6 +73,11 @@ def test_aggregate_keeps_all_missing_gates(statuses,expected):
     ({"head":"a" * 40,"tree":"b" * 40}, {"head":"c" * 40,"tree":"d" * 40}),
     ({"head":"a" * 40,"tree":"b" * 40}, {"head":"a" * 40,"tree":"d" * 40}),
 ])
+def test_acceptance_git_override_guard_covers_repository_redirection():
+    assert {"GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE",
+            "GIT_OBJECT_DIRECTORY", "GIT_ALTERNATE_OBJECT_DIRECTORIES"} <= GIT_OVERRIDES
+
+
 def test_passing_acceptance_requires_stable_git_provenance(initial,final):
     assert provenance_status("LOCAL_PASS", initial, final) == "INCOMPLETE"
     assert provenance_status("FULL_PASS", initial, final) == "INCOMPLETE"

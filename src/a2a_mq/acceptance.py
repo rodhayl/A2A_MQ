@@ -24,6 +24,12 @@ import xml.etree.ElementTree as ET
 from .domain import MODEL_CREDENTIAL, PermanentError
 
 
+GIT_OVERRIDES = frozenset({
+    "GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_OBJECT_DIRECTORY",
+    "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+})
+
+
 GROUPS = {
     "local": {"selection":"not live and not postgres and not upstream and not mcp and not vault",
               "modules":["pytest", "pytest_asyncio", "cryptography", "jwt", "opentelemetry.sdk"]},
@@ -290,7 +296,8 @@ def main():
     if output.exists() or output==root or root in output.parents or not 1<=args.timeout<=7200:
         p.error('Use a new external output directory and a bounded timeout')
     output.mkdir(parents=True,mode=0o700)
-    initial_git=git_snapshot(root)
+    git_overrides=sorted(name for name in GIT_OVERRIDES if os.environ.get(name))
+    initial_git=None if git_overrides else git_snapshot(root)
     env={**os.environ,'PYTEST_DISABLE_PLUGIN_AUTOLOAD':'1','PYTHONDONTWRITEBYTECODE':'1',
          'A2AMQ_NO_LLM_TOKENS':'1'}
     env["PYTHONPATH"]=str(root/"src")
@@ -301,7 +308,10 @@ def main():
     secret_names=[k for k,v in env.items() if v and MODEL_CREDENTIAL.match(k)]
     source,unsafe_source=source_hashes(root)
     results=[]
-    if unsafe_source:
+    if git_overrides:
+        results.append({'name':'provenance-guard','status':'FAILED',
+                        'presentGitOverrides':git_overrides})
+    elif unsafe_source:
         results.append({'name':'source-integrity','status':'FAILED',
                         'unsafePaths':unsafe_source})
     elif initial_git is None:
@@ -340,7 +350,7 @@ def main():
             'timestamp':time.time(),'sourceSha256':source,
             'dependencies':{d.metadata['Name']:d.version for d in importlib.metadata.distributions()
                             if d.metadata.get('Name')}}
-    final_git=git_snapshot(root)
+    final_git=None if git_overrides else git_snapshot(root)
     report['gitHead']=None if final_git is None else final_git['head']
     report['gitTree']=None if final_git is None else final_git['tree']
     report['initialGitHead']=None if initial_git is None else initial_git['head']
