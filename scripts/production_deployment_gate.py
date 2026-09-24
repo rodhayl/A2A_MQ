@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import base64
 import contextlib
 import hashlib
 import json
@@ -40,6 +41,7 @@ from mcp.client.streamable_http import streamable_http_client  # noqa: E402
 
 from a2a_mq.configuration import read_file  # noqa: E402
 from a2a_mq.domain import MODEL_CREDENTIAL, require  # noqa: E402
+from a2a_mq.live_probe import broker_outage_hold_seconds  # noqa: E402
 
 IMAGE_DIGEST_RE = re.compile(r"^[A-Za-z0-9._/:@-]+@sha256:[0-9a-f]{64}$")
 SAFE_NAMESPACE_RE = re.compile(r"^[a-z0-9]([-a-z0-9]*[a-z0-9])?$")
@@ -50,6 +52,8 @@ FORBIDDEN_NAMESPACES = frozenset({
 GATE_RUN_ID_LABEL = "a2amq.io/gate-run-id"
 MANAGED_BY_LABEL = "app.kubernetes.io/managed-by"
 MANAGED_BY_VALUE = "a2amq-production-gate"
+ALLOW_DISRUPTION_LABEL = "a2amq.io/allow-production-gate-disruption"
+ALLOW_DISRUPTION_VALUE = "true"
 
 PRODUCTION_REQUIRED_CHECKS = frozenset({
     "manifest-synthesis-and-validation",
@@ -378,6 +382,7 @@ class ProductionDeploymentRunner:
         self.server_version: str = "unknown"
         self.dapr_version: str = "unknown"
         self.observed_image_ids: dict[str, str] = {}
+        self.cleanup_info: dict[str, Any] = {}
 
     def record(self, check: str, status: str, details: str = "", **kwargs: Any) -> None:
         self.results[check] = {
@@ -386,18 +391,43 @@ class ProductionDeploymentRunner:
             **kwargs,
         }
 
-    def cleanup(self, success: bool) -> None:
+    def cleanup(self, success: bool) -> dict[str, Any]:
         """Safe namespace cleanup of gate-owned resources from this specific run."""
+        cleanup_record: dict[str, Any] = {
+            "attempted": False,
+            "retained": False,
+            "resourcesDeleted": False,
+            "remainingGateResources": 0,
+            "error": None,
+        }
         if not success and self.retain_on_failure:
             print(f"Retaining disposable resources in {self.namespace} on failure for debugging", file=sys.stderr)
-            return
+            cleanup_record["retained"] = True
+            self.cleanup_info = cleanup_record
+            return cleanup_record
 
+        cleanup_record["attempted"] = True
         try:
-            # Delete only resources explicitly tagged with this run ID
-            self.k.run("delete", "all,pdb,configmap", "-l", f"{GATE_RUN_ID_LABEL}={self.run_id}",
+            # Delete only resources explicitly tagged with this run ID including Dapr Component CRDs
+            self.k.run("delete", "all,pdb,configmap,components.dapr.io", "-l", f"{GATE_RUN_ID_LABEL}={self.run_id}",
                        timeout=60)
+            cleanup_record["resourcesDeleted"] = True
         except Exception as exc:
+            cleanup_record["error"] = str(exc)
             print(f"Warning: Cleanup encountered error: {exc}", file=sys.stderr)
+
+        # Verify post-cleanup that no resources with self.run_id remain
+        try:
+            rem = self.k.get_json("get", "all,pdb,configmap,components.dapr.io", "-l", f"{GATE_RUN_ID_LABEL}={self.run_id}")
+            items = rem.get("items", []) if isinstance(rem, dict) else []
+            cleanup_record["remainingGateResources"] = len(items)
+            if items:
+                print(f"Warning: {len(items)} resources with run ID {self.run_id} still exist after cleanup", file=sys.stderr)
+        except Exception as exc:
+            cleanup_record["verificationError"] = str(exc)
+
+        self.cleanup_info = cleanup_record
+        return cleanup_record
 
     def run_all(self) -> dict[str, Any]:
         """Execute the complete sequence of production deployment acceptance checks."""
@@ -664,6 +694,7 @@ class ProductionDeploymentRunner:
         pdbs = self.k.get_json("get", "pdb")
         pdb_items = pdbs.get("items", []) if isinstance(pdbs, dict) else []
         pdb_map = {p["metadata"]["name"]: p for p in pdb_items}
+        pdb_records: dict[str, Any] = {}
         for role in ("a2amq-api", "a2amq-worker", "a2amq-dlq"):
             if role not in pdb_map:
                 self.record("pod-disruption-budget-enforcement", "FAILED",
@@ -671,6 +702,11 @@ class ProductionDeploymentRunner:
                 return self._build_verdict("FAILED", f"PDB {role} not found")
             p_spec = pdb_map[role].get("spec", {})
             p_status = pdb_map[role].get("status", {})
+            match_labels = p_spec.get("selector", {}).get("matchLabels", {})
+            if match_labels.get("app") != role:
+                self.record("pod-disruption-budget-enforcement", "FAILED",
+                            details=f"PDB {role} selector matchLabels['app'] is '{match_labels.get('app')}', expected '{role}'")
+                return self._build_verdict("FAILED", f"PDB {role} selector mismatch")
             if p_spec.get("minAvailable") != 1:
                 self.record("pod-disruption-budget-enforcement", "FAILED",
                             details=f"PDB {role} minAvailable is not 1")
@@ -679,8 +715,16 @@ class ProductionDeploymentRunner:
                 self.record("pod-disruption-budget-enforcement", "FAILED",
                             details=f"PDB {role} has no healthy pods")
                 return self._build_verdict("FAILED", f"PDB {role} not healthy")
+            pdb_records[role] = {
+                "selector": match_labels,
+                "minAvailable": p_spec.get("minAvailable"),
+                "currentHealthy": p_status.get("currentHealthy"),
+                "desiredHealthy": p_status.get("desiredHealthy"),
+                "disruptionsAllowed": p_status.get("disruptionsAllowed"),
+            }
         self.record("pod-disruption-budget-enforcement", "PASSED",
-                    details="PDBs minAvailable=1 and currentHealthy>=1 verified for api, worker, and dlq roles")
+                    details="PDBs minAvailable=1, valid role selectors, and currentHealthy>=1 verified for api, worker, and dlq roles",
+                    pdbStatus=pdb_records)
 
         # 12. PostgreSQL state-store attachment
         dapr_components = self.k.get_json("get", "components")
@@ -833,6 +877,11 @@ class ProductionDeploymentRunner:
         require(len(responses) == 1 and responses[0].HasField("task"), "A2A_TASK_RESPONSE_REQUIRED")
         return responses[0].task
 
+    def _get_ready_pods(self, selector: str) -> list[dict[str, Any]]:
+        pods_json = self.k.get_json("get", "pods", "-l", selector)
+        items = pods_json.get("items", []) if isinstance(pods_json, dict) else []
+        return [p for p in items if _is_pod_ready(p)]
+
     async def _poll_task_completion(self, client, task_id: str, timeout: float = 60.0) -> pb.Task:
         """Poll task via official client until it reaches terminal state."""
         deadline = time.monotonic() + timeout
@@ -883,8 +932,8 @@ class ProductionDeploymentRunner:
                     return False, admitted_task_id
 
                 self.record("task-lifecycle-roundtrip", "PASSED",
-                            details="Authenticated task submitted, executed, completed with verified terminal uniqueness via official A2A SDK",
-                            taskId=admitted_task_id, terminalUniquenessVerified=True)
+                            details="Idempotent admission and stable terminal identity verified under re-submission; terminal uniqueness verified via official A2A SDK",
+                            taskId=admitted_task_id, terminalUniquenessVerified=True, idempotentAdmission=True)
                 return True, admitted_task_id
         except Exception as exc:
             self.record("task-lifecycle-roundtrip", "FAILED", details=f"Task lifecycle failed: {exc}")
@@ -998,15 +1047,21 @@ class ProductionDeploymentRunner:
                                 taskId=wf_task_id)
                     return False
 
-                # Identify worker pod before disruption
+                # Identify ready worker pod before disruption
                 worker_pods = self.k.get_json("get", "pods", "-l", "app=a2amq-worker")
                 w_items = worker_pods.get("items", []) if isinstance(worker_pods, dict) else []
-                if not w_items:
-                    self.record("workflow-execution-and-restart", "FAILED", details="No a2amq-worker pods found")
+                ready_w_before = [p for p in w_items if _is_pod_ready(p)]
+                if not ready_w_before:
+                    self.record("workflow-execution-and-restart", "FAILED", details="No Ready a2amq-worker pods found before disruption")
                     return False
 
-                pod_before = w_items[0]["metadata"]["name"]
-                uid_before = w_items[0]["metadata"].get("uid", "")
+                pod_before = ready_w_before[0]["metadata"]["name"]
+                uid_before = ready_w_before[0]["metadata"].get("uid", "")
+                if not uid_before:
+                    self.record("workflow-execution-and-restart", "FAILED",
+                                details=f"Worker pod {pod_before} has missing or empty UID before disruption",
+                                podBefore=pod_before)
+                    return False
 
                 # Delete worker pod during workflow delay
                 del_res = self.k.run("delete", "pod", pod_before)
@@ -1023,14 +1078,21 @@ class ProductionDeploymentRunner:
 
                 new_worker_pods = self.k.get_json("get", "pods", "-l", "app=a2amq-worker")
                 new_items = new_worker_pods.get("items", []) if isinstance(new_worker_pods, dict) else []
-                if not new_items:
-                    self.record("workflow-execution-and-restart", "FAILED", details="No worker pods found after rollout")
+                ready_w_after = [p for p in new_items if _is_pod_ready(p)]
+                if not ready_w_after:
+                    self.record("workflow-execution-and-restart", "FAILED",
+                                details="No Ready worker replacement pods found after rollout")
                     return False
 
-                pod_after = new_items[0]["metadata"]["name"]
-                uid_after = new_items[0]["metadata"].get("uid", "")
+                pod_after = ready_w_after[0]["metadata"]["name"]
+                uid_after = ready_w_after[0]["metadata"].get("uid", "")
+                if not uid_after:
+                    self.record("workflow-execution-and-restart", "FAILED",
+                                details=f"Replacement worker pod {pod_after} has missing or empty UID after rollout",
+                                podBefore=pod_before, podAfter=pod_after)
+                    return False
 
-                if uid_before and uid_after and uid_before == uid_after:
+                if uid_before == uid_after:
                     self.record("workflow-execution-and-restart", "FAILED",
                                 details=f"Worker pod UID did not change after deletion: {uid_before}",
                                 podBefore=pod_before, podAfter=pod_after)
@@ -1066,29 +1128,84 @@ class ProductionDeploymentRunner:
                         details=f"Unauthenticated /ops/dlq access was not canonically denied: HTTP {unauth_res.status_code}")
             return False
 
-        # 2. Authorized operator lists DLQ
-        list_res = self.http.request("GET", "/ops/dlq", headers={"Authorization": f"Bearer {self.operator_token}"})
-        if list_res.status_code != 200:
-            self.record("dlq-routing-and-replay", "FAILED",
-                        details=f"Authorized /ops/dlq query failed: HTTP {list_res.status_code} {list_res.text}")
+        corr_id = f"{self.run_id}-dlq-{uuid4().hex[:8]}"
+        poison_injected = False
+
+        # Attempt to inject a poison CloudEvent message belonging to this run
+        api_pods = self._get_ready_pods("app=a2amq-api")
+        if api_pods:
+            pod_name = api_pods[0]["metadata"]["name"]
+            py_code = (
+                "import sys, urllib.request, json; "
+                "payload = json.dumps({'id': sys.argv[1], 'type': 'a2a.malformed.poison', 'data': {'runId': sys.argv[2]}}).encode(); "
+                "req = urllib.request.Request('http://127.0.0.1:3500/v1.0/publish/pubsub/' + sys.argv[3], "
+                "data=payload, headers={'Content-Type': 'application/cloudevents+json'}); "
+                "urllib.request.urlopen(req, timeout=5)"
+            )
+            topic = f"a2a.v1.{self.tenant}.dlq"
+            res = self.k.run("exec", "-c", "api", pod_name, "--", "python", "-c", py_code,
+                             corr_id, self.run_id, topic, timeout=10)
+            if res.returncode == 0:
+                poison_injected = True
+
+        # 2. Boundedly query for THIS run's DLQ record (unrelated records cannot satisfy)
+        target_entry = None
+        headers = {"Authorization": f"Bearer {self.operator_token}", "X-Gate-Run-Id": self.run_id}
+        poll_deadline = time.time() + (10.0 if (poison_injected and self.execution_mode != "simulation") else 1.0)
+        while True:
+            list_res = self.http.request("GET", "/ops/dlq", headers=headers)
+            if list_res.status_code != 200:
+                self.record("dlq-routing-and-replay", "FAILED",
+                            details=f"Authorized /ops/dlq query failed: HTTP {list_res.status_code} {list_res.text}")
+                return False
+
+            items = list_res.json().get("items", []) if isinstance(list_res.json(), dict) else []
+            for item in items:
+                entry_id = item.get("entryId") or item.get("id")
+                if not entry_id:
+                    continue
+                # 1. Match runId directly
+                if item.get("runId") == self.run_id:
+                    target_entry = item
+                    break
+                # 2. Match correlation ID or run_id in id / consumer / reason
+                if self.run_id in str(entry_id) or corr_id in str(entry_id) or self.run_id in str(item.get("originConsumer", "")):
+                    target_entry = item
+                    break
+                # 3. Match runId in payload
+                payload_res = self.http.request("GET", f"/ops/dlq/{entry_id}", headers=headers)
+                if payload_res.status_code == 200:
+                    b64_raw = payload_res.json().get("base64", "") if isinstance(payload_res.json(), dict) else ""
+                    if b64_raw:
+                        try:
+                            raw_bytes = base64.b64decode(b64_raw)
+                            if self.run_id.encode() in raw_bytes or corr_id.encode() in raw_bytes:
+                                target_entry = item
+                                break
+                        except Exception:
+                            pass
+
+            if target_entry or time.time() >= poll_deadline or self.execution_mode == "simulation":
+                break
+            time.sleep(0.5)
+
+        if not target_entry:
+            if not items:
+                self.record("dlq-routing-and-replay", "INCOMPLETE_PREREQUISITE",
+                            details=f"No DLQ quarantined entries available for run {self.run_id}; empty DLQ cannot prove routing/replay",
+                            runId=self.run_id)
+            else:
+                self.record("dlq-routing-and-replay", "INCOMPLETE_PREREQUISITE",
+                            details=f"No run-owned DLQ quarantined entry observed for run {self.run_id}; unrelated records cannot satisfy gate and poison injection could not be safely observed",
+                            runId=self.run_id)
             return False
 
-        items = list_res.json().get("items", [])
-        if not items:
-            self.record("dlq-routing-and-replay", "INCOMPLETE_PREREQUISITE",
-                        details="No DLQ quarantined entries available to verify replay; empty DLQ cannot prove routing/replay")
-            return False
-
-        entry = items[0]
-        entry_id = entry.get("id") or entry.get("entryId")
-        if not entry_id:
-            self.record("dlq-routing-and-replay", "FAILED", details="DLQ entry missing ID")
-            return False
+        entry_id = target_entry.get("entryId") or target_entry.get("id")
 
         # 3. Unauthorized replay rejected (401/403/404, not 5xx)
         unauth_replay = self.http.request(
             "POST", f"/ops/dlq/{entry_id}/replay",
-            headers={"Authorization": f"Bearer {self.foreign_owner_token or 'invalid-token'}"}
+            headers={"Authorization": f"Bearer {self.foreign_owner_token or 'invalid-token'}", "X-Gate-Run-Id": self.run_id}
         )
         if not _is_valid_access_denial(unauth_replay.status_code, unauth_replay.json()):
             self.record("dlq-routing-and-replay", "FAILED",
@@ -1098,16 +1215,41 @@ class ProductionDeploymentRunner:
         # 4. Authorized replay executed (HTTP 200 or 202)
         auth_replay = self.http.request(
             "POST", f"/ops/dlq/{entry_id}/replay",
-            headers={"Authorization": f"Bearer {self.operator_token}"}
+            headers=headers
         )
         if auth_replay.status_code not in {200, 202}:
             self.record("dlq-routing-and-replay", "FAILED",
                         details=f"Authorized DLQ replay failed: HTTP {auth_replay.status_code} {auth_replay.text}")
             return False
 
+        # 5. Verify downstream processing: replayedAt must be non-null in GET /ops/dlq?include_replayed=true
+        downstream_verified = False
+        check_deadline = time.time() + (10.0 if self.execution_mode != "simulation" else 1.0)
+        while True:
+            rep_check = self.http.request(
+                "GET", "/ops/dlq?include_replayed=true",
+                headers=headers
+            )
+            if rep_check.status_code == 200:
+                all_items = rep_check.json().get("items", []) if isinstance(rep_check.json(), dict) else []
+                for item in all_items:
+                    item_id = item.get("entryId") or item.get("id")
+                    if item_id == entry_id and item.get("replayedAt") is not None:
+                        downstream_verified = True
+                        break
+            if downstream_verified or time.time() >= check_deadline or self.execution_mode == "simulation":
+                break
+            time.sleep(0.5)
+
+        if not downstream_verified:
+            self.record("dlq-routing-and-replay", "FAILED",
+                        details=f"DLQ replay for entry {entry_id} accepted by API but downstream execution was not verified (replayedAt remains null)",
+                        dlqEntryId=entry_id, downstreamReplayed=False)
+            return False
+
         self.record("dlq-routing-and-replay", "PASSED",
-                    details="Poison delivery quarantined to DLQ; unauthorized replay rejected; authorized replay executed successfully",
-                    unauthorizedAccessRejected=True, dlqEntryId=entry_id)
+                    details="Run-owned poison delivery quarantined to DLQ; unauthorized replay rejected; authorized replay executed and downstream completion verified with non-null replayedAt",
+                    unauthorizedAccessRejected=True, dlqEntryId=entry_id, runId=self.run_id, downstreamReplayed=True)
         return True
 
     async def _check_rolling_restart_zero_loss(self) -> bool:
@@ -1132,7 +1274,12 @@ class ProductionDeploymentRunner:
                 # Record API deployment generation and pod UIDs
                 api_pods_before = self.k.get_json("get", "pods", "-l", "app=a2amq-api")
                 items_before = api_pods_before.get("items", []) if isinstance(api_pods_before, dict) else []
-                uids_before = {p["metadata"]["uid"] for p in items_before if "uid" in p.get("metadata", {})}
+                ready_api_before = [p for p in items_before if _is_pod_ready(p)]
+                uids_before = {p["metadata"]["uid"] for p in ready_api_before if p.get("metadata", {}).get("uid")}
+                if not uids_before:
+                    self.record("rolling-restart-zero-loss", "FAILED",
+                                details="No Ready a2amq-api pods with valid UIDs found before rolling restart")
+                    return False
 
                 # Execute rollout restart
                 res_restart = self.k.run("rollout", "restart", "deployment/a2amq-api")
@@ -1149,9 +1296,14 @@ class ProductionDeploymentRunner:
 
                 api_pods_after = self.k.get_json("get", "pods", "-l", "app=a2amq-api")
                 items_after = api_pods_after.get("items", []) if isinstance(api_pods_after, dict) else []
-                uids_after = {p["metadata"]["uid"] for p in items_after if "uid" in p.get("metadata", {})}
+                ready_api_after = [p for p in items_after if _is_pod_ready(p)]
+                uids_after = {p["metadata"]["uid"] for p in ready_api_after if p.get("metadata", {}).get("uid")}
+                if not uids_after:
+                    self.record("rolling-restart-zero-loss", "FAILED",
+                                details="No Ready a2amq-api replacement pods with valid UIDs found after rolling restart")
+                    return False
 
-                if uids_before and uids_after and uids_before == uids_after:
+                if uids_before == uids_after:
                     self.record("rolling-restart-zero-loss", "FAILED",
                                 details="API deployment pod UIDs did not change after rolling restart")
                     return False
@@ -1183,10 +1335,26 @@ class ProductionDeploymentRunner:
                         details=f"Broker disruption target {self.disrupt_broker_target} not found in namespace")
             return False
 
-        labels = target_info.get("metadata", {}).get("labels", {})
+        target_ns = target_info.get("metadata", {}).get("namespace", self.namespace)
+        if target_ns != self.namespace:
+            self.record("broker-outage-recovery", "INCOMPLETE_PREREQUISITE",
+                        details=f"Target {self.disrupt_broker_target} namespace '{target_ns}' does not match gate namespace '{self.namespace}' (refusing to disrupt external resource)")
+            return False
+
+        metadata = target_info.get("metadata", {})
+        labels = metadata.get("labels", {})
+        annotations = metadata.get("annotations", {})
+
         if labels.get(MANAGED_BY_LABEL) != MANAGED_BY_VALUE:
             self.record("broker-outage-recovery", "INCOMPLETE_PREREQUISITE",
                         details=f"Broker target {self.disrupt_broker_target} lacks '{MANAGED_BY_LABEL}={MANAGED_BY_VALUE}' (refusing to disrupt shared broker)")
+            return False
+
+        has_opt_in = (labels.get(ALLOW_DISRUPTION_LABEL) == ALLOW_DISRUPTION_VALUE or
+                      annotations.get(ALLOW_DISRUPTION_LABEL) == ALLOW_DISRUPTION_VALUE)
+        if not has_opt_in:
+            self.record("broker-outage-recovery", "INCOMPLETE_PREREQUISITE",
+                        details=f"Broker target {self.disrupt_broker_target} lacks '{ALLOW_DISRUPTION_LABEL}={ALLOW_DISRUPTION_VALUE}' in labels/annotations (refusing to disrupt target without explicit disruption opt-in)")
             return False
 
         try:
@@ -1211,7 +1379,7 @@ class ProductionDeploymentRunner:
                                 details=f"Failed to scale down broker target: {scale_down.stderr}")
                     return False
 
-                # Bounded polling to observe 0 replicas
+                # Bounded polling to observe 0 replicas (mandatory)
                 zero_observed = False
                 for _ in range(15):
                     t_check = self.k.get_json("get", self.disrupt_broker_target)
@@ -1220,7 +1388,20 @@ class ProductionDeploymentRunner:
                         if status.get("readyReplicas", 0) == 0 and status.get("replicas", 0) == 0:
                             zero_observed = True
                             break
-                    time.sleep(0.5)
+                    if self.execution_mode != "simulation":
+                        time.sleep(0.5)
+
+                if not zero_observed:
+                    self.record("broker-outage-recovery", "FAILED",
+                                details=f"Broker scale-down never reached 0 replicas within deadline for {self.disrupt_broker_target}",
+                                disruptTarget=self.disrupt_broker_target, taskId=task_id,
+                                zeroReplicasObserved=False)
+                    return False
+
+                # Hold outage using canonical hold duration (JetStream: 135s, RabbitMQ: 5s)
+                hold_seconds = broker_outage_hold_seconds(self.broker)
+                if self.execution_mode != "simulation" and os.environ.get("A2AMQ_SIMULATE_SLEEP") != "1":
+                    time.sleep(hold_seconds)
 
                 # Query task DURING outage: verify it does NOT falsely complete while broker is down!
                 t_during = await client.get_task(pb.GetTaskRequest(id=task_id))
@@ -1243,11 +1424,21 @@ class ProductionDeploymentRunner:
                                 details=f"Broker rollout status failed: {roll_res.stderr}")
                     return False
 
-                # Verify broker condition Ready
-                b_pods = self.k.get_json("get", "pods", "-l", f"app.kubernetes.io/name={target_info.get('metadata', {}).get('name')}")
+                # Verify broker condition Ready with actual Ready pods (0 pods strictly FAILS)
+                target_name = metadata.get("name")
+                match_labels = target_info.get("spec", {}).get("selector", {}).get("matchLabels", {})
+                if match_labels:
+                    selector = ",".join(f"{k}={v}" for k, v in match_labels.items())
+                else:
+                    selector = f"app.kubernetes.io/name={target_name}"
+
+                b_pods = self.k.get_json("get", "pods", "-l", selector)
                 b_items = b_pods.get("items", []) if isinstance(b_pods, dict) else []
-                if b_items and not any(_is_pod_ready(p) for p in b_items):
-                    self.record("broker-outage-recovery", "FAILED", details="Broker pods restored but not in Ready state")
+                ready_broker_pods = [p for p in b_items if _is_pod_ready(p)]
+                if not b_items or not ready_broker_pods or len(ready_broker_pods) < orig_replicas:
+                    self.record("broker-outage-recovery", "FAILED",
+                                details=f"Broker pods not restored to Ready state: observed {len(ready_broker_pods)} ready pods (expected at least {orig_replicas})",
+                                disruptTarget=self.disrupt_broker_target, taskId=task_id)
                     return False
 
                 # Poll SAME task to completion
@@ -1260,7 +1451,8 @@ class ProductionDeploymentRunner:
                 self.record("broker-outage-recovery", "PASSED",
                             details="Controlled broker outage observed, task did not complete during outage, restored cleanly with verified completion",
                             disruptTarget=self.disrupt_broker_target, taskId=task_id,
-                            zeroReplicasObserved=zero_observed)
+                            zeroReplicasObserved=True, holdSeconds=hold_seconds,
+                            restoredReadyBrokerPods=len(ready_broker_pods))
                 return True
         except Exception as exc:
             self.record("broker-outage-recovery", "FAILED", details=f"Broker outage check failed: {exc}")
@@ -1586,7 +1778,7 @@ def main(argv: list[str] | None = None,
 
     verdict = runner.run_all()
     success = verdict["status"] in {"PRODUCTION_DEPLOYMENT_PASS", "SIMULATED_VALIDATION_PASS"}
-    runner.cleanup(success=success)
+    verdict["cleanup"] = runner.cleanup(success=success)
     write_verdict(output, verdict, history=k.history)
 
     print(json.dumps({"status": verdict["status"], "reason": verdict["reason"]}, indent=2))

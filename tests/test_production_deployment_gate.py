@@ -1,3 +1,4 @@
+import base64
 import importlib.util
 import json
 import os
@@ -253,10 +254,16 @@ def test_cli_missing_kubectl_clean_exit(tmp_path):
 def _make_simulated_runner(gate, *, cluster_ok=True, dapr_ok=True, dapr_ready=True,
                            mtls_ok=True, sched_ok=True, secrets_ok=True, dry_run_ok=True,
                            rollout_ok=True, pod_sec_ok=True, sidecar_ok=True,
-                           pdb_ok=True, state_ok=True, state_v2_ok=True,
-                           broker_target_owned=True, image_digest_ok=True,
-                           worker_uid_changes=True, api_uid_changes=True,
-                           namespace_exists=True):
+                           pdb_ok=True, pdb_selector_ok=True, state_ok=True, state_v2_ok=True,
+                           broker_target_owned=True, broker_disruption_label_ok=True,
+                           broker_target_namespace="a2amq-test-ns",
+                           broker_scale_down_to_zero=True, broker_restored_pods_ok=True,
+                           image_digest_ok=True,
+                           worker_has_uid_before=True, worker_has_uid_after=True,
+                           worker_replacement_ready=True, worker_uid_changes=True,
+                           api_has_uids_before=True, api_has_uids_after=True,
+                           api_uid_changes=True, namespace_exists=True,
+                           disposable_resources_map=None):
     """Factory creating a simulated Kubectl runner returning configurable responses."""
     worker_restart_count = [0]
     api_restart_count = [0]
@@ -344,37 +351,55 @@ def _make_simulated_runner(gate, *, cluster_ok=True, dapr_ok=True, dapr_ready=Tr
 
         if "scale" in cmd_str:
             if "--replicas=0" in cmd_str:
-                broker_replicas[0] = 0
+                broker_replicas[0] = 0 if broker_scale_down_to_zero else 1
             elif "--replicas=1" in cmd_str:
                 broker_replicas[0] = 1
             return gate.CommandResult(0, "scaled", "")
 
         if "get statefulset/nats" in cmd_str or "get deployment/nats" in cmd_str:
-            labels = {"app.kubernetes.io/managed-by": "a2amq-production-gate"} if broker_target_owned else {}
+            labels = {}
+            if broker_target_owned:
+                labels["app.kubernetes.io/managed-by"] = "a2amq-production-gate"
+            if broker_disruption_label_ok:
+                labels[gate.ALLOW_DISRUPTION_LABEL] = gate.ALLOW_DISRUPTION_VALUE
             reps = broker_replicas[0]
             return gate.CommandResult(0, json.dumps({
-                "metadata": {"name": "nats", "labels": labels},
+                "metadata": {"name": "nats", "namespace": broker_target_namespace, "labels": labels},
                 "spec": {"replicas": 1},
                 "status": {"replicas": reps, "readyReplicas": reps},
             }), "")
 
+        if ("app.kubernetes.io/name=nats" in cmd_str or "name=nats" in cmd_str) and "get pods" in cmd_str:
+            if broker_replicas[0] > 0 and broker_restored_pods_ok:
+                return gate.CommandResult(0, json.dumps({"items": [{
+                    "metadata": {"name": "nats-0", "uid": "uid-nats-0", "labels": {"app.kubernetes.io/name": "nats"}},
+                    "status": {"phase": "Running", "conditions": [{"type": "Ready", "status": "True"}]},
+                }]}), "")
+            return gate.CommandResult(0, json.dumps({"items": []}), "")
+
         if "app=a2amq-worker" in cmd_str and "get pods" in cmd_str:
-            if worker_restart_count[0] > 0 and worker_uid_changes:
+            if worker_restart_count[0] > 0:
                 pname = "a2amq-worker-pod-2"
-                puid = "uid-worker-2"
+                puid = "uid-worker-2" if (worker_uid_changes and worker_has_uid_after) else ("uid-worker-1" if worker_has_uid_after else "")
+                ready_status = "True" if worker_replacement_ready else "False"
             else:
                 pname = "a2amq-worker-pod-1"
-                puid = "uid-worker-1"
+                puid = "uid-worker-1" if worker_has_uid_before else ""
+                ready_status = "True"
             return gate.CommandResult(0, json.dumps({"items": [{
                 "metadata": {"name": pname, "uid": puid, "labels": {"app": "a2amq-worker"}},
-                "status": {"phase": "Running", "conditions": [{"type": "Ready", "status": "True"}]},
+                "status": {"phase": "Running", "conditions": [{"type": "Ready", "status": ready_status}]},
             }]}), "")
 
         if "app=a2amq-api" in cmd_str and "get pods" in cmd_str:
-            if api_restart_count[0] > 0 and api_uid_changes:
+            if api_restart_count[0] > 0:
+                if not api_has_uids_after:
+                    return gate.CommandResult(0, json.dumps({"items": []}), "")
                 pname = "a2amq-api-pod-2"
-                puid = "uid-api-2"
+                puid = "uid-api-2" if api_uid_changes else "uid-api-1"
             else:
+                if not api_has_uids_before:
+                    return gate.CommandResult(0, json.dumps({"items": []}), "")
                 pname = "a2amq-api-pod-1"
                 puid = "uid-api-1"
             return gate.CommandResult(0, json.dumps({"items": [{
@@ -446,9 +471,10 @@ def _make_simulated_runner(gate, *, cluster_ok=True, dapr_ok=True, dapr_ready=Tr
                 return gate.CommandResult(0, json.dumps({"items": []}), "")
             items = []
             for n in ["a2amq-api", "a2amq-worker", "a2amq-dlq"]:
+                sel_app = n if pdb_selector_ok else "wrong-app"
                 items.append({
                     "metadata": {"name": n},
-                    "spec": {"minAvailable": 1, "selector": {"matchLabels": {"app": n}}},
+                    "spec": {"minAvailable": 1, "selector": {"matchLabels": {"app": sel_app}}},
                     "status": {"currentHealthy": 2, "desiredHealthy": 1, "disruptionsAllowed": 1},
                 })
             return gate.CommandResult(0, json.dumps({"items": items}), "")
@@ -474,19 +500,37 @@ def _make_simulated_runner(gate, *, cluster_ok=True, dapr_ok=True, dapr_ready=Tr
                 }
             ]}), "")
 
+        if "all,pdb,configmap,components.dapr.io" in cmd_str:
+            if disposable_resources_map is not None:
+                for arg in cmd:
+                    if arg.startswith(f"{gate.GATE_RUN_ID_LABEL}="):
+                        rid = arg.split("=", 1)[1]
+                        if "delete" in cmd:
+                            disposable_resources_map.pop(rid, None)
+                            return gate.CommandResult(0, "deleted", "")
+                        elif "get" in cmd:
+                            items = disposable_resources_map.get(rid, [])
+                            return gate.CommandResult(0, json.dumps({"items": items}), "")
+            if "delete" in cmd:
+                return gate.CommandResult(0, "deleted", "")
+            if "get" in cmd:
+                return gate.CommandResult(0, json.dumps({"items": []}), "")
+
         return gate.CommandResult(0, "success", "")
 
     return fake_run
 
 
 def _make_simulated_http_runner(gate, *, task_ok=True, auth_ok=True, mcp_ok=True,
-                                wf_ok=True, dlq_ok=True, dlq_empty=False, rolling_ok=True,
-                                broker_false_complete=False):
+                                wf_ok=True, dlq_ok=True, dlq_empty=False,
+                                dlq_unrelated_only=False, dlq_replay_downstream_ok=True,
+                                rolling_ok=True, broker_false_complete=False):
     """Factory creating a simulated HTTP client runner."""
     broker_down = [False]
     wf_query_count = [0]
     outage_query_count = [0]
     roll_query_count = [0]
+    dlq_replayed_map = {}
 
     def fake_http(method: str, path: str, *, headers=None, json_data=None, timeout=30.0):
         headers = headers or {}
@@ -559,10 +603,35 @@ def _make_simulated_http_runner(gate, *, task_ok=True, auth_ok=True, mcp_ok=True
                 return gate.HttpResponse(403, text="Forbidden")
             if not dlq_ok:
                 return gate.HttpResponse(500, text="DLQ error")
+            req_run_id = headers.get("X-Gate-Run-Id") or "gate-sim-run"
+            entry_id = f"dlq-{req_run_id}-1" if not dlq_unrelated_only else "dlq-unrelated-entry-1"
+            run_id_val = req_run_id if not dlq_unrelated_only else "unrelated-run-999"
+
             if method == "GET":
-                items = [] if dlq_empty else [{"id": "dlq-entry-1", "entryId": "dlq-entry-1"}]
+                if dlq_empty:
+                    return gate.HttpResponse(200, data={"items": []})
+                parts = path.split("?")[0].rstrip("/").split("/")
+                if len(parts) == 4 and parts[2] == "dlq":
+                    requested_id = parts[3]
+                    replayed_at = dlq_replayed_map.get(requested_id)
+                    b64_payload = base64.b64encode(json.dumps({"runId": run_id_val}).encode()).decode()
+                    return gate.HttpResponse(200, data={"entryId": requested_id, "base64": b64_payload, "replayedAt": replayed_at})
+                replayed_at = dlq_replayed_map.get(entry_id)
+                items = [{
+                    "id": entry_id,
+                    "entryId": entry_id,
+                    "runId": run_id_val,
+                    "reason": "POISON_DELIVERY",
+                    "originConsumer": run_id_val,
+                    "replayedAt": replayed_at,
+                }]
                 return gate.HttpResponse(200, data={"items": items})
+
             if method == "POST" and "replay" in path:
+                parts = path.split("?")[0].rstrip("/").split("/")
+                replayed_id = parts[3]
+                if dlq_replay_downstream_ok:
+                    dlq_replayed_map[replayed_id] = 1727198400.0
                 return gate.HttpResponse(202, data={"replayed": True})
 
         # 3. Tasks JSON-RPC endpoint (/ and /rpc)
@@ -971,3 +1040,208 @@ def test_infrastructure_check_failures(tmp_path):
     verdict = json.loads((out / "production-deployment-verdict.json").read_text())
     assert verdict["status"] == "INCOMPLETE_PREREQUISITE"
     assert "dapr-control-plane" in verdict["missingPrerequisites"]
+
+
+def test_dlq_unrelated_only_reports_incomplete_prerequisite(tmp_path):
+    gate = _gate_module()
+    out = tmp_path / "out_dlq_unrelated"
+    argv = _valid_args(tmp_path, out)
+    fake_k = _make_simulated_runner(gate)
+    fake_http = _make_simulated_http_runner(gate, dlq_unrelated_only=True)
+
+    rc = gate.main(argv, runner_override=fake_k, http_runner_override=fake_http)
+    assert rc == 2
+    verdict = json.loads((out / "production-deployment-verdict.json").read_text())
+    assert verdict["status"] == "INCOMPLETE_PREREQUISITE"
+    assert "unrelated records cannot satisfy" in verdict["checks"]["dlq-routing-and-replay"]["details"]
+
+
+def test_dlq_replay_downstream_null_fails(tmp_path):
+    gate = _gate_module()
+    out = tmp_path / "out_dlq_null_rep"
+    argv = _valid_args(tmp_path, out)
+    fake_k = _make_simulated_runner(gate)
+    fake_http = _make_simulated_http_runner(gate, dlq_replay_downstream_ok=False)
+
+    rc = gate.main(argv, runner_override=fake_k, http_runner_override=fake_http)
+    assert rc == 1
+    verdict = json.loads((out / "production-deployment-verdict.json").read_text())
+    assert verdict["status"] == "FAILED"
+    assert "replayedAt remains null" in verdict["checks"]["dlq-routing-and-replay"]["details"]
+
+
+def test_broker_scale_down_never_reaches_zero_fails(tmp_path):
+    gate = _gate_module()
+    out = tmp_path / "out_scale_zero_fail"
+    argv = _valid_args(tmp_path, out) + [
+        "--allow-broker-disruption",
+        "--disrupt-broker-target", "statefulset/nats",
+    ]
+    fake_k = _make_simulated_runner(gate, broker_scale_down_to_zero=False)
+    fake_http = _make_simulated_http_runner(gate)
+
+    rc = gate.main(argv, runner_override=fake_k, http_runner_override=fake_http)
+    assert rc == 1
+    verdict = json.loads((out / "production-deployment-verdict.json").read_text())
+    assert verdict["status"] == "FAILED"
+    assert verdict["checks"]["broker-outage-recovery"]["zeroReplicasObserved"] is False
+
+
+def test_restored_broker_with_zero_pods_fails(tmp_path):
+    gate = _gate_module()
+    out = tmp_path / "out_broker_zero_pods"
+    argv = _valid_args(tmp_path, out) + [
+        "--allow-broker-disruption",
+        "--disrupt-broker-target", "statefulset/nats",
+    ]
+    fake_k = _make_simulated_runner(gate, broker_restored_pods_ok=False)
+    fake_http = _make_simulated_http_runner(gate)
+
+    rc = gate.main(argv, runner_override=fake_k, http_runner_override=fake_http)
+    assert rc == 1
+    verdict = json.loads((out / "production-deployment-verdict.json").read_text())
+    assert verdict["status"] == "FAILED"
+    assert "not restored to Ready state" in verdict["checks"]["broker-outage-recovery"]["details"]
+
+
+def test_broker_disruption_missing_allow_label_is_incomplete(tmp_path):
+    gate = _gate_module()
+    out = tmp_path / "out_broker_no_optin"
+    argv = _valid_args(tmp_path, out) + [
+        "--allow-broker-disruption",
+        "--disrupt-broker-target", "statefulset/nats",
+    ]
+    fake_k = _make_simulated_runner(gate, broker_disruption_label_ok=False)
+    fake_http = _make_simulated_http_runner(gate)
+
+    rc = gate.main(argv, runner_override=fake_k, http_runner_override=fake_http)
+    assert rc == 2
+    verdict = json.loads((out / "production-deployment-verdict.json").read_text())
+    assert verdict["status"] == "INCOMPLETE_PREREQUISITE"
+    assert gate.ALLOW_DISRUPTION_LABEL in verdict["checks"]["broker-outage-recovery"]["details"]
+
+
+def test_broker_disruption_wrong_namespace_is_incomplete(tmp_path):
+    gate = _gate_module()
+    out = tmp_path / "out_broker_wrong_ns"
+    argv = _valid_args(tmp_path, out) + [
+        "--allow-broker-disruption",
+        "--disrupt-broker-target", "statefulset/nats",
+    ]
+    fake_k = _make_simulated_runner(gate, broker_target_namespace="other-ns")
+    fake_http = _make_simulated_http_runner(gate)
+
+    rc = gate.main(argv, runner_override=fake_k, http_runner_override=fake_http)
+    assert rc == 2
+    verdict = json.loads((out / "production-deployment-verdict.json").read_text())
+    assert verdict["status"] == "INCOMPLETE_PREREQUISITE"
+    assert "does not match gate namespace" in verdict["checks"]["broker-outage-recovery"]["details"]
+
+
+def test_workflow_worker_missing_uid_fails(tmp_path):
+    gate = _gate_module()
+    out = tmp_path / "out_wf_no_uid"
+    argv = _valid_args(tmp_path, out)
+    fake_k = _make_simulated_runner(gate, worker_has_uid_before=False)
+    fake_http = _make_simulated_http_runner(gate)
+
+    rc = gate.main(argv, runner_override=fake_k, http_runner_override=fake_http)
+    assert rc == 1
+    verdict = json.loads((out / "production-deployment-verdict.json").read_text())
+    assert verdict["status"] == "FAILED"
+    assert "missing or empty UID" in verdict["checks"]["workflow-execution-and-restart"]["details"]
+
+
+def test_workflow_worker_no_ready_replacement_fails(tmp_path):
+    gate = _gate_module()
+    out = tmp_path / "out_wf_not_ready"
+    argv = _valid_args(tmp_path, out)
+    fake_k = _make_simulated_runner(gate, worker_replacement_ready=False)
+    fake_http = _make_simulated_http_runner(gate)
+
+    rc = gate.main(argv, runner_override=fake_k, http_runner_override=fake_http)
+    assert rc == 1
+    verdict = json.loads((out / "production-deployment-verdict.json").read_text())
+    assert verdict["status"] == "FAILED"
+    assert "No Ready worker replacement pods found" in verdict["checks"]["workflow-execution-and-restart"]["details"]
+
+
+def test_rolling_restart_empty_pre_uids_fails(tmp_path):
+    gate = _gate_module()
+    out = tmp_path / "out_roll_no_pre"
+    argv = _valid_args(tmp_path, out)
+    fake_k = _make_simulated_runner(gate, api_has_uids_before=False)
+    fake_http = _make_simulated_http_runner(gate)
+
+    rc = gate.main(argv, runner_override=fake_k, http_runner_override=fake_http)
+    assert rc == 1
+    verdict = json.loads((out / "production-deployment-verdict.json").read_text())
+    assert verdict["status"] == "FAILED"
+    assert "No Ready a2amq-api pods with valid UIDs found before rolling restart" in verdict["checks"]["rolling-restart-zero-loss"]["details"]
+
+
+def test_rolling_restart_empty_post_uids_fails(tmp_path):
+    gate = _gate_module()
+    out = tmp_path / "out_roll_no_post"
+    argv = _valid_args(tmp_path, out)
+    fake_k = _make_simulated_runner(gate, api_has_uids_after=False)
+    fake_http = _make_simulated_http_runner(gate)
+
+    rc = gate.main(argv, runner_override=fake_k, http_runner_override=fake_http)
+    assert rc == 1
+    verdict = json.loads((out / "production-deployment-verdict.json").read_text())
+    assert verdict["status"] == "FAILED"
+    assert "No Ready a2amq-api replacement pods with valid UIDs found after rolling restart" in verdict["checks"]["rolling-restart-zero-loss"]["details"]
+
+
+def test_pdb_wrong_selector_fails(tmp_path):
+    gate = _gate_module()
+    out = tmp_path / "out_pdb_sel_fail"
+    argv = _valid_args(tmp_path, out)
+    fake_k = _make_simulated_runner(gate, pdb_selector_ok=False)
+    fake_http = _make_simulated_http_runner(gate)
+
+    rc = gate.main(argv, runner_override=fake_k, http_runner_override=fake_http)
+    assert rc == 1
+    verdict = json.loads((out / "production-deployment-verdict.json").read_text())
+    assert verdict["status"] == "FAILED"
+    assert "selector mismatch" in verdict["reason"]
+
+
+def test_cleanup_removes_dapr_components_isolated_by_run_id(tmp_path):
+    gate = _gate_module()
+    out = tmp_path / "out_cleanup"
+    out.mkdir(parents=True, exist_ok=True)
+
+    disposable_map = {
+        "run-A": [{"metadata": {"name": "comp-A", "labels": {gate.GATE_RUN_ID_LABEL: "run-A"}}}],
+        "run-B": [{"metadata": {"name": "comp-B", "labels": {gate.GATE_RUN_ID_LABEL: "run-B"}}}],
+    }
+
+    fake_k = _make_simulated_runner(gate, disposable_resources_map=disposable_map)
+    runner_a = gate.ProductionDeploymentRunner(
+        k=gate.Kubectl(runner=fake_k),
+        http=gate.HttpClient("https://a2amq.example.com"),
+        output=out,
+        namespace="a2amq-test-ns",
+        tenant="test-tenant",
+        broker="jetstream",
+        image="registry.example.org/a2amq@sha256:" + "a" * 64,
+        public_url="https://a2amq.example.com",
+        issuer="https://auth.example.com",
+        jwt_kid="prod-key-1",
+        public_key=VALID_PUBLIC_KEY,
+        execution_mode="simulation",
+    )
+    runner_a.run_id = "run-A"
+
+    cleanup_res = runner_a.cleanup(success=True)
+    assert cleanup_res["attempted"] is True
+    assert cleanup_res["resourcesDeleted"] is True
+    assert cleanup_res["remainingGateResources"] == 0
+
+    # Verify run-A resources were deleted, while run-B resources remain untouched
+    assert "run-A" not in disposable_map
+    assert "run-B" in disposable_map
+    assert len(disposable_map["run-B"]) == 1
+
