@@ -162,14 +162,14 @@ Using this narrow semantic accounting, the 5-process Workflow tier gate (`script
      - `capabilities.drop: ["ALL"]`
    - `dapr-sidecar-injection-and-health`: Confirms injected `daprd` container ready in all application pods.
    - `pod-disruption-budget-enforcement`: Confirms PDBs `minAvailable: 1` and `currentHealthy >= 1` for `a2amq-api`, `a2amq-worker`, `a2amq-dlq`.
-   - `postgresql-state-store-attachment`: Confirms Dapr component `workflow-state` attached with `state.postgresql` and `actorStateStore: "true"`.
-   - `task-lifecycle-roundtrip`: Real authenticated task submission, polling to single `TASK_STATE_COMPLETED`.
-   - `owner-and-tenant-authorization`: Real check verifying 403 on cross-owner cancellation/get and cross-tenant access.
-   - `authenticated-mcp-query`: Real check validating 401/403 on invalid bearer token, tools list, and `tasks.get` query.
-   - `workflow-execution-and-restart`: Real check submitting delayed workflow, deleting worker pod, verifying replacement, and confirming completion.
-   - `dlq-routing-and-replay`: Real check verifying unauthorized DLQ inspection/replay rejected, and authorized operator replay succeeds.
-   - `rolling-restart-zero-loss`: Real check rolling restart of `a2amq-api` with zero task loss.
-   - `broker-outage-recovery`: Real check scaling gate-managed broker target down and up, confirming durable recovery.
+   - `postgresql-state-store-attachment`: Confirms Dapr component `workflow-state` attached with `state.postgresql` v2, strictly scoped to `a2amq-worker`, `actorStateStore: "true"`, `connectionString.secretKeyRef` referencing `a2amq-workflow-state` / `connection-string`, and zero plaintext passwords.
+   - `task-lifecycle-roundtrip`: Official A2A SDK client (`ClientFactory`) task submission, polling to single `TASK_STATE_COMPLETED`, and verifying terminal idempotency / uniqueness on replay.
+   - `owner-and-tenant-authorization`: Verifies foreign owner GetTask / CancelTask and cross-tenant access are canonically denied (401/403/404; rejecting 5xx/timeouts via `_is_valid_access_denial`).
+   - `authenticated-mcp-query`: Official MCP client (`McpClient` / `streamable_http_client`) handshake and tool query, verifying canonical denial on invalid token, tool enumeration (`get_task`), and task state query.
+   - `workflow-execution-and-restart`: Submits delayed workflow via official SDK, deletes worker pod, verifies rollout replacement with distinct pod UID (`uid_before != uid_after`), and polls same task to completion.
+   - `dlq-routing-and-replay`: Requires non-empty DLQ (`INCOMPLETE_PREREQUISITE` if empty; no synthetic fallbacks), verifies unauthorized replay denied, and authorized operator replay succeeds (202).
+   - `rolling-restart-zero-loss`: Observes task pre-restart via official SDK, executes `kubectl rollout restart deployment/a2amq-api`, verifies new pod UIDs (`uids_before != uids_after`), and polls task to completion.
+   - `broker-outage-recovery`: Requires `--allow-broker-disruption` and gate-managed target (`app.kubernetes.io/managed-by=a2amq-production-gate`), scales broker to 0, asserts task does not falsely complete while down, restores broker, and confirms durable recovery.
 
 4. **Strict Simulation Isolation & Verdict Invariant**:
    - Injected runners automatically set `executionMode: "simulated"` and emit `SIMULATED_VALIDATION_PASS`.
@@ -179,9 +179,9 @@ Using this narrow semantic accounting, the 5-process Workflow tier gate (`script
 
 ### 2.2 Test Suite Coverage
 
-`tests/test_production_deployment_gate.py` provides 24 automated tests (100% passing):
+`tests/test_production_deployment_gate.py` provides 34 automated tests (100% passing):
 
-- `test_manifest_rendering_and_tenant_propagation`: Validates manifest rendering and tenant propagation.
+- `test_manifest_rendering_and_tenant_propagation`: Validates manifest rendering and tenant propagation across all roles.
 - `test_kubectl_abstraction`: Verifies command formatting, argument escaping, and history redaction.
 - `test_kubectl_timeout_and_error`: Verifies returncode 124 on timeout and 127 on execution failure.
 - `test_prerequisites_*`: Verifies missing `kubectl`, CLI version failure, cluster unreachable, and all-present states.
@@ -191,11 +191,21 @@ Using this narrow semantic accounting, the 5-process Workflow tier gate (`script
 - `test_missing_required_check_forces_incomplete_or_failed`: Proves missing required checks strictly prevent PASS.
 - `test_task_lifecycle_failure`: Proves task admission failure results in `FAILED` verdict.
 - `test_owner_authorization_foreign_owner_not_rejected`: Proves failure to reject foreign owner fails the gate.
+- `test_owner_authorization_5xx_cannot_satisfy_denial`: Proves HTTP 5xx / transport errors cannot satisfy access denial checks.
 - `test_authenticated_mcp_invalid_token_accepted_fails`: Proves accepting invalid MCP token fails the gate.
 - `test_workflow_restart_failure`: Proves worker restart task failure fails the gate.
+- `test_worker_pod_uid_unchanged_fails_restart`: Proves worker replacement pod must have a new pod UID (`uid_before != uid_after`).
 - `test_dlq_replay_unauthorized_accepted_fails`: Proves unauthorized DLQ replay fails the gate.
+- `test_empty_dlq_reports_incomplete_prerequisite`: Proves empty DLQ reports `INCOMPLETE_PREREQUISITE` without synthetic fallbacks.
 - `test_rolling_restart_task_loss_fails`: Proves task loss during rolling restart fails the gate.
-- `test_broker_outage_target_unowned_is_incomplete`: Proves unowned broker target results in `INCOMPLETE_PREREQUISITE`.
+- `test_api_pod_uid_unchanged_fails_rolling_restart`: Proves API deployment pod UIDs must change across rolling restart.
+- `test_broker_outage_target_unowned_is_incomplete`: Proves broker target lacking `app.kubernetes.io/managed-by=a2amq-production-gate` reports `INCOMPLETE_PREREQUISITE`.
+- `test_broker_false_completion_during_outage_fails`: Proves task completing while broker is scaled down strictly fails the gate.
+- `test_image_digest_mismatch_fails_rollout_readiness`: Proves running container image digest mismatching `--image` strictly fails the gate.
+- `test_postgresql_component_contract_violation_fails`: Proves non-v2 or plaintext password in `workflow-state` Component strictly fails the gate.
+- `test_missing_ready_condition_fails_dapr_prerequisite`: Proves missing `Ready: True` condition on Dapr control plane reports `INCOMPLETE_PREREQUISITE`.
+- `test_missing_namespace_reports_incomplete_prerequisite`: Proves target namespace absence reports `INCOMPLETE_PREREQUISITE` (no spontaneous creation).
+- `test_dirty_git_fails_live_run`: Proves dirty git working tree strictly fails live production certification.
 - `test_infrastructure_check_failures`: Proves missing Dapr control plane results in `INCOMPLETE_PREREQUISITE`.
 
 ---
