@@ -28,7 +28,7 @@ acceptance are separate. Historical test counts do not certify the current SHA.
 | FR-051 | JetStream/RabbitMQ distributed portability | Both native suites must pass; local-lite defaults to JetStream |
 | MCP distributed | official MCP SDK and six Workflow-capable tools | Native MCP gate |
 | Protocol binding | ADR 0010 / binding manifest | Independent conformance review |
-| Production Deployment Gate | `scripts/production_deployment_gate.py`, `tests/test_production_deployment_gate.py`, `deploy/production/generate.py` | Fully implemented executable live Kubernetes gate with 19 required checks and 27 automated tests; executed against host returning clean `INCOMPLETE_PREREQUISITE` (`productionCertified: false`) due to absent cluster infrastructure |
+| Production Deployment Gate | `scripts/production_deployment_gate.py`, `tests/test_production_deployment_gate.py`, `deploy/production/generate.py` | Fully implemented executable live Kubernetes gate with 19 required checks, real observable E2E operational verification, strict simulation isolation (`SIMULATED_VALIDATION_PASS`), and 24 automated tests (100% passing); executed against host returning clean `INCOMPLETE_PREREQUISITE` (`productionCertified: false`) due to absent cluster infrastructure |
 
 ## Local-lite feature boundary
 
