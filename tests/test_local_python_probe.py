@@ -20,7 +20,8 @@ def test_python_probe_helpers_are_bounded(tmp_path):
     nested = tmp_path / "nested"
     nested.mkdir()
     (nested / "b").write_bytes(b"y" * 5)
-    assert probe._tree_bytes(tmp_path) == 12
+    (nested / "c.tmp").write_bytes(b"z" * 10)
+    assert probe._tree_bytes(tmp_path) == 22
 
 
 def test_python_probe_rejects_missing_or_symlinked_state(tmp_path):

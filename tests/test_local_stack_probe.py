@@ -22,8 +22,27 @@ def test_stack_probe_proc_helpers_and_tree_size(tmp_path):
     nested = tmp_path / "nested"
     nested.mkdir()
     (nested / "b").write_bytes(b"y" * 50)
+    # A .tmp file outside wal/ or containing data cannot be hidden and must be counted
     (nested / "scratch.tmp").write_bytes(b"z" * 1000)
-    assert probe._tree_bytes(tmp_path) == 150
+    assert probe._tree_bytes(tmp_path) == 1150
+
+
+def test_stack_probe_wal_scratch_accounting(tmp_path):
+    probe = _module()
+    wal_dir = tmp_path / "member" / "wal"
+    wal_dir.mkdir(parents=True)
+    # 1. Real durable WAL file
+    (wal_dir / "0000.wal").write_bytes(b"w" * 500)
+    # 2. Unwritten zero-filled preallocation scratch file in wal/
+    (wal_dir / "0.tmp").write_bytes(b"\x00" * 2000)
+    # 3. .tmp file in wal/ but with real non-zero data (cannot be hidden)
+    (wal_dir / "data.tmp").write_bytes(b"d" * 300)
+    # 4. Zero-filled .tmp file OUTSIDE wal/ (cannot be hidden)
+    (tmp_path / "outside.tmp").write_bytes(b"\x00" * 400)
+
+    # Expected: 500 (.wal) + 300 (non-zero .tmp in wal) + 400 (outside wal) = 1200 bytes
+    # The 2000 zero bytes of 0.tmp in wal/ are excluded as unwritten scratch
+    assert probe._tree_bytes(tmp_path) == 1200
 
 
 def test_stack_probe_has_distinct_lite_and_workflow_budgets():

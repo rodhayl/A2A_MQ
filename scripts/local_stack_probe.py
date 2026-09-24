@@ -89,6 +89,29 @@ def _identities(pids: list[int]) -> dict[int, int]:
     return {pid: started for pid in pids if (started := _start_ticks(pid)) is not None}
 
 
+def _is_unwritten_wal_scratch(candidate: Path, info: os.stat_result) -> bool:
+    """Recognize uncommitted Dapr Scheduler etcd WAL preallocation scratch files.
+
+    Etcd preallocates the next WAL segment as <seq>.tmp with SegmentSizeBytes (64MB)
+    of zero bytes via fallocate. These unwritten zero buffers do not contain durable state,
+    are deleted on clean shutdown, and loss does not affect recovery.
+    If a file contains actual non-zero data or is outside a wal/ directory, it is durable
+    state and must be counted.
+    """
+    if candidate.suffix != ".tmp" or candidate.parent.name != "wal":
+        return False
+    if info.st_size == 0:
+        return True
+    try:
+        with candidate.open("rb") as stream:
+            while chunk := stream.read(1024 * 1024):
+                if any(chunk):
+                    return False
+        return True
+    except OSError:
+        return False
+
+
 def _tree_bytes(path: Path) -> int:
     total = 0
     if not path.is_dir() or path.is_symlink():
@@ -99,7 +122,7 @@ def _tree_bytes(path: Path) -> int:
                 raise MeasurementUnavailable("symlinked runtime state cannot be measured")
             info = candidate.stat()
             if stat.S_ISREG(info.st_mode):
-                if candidate.suffix == ".tmp":
+                if _is_unwritten_wal_scratch(candidate, info):
                     continue
                 total += info.st_size
     except OSError:
