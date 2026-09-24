@@ -8,6 +8,7 @@ import json
 import math
 import os
 from pathlib import Path
+import re
 import signal
 import shlex
 import stat
@@ -89,27 +90,59 @@ def _identities(pids: list[int]) -> dict[int, int]:
     return {pid: started for pid in pids if (started := _start_ticks(pid)) is not None}
 
 
+WAL_SCRATCH_NAME_RE = re.compile(r"^[0-9a-fA-F]+\.tmp$")
+MAX_WAL_SCRATCH_BYTES = 128 * 1024 * 1024
+
+
 def _is_unwritten_wal_scratch(candidate: Path, info: os.stat_result) -> bool:
     """Recognize uncommitted Dapr Scheduler etcd WAL preallocation scratch files.
 
     Etcd preallocates the next WAL segment as <seq>.tmp with SegmentSizeBytes (64MB)
     of zero bytes via fallocate. These unwritten zero buffers do not contain durable state,
     are deleted on clean shutdown, and loss does not affect recovery.
-    If a file contains actual non-zero data or is outside a wal/ directory, it is durable
-    state and must be counted.
+    If a file contains actual non-zero data, is outside a wal/ directory, is oversized,
+    fails regular-file/no-follow validation, or does not match etcd scratch naming,
+    it must be counted.
     """
-    if candidate.suffix != ".tmp" or candidate.parent.name != "wal":
+    if candidate.parent.name != "wal":
+        return False
+    if not WAL_SCRATCH_NAME_RE.match(candidate.name):
         return False
     if info.st_size == 0:
         return True
+    if info.st_size > MAX_WAL_SCRATCH_BYTES:
+        return False
+
+    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0)
     try:
-        with candidate.open("rb") as stream:
+        fd = os.open(candidate, flags)
+    except OSError:
+        return False
+
+    try:
+        finfo = os.fstat(fd)
+        if not stat.S_ISREG(finfo.st_mode):
+            return False
+        if finfo.st_ino != info.st_ino or finfo.st_dev != info.st_dev:
+            return False
+        if finfo.st_size != info.st_size or finfo.st_size > MAX_WAL_SCRATCH_BYTES:
+            return False
+
+        with os.fdopen(fd, "rb", closefd=True) as stream:
+            fd = -1  # stream took ownership of fd
+            total_read = 0
             while chunk := stream.read(1024 * 1024):
+                total_read += len(chunk)
+                if total_read > MAX_WAL_SCRATCH_BYTES:
+                    return False
                 if any(chunk):
                     return False
         return True
     except OSError:
         return False
+    finally:
+        if fd >= 0:
+            os.close(fd)
 
 
 def _tree_bytes(path: Path) -> int:

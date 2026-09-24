@@ -45,6 +45,43 @@ def test_stack_probe_wal_scratch_accounting(tmp_path):
     assert probe._tree_bytes(tmp_path) == 1200
 
 
+def test_stack_probe_wal_scratch_adversarial_cases(tmp_path):
+    probe = _module()
+    wal_dir = tmp_path / "member" / "wal"
+    wal_dir.mkdir(parents=True)
+
+    # 1. Expected etcd scratch: 0.tmp with zeros is excluded
+    (wal_dir / "0.tmp").write_bytes(b"\x00" * 4096)
+    assert probe._tree_bytes(tmp_path) == 0
+
+    # 2. Non-hex name in wal/: backup.tmp with all zeros CANNOT be excluded
+    (wal_dir / "backup.tmp").write_bytes(b"\x00" * 500)
+    assert probe._tree_bytes(tmp_path) == 500
+    (wal_dir / "backup.tmp").unlink()
+
+    # 3. Non-zero byte in wal/ 1.tmp: must be counted
+    (wal_dir / "1.tmp").write_bytes(b"\x00" * 100 + b"\x01")
+    assert probe._tree_bytes(tmp_path) == 101
+    (wal_dir / "1.tmp").unlink()
+
+    # 4. Oversized zero file: sparse file > 128 MiB in wal/ must be counted, not excluded
+    oversized = wal_dir / "2.tmp"
+    with open(oversized, "wb") as f:
+        f.seek(130 * 1024 * 1024 - 1)
+        f.write(b"\x00")
+    # info.st_size > MAX_WAL_SCRATCH_BYTES -> must be counted
+    assert probe._tree_bytes(tmp_path) == 130 * 1024 * 1024
+    oversized.unlink()
+
+    # 5. Symlink inside tree raises MeasurementUnavailable
+    symlink_file = wal_dir / "3.tmp"
+    target = tmp_path / "target.txt"
+    target.write_bytes(b"\x00" * 50)
+    symlink_file.symlink_to(target)
+    with __import__("pytest").raises(probe.MeasurementUnavailable):
+        probe._tree_bytes(tmp_path)
+
+
 def test_stack_probe_has_distinct_lite_and_workflow_budgets():
     probe = _module()
     lite = probe._profile_policy({"mode": "local-lite"})
