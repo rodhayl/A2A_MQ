@@ -12,6 +12,8 @@ Cleanly reports INCOMPLETE_PREREQUISITE when cluster access or prerequisites are
 from __future__ import annotations
 
 import argparse
+import asyncio
+import contextlib
 import hashlib
 import json
 import os
@@ -29,6 +31,13 @@ from uuid import uuid4
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
+from google.protobuf.json_format import ParseDict  # noqa: E402
+from a2a.client.client import ClientConfig  # noqa: E402
+from a2a.client.client_factory import ClientFactory  # noqa: E402
+from a2a.types import a2a_pb2 as pb  # noqa: E402
+from mcp import Client as McpClient  # noqa: E402
+from mcp.client.streamable_http import streamable_http_client  # noqa: E402
+
 from a2a_mq.configuration import read_file  # noqa: E402
 from a2a_mq.domain import MODEL_CREDENTIAL, require  # noqa: E402
 
@@ -38,6 +47,7 @@ FORBIDDEN_NAMESPACES = frozenset({
     "default", "kube-system", "kube-public", "kube-node-lease", "dapr-system",
 })
 
+GATE_RUN_ID_LABEL = "a2amq.io/gate-run-id"
 MANAGED_BY_LABEL = "app.kubernetes.io/managed-by"
 MANAGED_BY_VALUE = "a2amq-production-gate"
 
@@ -195,6 +205,62 @@ class HttpClient:
         except Exception as exc:
             return HttpResponse(599, None, text=str(exc))
 
+    def make_async_client(self, *, token: str | None = None, timeout: float = 30.0):
+        """Build an httpx.AsyncClient with MockTransport in simulation mode or live HTTPS in live mode."""
+        import httpx
+        headers = {"Accept": "application/json"}
+        if token:
+            headers["Authorization"] = f"Bearer {token}"
+
+        if self.runner is not None:
+            def handler(request: httpx.Request) -> httpx.Response:
+                path = request.url.raw_path.decode("ascii") if hasattr(request.url, "raw_path") else str(request.url.path)
+                req_headers = dict(request.headers)
+                if "authorization" in req_headers and "Authorization" not in req_headers:
+                    req_headers["Authorization"] = req_headers["authorization"]
+                body = request.read()
+                json_data = None
+                if body:
+                    try:
+                        json_data = json.loads(body.decode("utf-8"))
+                    except Exception:
+                        json_data = None
+                res = self.runner(request.method, path, headers=req_headers, json_data=json_data, timeout=timeout)
+                resp_headers = {"content-type": "application/json"}
+                resp_body = res.text if res.text else (json.dumps(res.data) if res.data is not None else "")
+                return httpx.Response(
+                    status_code=res.status_code,
+                    headers=resp_headers,
+                    text=resp_body,
+                    request=request,
+                )
+            transport = httpx.MockTransport(handler)
+            return httpx.AsyncClient(transport=transport, base_url=self.base_url, headers=headers, timeout=timeout)
+        else:
+            return httpx.AsyncClient(base_url=self.base_url, verify=self.ca_bundle or True, headers=headers, timeout=timeout)
+
+
+def _is_pod_ready(pod: dict) -> bool:
+    """Return True only if pod is in Running phase AND has a condition Ready=True."""
+    if pod.get("status", {}).get("phase") != "Running":
+        return False
+    conditions = pod.get("status", {}).get("conditions", [])
+    return any(c.get("type") == "Ready" and c.get("status") == "True" for c in conditions)
+
+
+def _is_valid_access_denial(status_code: int, response_json: Any = None) -> bool:
+    """Only canonical authorization denial statuses (401, 403, 404, or FORBIDDEN error) pass.
+    5xx, 599, transport errors, or malformed responses strictly fail."""
+    if status_code in {401, 403, 404}:
+        return True
+    if status_code == 200 and isinstance(response_json, dict):
+        err = response_json.get("error", {})
+        err_code = err.get("code")
+        err_msg = str(err.get("message", ""))
+        if err_code in {401, 403, 404} or "FORBIDDEN" in err_msg or "PERMISSION_DENIED" in err_msg:
+            return True
+    return False
+
 
 def _file_sha256(path: Path) -> str:
     digest = hashlib.sha256()
@@ -230,7 +296,8 @@ def evidence_hashes(root: Path) -> tuple[dict[str, str], list[str]]:
 
 def render_production_manifests(*, namespace: str, tenant: str, broker: str,
                                 image: str, public_url: str, issuer: str,
-                                jwt_kid: str, public_key: str) -> dict:
+                                jwt_kid: str, public_key: str,
+                                run_id: str | None = None) -> dict:
     """Render the standard production Kubernetes manifests from repository source."""
     script = ROOT / "deploy" / "production" / "generate.py"
     if not script.is_file():
@@ -253,11 +320,20 @@ def render_production_manifests(*, namespace: str, tenant: str, broker: str,
         jwt_kid=jwt_kid,
         public_key=public_key,
     )
-    # Tag all items with the gate management label
+    # Tag all items and pod templates with gate management labels
     for item in manifests.get("items", []):
         metadata = item.setdefault("metadata", {})
         labels = metadata.setdefault("labels", {})
         labels[MANAGED_BY_LABEL] = MANAGED_BY_VALUE
+        if run_id:
+            labels[GATE_RUN_ID_LABEL] = run_id
+        template = item.get("spec", {}).get("template", {})
+        if template:
+            t_meta = template.setdefault("metadata", {})
+            t_labels = t_meta.setdefault("labels", {})
+            t_labels[MANAGED_BY_LABEL] = MANAGED_BY_VALUE
+            if run_id:
+                t_labels[GATE_RUN_ID_LABEL] = run_id
     return manifests
 
 
@@ -297,7 +373,7 @@ class ProductionDeploymentRunner:
         self.final_git: dict[str, str] = {}
         self.start_time = time.time()
         self.results: dict[str, dict[str, Any]] = {}
-        self.created_namespace = False
+        self.run_id = f"gate-{uuid4().hex[:8]}"
         self.manifest_sha: str = ""
         self.server_version: str = "unknown"
         self.dapr_version: str = "unknown"
@@ -311,18 +387,15 @@ class ProductionDeploymentRunner:
         }
 
     def cleanup(self, success: bool) -> None:
-        """Safe namespace cleanup of gate-owned resources."""
+        """Safe namespace cleanup of gate-owned resources from this specific run."""
         if not success and self.retain_on_failure:
-            print(f"Retaining disposable namespace {self.namespace} on failure for debugging", file=sys.stderr)
+            print(f"Retaining disposable resources in {self.namespace} on failure for debugging", file=sys.stderr)
             return
 
         try:
-            if self.created_namespace:
-                self.k.run("delete", "namespace", self.namespace, use_namespace=False, timeout=60)
-            else:
-                # Delete only resources explicitly managed by this gate
-                self.k.run("delete", "all,pdb,configmap", "-l", f"{MANAGED_BY_LABEL}={MANAGED_BY_VALUE}",
-                           timeout=60)
+            # Delete only resources explicitly tagged with this run ID
+            self.k.run("delete", "all,pdb,configmap", "-l", f"{GATE_RUN_ID_LABEL}={self.run_id}",
+                       timeout=60)
         except Exception as exc:
             print(f"Warning: Cleanup encountered error: {exc}", file=sys.stderr)
 
@@ -339,6 +412,7 @@ class ProductionDeploymentRunner:
                 issuer=self.issuer,
                 jwt_kid=self.jwt_kid,
                 public_key=self.public_key,
+                run_id=self.run_id,
             )
             manifest_json = json.dumps(manifests, indent=2, sort_keys=True) + "\n"
             manifest_path = self.output / "rendered-manifests.json"
@@ -346,7 +420,8 @@ class ProductionDeploymentRunner:
             self.manifest_sha = hashlib.sha256(manifest_json.encode("utf-8")).hexdigest()
             self.record("manifest-synthesis-and-validation", "PASSED",
                         details="Manifests rendered and tagged cleanly",
-                        manifestSha256=self.manifest_sha)
+                        manifestSha256=self.manifest_sha,
+                        runId=self.run_id)
         except Exception as exc:
             self.record("manifest-synthesis-and-validation", "FAILED", details=str(exc))
             return self._build_verdict("FAILED", f"Manifest synthesis failed: {exc}")
@@ -374,19 +449,23 @@ class ProductionDeploymentRunner:
         self.record("server-side-manifest-validation", "PASSED",
                     details="Server-side dry-run accepted all manifests")
 
-        # 4. Check Dapr control plane prerequisites
+        # 4. Check Dapr control plane prerequisites (must be in Ready state)
         dapr_pods = self.k.get_json("get", "pods", "-n", "dapr-system", use_namespace=False, timeout=15)
         dapr_items = dapr_pods.get("items", []) if isinstance(dapr_pods, dict) else []
         running_dapr = [p for p in dapr_items if p.get("status", {}).get("phase") == "Running"]
-        if not running_dapr:
+        ready_dapr = [p for p in dapr_items if _is_pod_ready(p)]
+        dapr_counts = {"discovered": len(dapr_items), "running": len(running_dapr), "ready": len(ready_dapr)}
+
+        if not ready_dapr:
             self.record("prerequisite-dapr-control-plane", "INCOMPLETE_PREREQUISITE",
-                        details="No running Dapr control plane pods found in dapr-system")
+                        details="No Ready Dapr control plane pods found in dapr-system",
+                        podCounts=dapr_counts)
             return self._build_verdict("INCOMPLETE_PREREQUISITE",
-                                       "Dapr control plane not found or not Running in dapr-system",
+                                       "Dapr control plane not found or not in Ready state in dapr-system",
                                        missing=["dapr-control-plane"])
 
         # Record Dapr version from container image
-        for pod in running_dapr:
+        for pod in ready_dapr:
             for c in pod.get("spec", {}).get("containers", []):
                 img = c.get("image", "")
                 if "daprd" in img or "dapr" in img:
@@ -394,8 +473,8 @@ class ProductionDeploymentRunner:
                     break
 
         self.record("prerequisite-dapr-control-plane", "PASSED",
-                    details=f"Dapr control plane active (version {self.dapr_version})",
-                    daprVersion=self.dapr_version, runningPods=len(running_dapr))
+                    details=f"Dapr control plane active and Ready (version {self.dapr_version})",
+                    daprVersion=self.dapr_version, podCounts=dapr_counts)
 
         # 5. Check Dapr mTLS
         dapr_config = self.k.get_json("get", "configuration", "dapr-config", "-n", "dapr-system",
@@ -412,36 +491,45 @@ class ProductionDeploymentRunner:
         self.record("prerequisite-dapr-mtls", "PASSED",
                     details="Verified spec.mtls.enabled=true in dapr-system/dapr-config")
 
-        # 6. Check Placement & Scheduler for Workflow
+        # 6. Check Placement & Scheduler for Workflow (must be in Ready state)
         placement = self.k.get_json("get", "pods", "-n", "dapr-system", "-l", "app=dapr-placement",
                                     use_namespace=False)
         scheduler = self.k.get_json("get", "pods", "-n", "dapr-system", "-l", "app=dapr-scheduler",
                                     use_namespace=False)
         p_items = placement.get("items", []) if isinstance(placement, dict) else []
         s_items = scheduler.get("items", []) if isinstance(scheduler, dict) else []
-        p_ready = [p for p in p_items if p.get("status", {}).get("phase") == "Running"]
-        s_ready = [p for p in s_items if p.get("status", {}).get("phase") == "Running"]
+        p_running = [p for p in p_items if p.get("status", {}).get("phase") == "Running"]
+        p_ready = [p for p in p_items if _is_pod_ready(p)]
+        placement_counts = {"discovered": len(p_items), "running": len(p_running), "ready": len(p_ready)}
+
+        s_running = [p for p in s_items if p.get("status", {}).get("phase") == "Running"]
+        s_ready = [p for p in s_items if _is_pod_ready(p)]
+        scheduler_counts = {"discovered": len(s_items), "running": len(s_running), "ready": len(s_ready)}
 
         if not p_ready or not s_ready:
+            missing_items = []
+            if not p_ready:
+                missing_items.append("dapr-placement")
+            if not s_ready:
+                missing_items.append("dapr-scheduler")
             self.record("prerequisite-dapr-placement-scheduler", "INCOMPLETE_PREREQUISITE",
-                        details="Running Dapr Placement or Scheduler pods missing in dapr-system")
+                        details="Dapr Placement or Scheduler pods missing or not in Ready state in dapr-system",
+                        placementCounts=placement_counts, schedulerCounts=scheduler_counts)
             return self._build_verdict("INCOMPLETE_PREREQUISITE",
-                                       "Dapr Workflow Placement and Scheduler required in Running state",
-                                       missing=["dapr-placement", "dapr-scheduler"])
+                                       "Dapr Workflow Placement and Scheduler required in Ready state",
+                                       missing=missing_items)
         self.record("prerequisite-dapr-placement-scheduler", "PASSED",
-                    details="Placement and Scheduler control services present and Running")
+                    details="Placement and Scheduler control services present and Ready in dapr-system",
+                    placementCounts=placement_counts, schedulerCounts=scheduler_counts)
 
-        # 7. Check target namespace & prerequisite secrets
+        # 7. Check target namespace & prerequisite secrets (pre-provisioned disposable namespace required)
         ns_info = self.k.get_json("get", "namespace", self.namespace, use_namespace=False)
-        if not ns_info:
-            res = self.k.run("create", "namespace", self.namespace, use_namespace=False)
-            if res.returncode != 0:
-                self.record("prerequisite-secrets-and-configmaps", "FAILED",
-                            details=f"Could not create namespace: {res.stderr}")
-                return self._build_verdict("FAILED", "Namespace creation failed")
-            self.created_namespace = True
-            self.k.run("label", "namespace", self.namespace, f"{MANAGED_BY_LABEL}={MANAGED_BY_VALUE}",
-                       use_namespace=False)
+        if not ns_info or not isinstance(ns_info, dict):
+            self.record("prerequisite-secrets-and-configmaps", "INCOMPLETE_PREREQUISITE",
+                        details=f"Target namespace '{self.namespace}' does not exist; pre-provisioned disposable namespace required")
+            return self._build_verdict("INCOMPLETE_PREREQUISITE",
+                                       f"Target namespace '{self.namespace}' not found; pre-provisioned disposable namespace required",
+                                       missing=["namespace"])
 
         secrets = self.k.get_json("get", "secrets")
         secret_names = {s["metadata"]["name"] for s in (secrets.get("items", []) if isinstance(secrets, dict) else [])}
@@ -454,7 +542,7 @@ class ProductionDeploymentRunner:
                                        f"Required production secrets missing in namespace: {sorted(missing_secrets)}",
                                        missing=sorted(missing_secrets))
         self.record("prerequisite-secrets-and-configmaps", "PASSED",
-                    details="All required secrets and configmaps bound in namespace")
+                    details="All required secrets and configmaps bound in pre-provisioned namespace")
 
         # 8. Apply workloads & verify rollout readiness
         apply_res = self.k.run("apply", "-f", str(manifest_path))
@@ -469,12 +557,62 @@ class ProductionDeploymentRunner:
                 self.record("deployment-rollout-readiness", "FAILED",
                             details=f"Rollout of {dep} failed: {status_res.stderr}")
                 return self._build_verdict("FAILED", f"Deployment {dep} rollout failed")
+
+        # Verify running image digests across all app deployments
+        expected_digest = self.image.split("@sha256:")[-1].lower()
+        image_verification: dict[str, dict[str, Any]] = {}
+        digest_mismatch = False
+        mismatch_detail = ""
+
+        all_pods = self.k.get_json("get", "pods", "-l", "app.kubernetes.io/name=a2a-mq")
+        pod_items = all_pods.get("items", []) if isinstance(all_pods, dict) else []
+
+        for dep in ("a2amq-api", "a2amq-worker", "a2amq-dlq"):
+            dep_pods = [p for p in pod_items if p.get("metadata", {}).get("labels", {}).get("app") == dep]
+            if not dep_pods:
+                digest_mismatch = True
+                mismatch_detail = f"No running pods found for deployment {dep}"
+                break
+            for pod in dep_pods:
+                pod_name = pod.get("metadata", {}).get("name", "unknown")
+                c_statuses = pod.get("status", {}).get("containerStatuses", [])
+                app_cs = next((c for c in c_statuses if c.get("name") == "app"), None)
+                if not app_cs:
+                    digest_mismatch = True
+                    mismatch_detail = f"Pod {pod_name} missing app container status"
+                    break
+                image_id = app_cs.get("imageID", "")
+                digest_match = re.search(r"@?sha256:([0-9a-fA-F]{64})", image_id)
+                if not digest_match:
+                    digest_mismatch = True
+                    mismatch_detail = f"Pod {pod_name} app container imageID lacks valid sha256 digest: '{image_id}'"
+                    break
+                observed_digest = digest_match.group(1).lower()
+                self.observed_image_ids[dep] = image_id
+                is_match = (observed_digest == expected_digest)
+                image_verification[dep] = {
+                    "requestedDigest": expected_digest,
+                    "observedDigest": observed_digest,
+                    "match": is_match,
+                }
+                if not is_match:
+                    digest_mismatch = True
+                    mismatch_detail = f"Pod {pod_name} image digest mismatch: observed {observed_digest} != expected {expected_digest}"
+                    break
+            if digest_mismatch:
+                break
+
+        if digest_mismatch:
+            self.record("deployment-rollout-readiness", "FAILED",
+                        details=mismatch_detail,
+                        imageDigestVerification=image_verification)
+            return self._build_verdict("FAILED", f"Running image digest verification failed: {mismatch_detail}")
+
         self.record("deployment-rollout-readiness", "PASSED",
-                    details="Deployments a2amq-api, a2amq-worker, a2amq-dlq ready with all replicas")
+                    details="Deployments a2amq-api, a2amq-worker, a2amq-dlq ready with verified running image digests",
+                    imageDigestVerification=image_verification)
 
         # 9. Pod security-context verification
-        pods = self.k.get_json("get", "pods", "-l", "app.kubernetes.io/name=a2a-mq")
-        pod_items = pods.get("items", []) if isinstance(pods, dict) else []
         if not pod_items:
             self.record("pod-security-context-verification", "FAILED", details="No running pods found")
             return self._build_verdict("FAILED", "No pods running for security inspection")
@@ -551,34 +689,58 @@ class ProductionDeploymentRunner:
         if not wf_state:
             self.record("postgresql-state-store-attachment", "FAILED",
                         details="workflow-state Component not found in namespace")
-            return self._build_verdict("FAILED", "Workflow state store component not attached")
-        if wf_state.get("spec", {}).get("type") != "state.postgresql":
-            self.record("postgresql-state-store-attachment", "FAILED",
-                        details="workflow-state Component type is not state.postgresql")
-            return self._build_verdict("FAILED", "Workflow state store component type invalid")
-        meta = {m["name"]: m.get("value") for m in wf_state.get("spec", {}).get("metadata", []) if "name" in m}
-        if meta.get("actorStateStore") != "true":
-            self.record("postgresql-state-store-attachment", "FAILED",
-                        details="workflow-state does not enable actorStateStore")
-            return self._build_verdict("FAILED", "actorStateStore not enabled on workflow-state")
-        self.record("postgresql-state-store-attachment", "PASSED",
-                    details="state.postgresql v2 workflow-state attached, scoped to worker, actorStateStore enabled")
+            return self._build_verdict("FAILED", "workflow-state component not attached")
 
-        # Record running image IDs
-        for pod in pod_items:
-            role = pod.get("metadata", {}).get("labels", {}).get("app", "unknown")
-            for cs in pod.get("status", {}).get("containerStatuses", []):
-                if cs.get("name") == "app":
-                    img_id = cs.get("imageID", cs.get("image", ""))
-                    self.observed_image_ids[role] = img_id
+        spec = wf_state.get("spec", {})
+        if spec.get("type") != "state.postgresql":
+            self.record("postgresql-state-store-attachment", "FAILED",
+                        details=f"workflow-state Component type is '{spec.get('type')}', expected 'state.postgresql'")
+            return self._build_verdict("FAILED", "workflow-state component type invalid")
+
+        if spec.get("version") != "v2":
+            self.record("postgresql-state-store-attachment", "FAILED",
+                        details=f"workflow-state Component version is '{spec.get('version')}', expected 'v2'")
+            return self._build_verdict("FAILED", "workflow-state component version is not v2")
+
+        scopes = wf_state.get("scopes", [])
+        if scopes != ["a2amq-worker"]:
+            self.record("postgresql-state-store-attachment", "FAILED",
+                        details=f"workflow-state scopes {scopes} != ['a2amq-worker']")
+            return self._build_verdict("FAILED", "workflow-state Component not scoped strictly to a2amq-worker")
+
+        meta_items = spec.get("metadata", [])
+        meta_map = {m["name"]: m for m in meta_items if "name" in m}
+
+        if meta_map.get("actorStateStore", {}).get("value") != "true":
+            self.record("postgresql-state-store-attachment", "FAILED",
+                        details="workflow-state does not enable actorStateStore=true")
+            return self._build_verdict("FAILED", "actorStateStore not enabled on workflow-state")
+
+        conn_str = meta_map.get("connectionString", {})
+        sec_ref = conn_str.get("secretKeyRef", {})
+        if sec_ref.get("name") != "a2amq-workflow-state" or sec_ref.get("key") != "connection-string":
+            self.record("postgresql-state-store-attachment", "FAILED",
+                        details="connectionString does not reference secretKeyRef name=a2amq-workflow-state key=connection-string")
+            return self._build_verdict("FAILED", "connectionString secretKeyRef invalid on workflow-state")
+
+        if "value" in conn_str:
+            self.record("postgresql-state-store-attachment", "FAILED",
+                        details="connectionString contains plaintext value")
+            return self._build_verdict("FAILED", "Plaintext connectionString forbidden in Component metadata")
+
+        self.record("postgresql-state-store-attachment", "PASSED",
+                    details="state.postgresql v2 workflow-state attached, scoped to worker, actorStateStore enabled, secretKeyRef verified")
 
         # Execute live observable E2E scenarios against deployed services
         return self._execute_e2e_scenarios()
 
     def _execute_e2e_scenarios(self) -> dict[str, Any]:
         """Execute live task, security, workflow, dlq, and restart checks with real evidence."""
+        return asyncio.run(self._execute_e2e_scenarios_async())
+
+    async def _execute_e2e_scenarios_async(self) -> dict[str, Any]:
         # 13. Task lifecycle roundtrip
-        task_ok, task_id = self._check_task_lifecycle_roundtrip()
+        task_ok, task_id = await self._check_task_lifecycle_roundtrip()
         if not task_ok:
             return self._build_verdict(
                 self.results["task-lifecycle-roundtrip"]["status"],
@@ -594,7 +756,7 @@ class ProductionDeploymentRunner:
             )
 
         # 15. Authenticated MCP query
-        mcp_ok = self._check_authenticated_mcp(task_id)
+        mcp_ok = await self._check_authenticated_mcp(task_id)
         if not mcp_ok:
             return self._build_verdict(
                 self.results["authenticated-mcp-query"]["status"],
@@ -602,7 +764,7 @@ class ProductionDeploymentRunner:
             )
 
         # 16. Workflow execution and worker restart
-        wf_ok = self._check_workflow_execution_and_restart()
+        wf_ok = await self._check_workflow_execution_and_restart()
         if not wf_ok:
             return self._build_verdict(
                 self.results["workflow-execution-and-restart"]["status"],
@@ -618,7 +780,7 @@ class ProductionDeploymentRunner:
             )
 
         # 18. Rolling restart zero loss
-        roll_ok = self._check_rolling_restart_zero_loss()
+        roll_ok = await self._check_rolling_restart_zero_loss()
         if not roll_ok:
             return self._build_verdict(
                 self.results["rolling-restart-zero-loss"]["status"],
@@ -626,7 +788,7 @@ class ProductionDeploymentRunner:
             )
 
         # 19. Broker outage recovery
-        broker_ok = self._check_broker_outage_recovery()
+        broker_ok = await self._check_broker_outage_recovery()
         if not broker_ok:
             return self._build_verdict(
                 self.results["broker-outage-recovery"]["status"],
@@ -635,69 +797,98 @@ class ProductionDeploymentRunner:
 
         return self._build_verdict("PRODUCTION_DEPLOYMENT_PASS", "All live production checks passed")
 
-    def _check_task_lifecycle_roundtrip(self) -> tuple[bool, str]:
+    @contextlib.asynccontextmanager
+    async def _get_a2a_client(self, token: str, *, timeout: float = 30.0):
+        """Fetch agent-card.json and construct an official A2A SDK client."""
+        http_client = self.http.make_async_client(token=token, timeout=timeout)
+        async with http_client:
+            resp = await http_client.get("/.well-known/agent-card.json")
+            if resp.status_code != 200:
+                raise RuntimeError(f"Failed to fetch agent card: HTTP {resp.status_code}")
+            card = ParseDict(resp.json(), pb.AgentCard())
+            factory = ClientFactory(ClientConfig(
+                streaming=False,
+                polling=True,
+                httpx_client=http_client,
+                supported_protocol_bindings=["JSONRPC"],
+                use_client_preference=True,
+            ))
+            yield factory.create(card)
+
+    async def _send_a2a_message(self, client, msg_id: str, text: str,
+                                metadata: dict | None = None) -> pb.Task:
+        """Submit a task message using the official A2A SDK."""
+        msg_dict: dict[str, Any] = {
+            "message": {
+                "messageId": msg_id,
+                "role": "ROLE_USER",
+                "parts": [{"text": text}],
+            },
+            "configuration": {"returnImmediately": True},
+        }
+        if metadata:
+            msg_dict["metadata"] = {"a2amq": metadata}
+        req = ParseDict(msg_dict, pb.SendMessageRequest())
+        responses = [r async for r in client.send_message(req)]
+        require(len(responses) == 1 and responses[0].HasField("task"), "A2A_TASK_RESPONSE_REQUIRED")
+        return responses[0].task
+
+    async def _poll_task_completion(self, client, task_id: str, timeout: float = 60.0) -> pb.Task:
+        """Poll task via official client until it reaches terminal state."""
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            t = await client.get_task(pb.GetTaskRequest(id=task_id))
+            if t.status.state in {pb.TASK_STATE_COMPLETED, pb.TASK_STATE_FAILED, pb.TASK_STATE_CANCELED}:
+                return t
+            await asyncio.sleep(0.5)
+        raise TimeoutError(f"Task {task_id} did not reach terminal state within {timeout}s")
+
+    async def _check_task_lifecycle_roundtrip(self) -> tuple[bool, str]:
         if not self.owner_token:
             self.record("task-lifecycle-roundtrip", "INCOMPLETE_PREREQUISITE",
                         details="Owner token required for live task lifecycle roundtrip")
             return False, ""
 
-        msg_id = f"gate-{uuid4().hex[:12]}"
-        payload = {
-            "jsonrpc": "2.0",
-            "id": "gate-1",
-            "method": "tasks/send",
-            "params": {
-                "message": {
-                    "messageId": msg_id,
-                    "role": "ROLE_USER",
-                    "parts": [{"text": "production gate e2e task"}],
-                },
-                "configuration": {"returnImmediately": True},
-            },
-        }
-        res = self.http.request("POST", "/", headers={"Authorization": f"Bearer {self.owner_token}"},
-                                json_data=payload)
-        if res.status_code != 200:
-            self.record("task-lifecycle-roundtrip", "FAILED",
-                        details=f"Task submission returned HTTP {res.status_code}: {res.text}")
+        try:
+            async with self._get_a2a_client(self.owner_token) as client:
+                msg_id = f"{self.run_id}-task-{uuid4().hex[:8]}"
+                task = await self._send_a2a_message(client, msg_id, "production gate e2e task")
+                admitted_task_id = task.id
+                if not admitted_task_id:
+                    self.record("task-lifecycle-roundtrip", "FAILED", details="Task response missing task ID")
+                    return False, ""
+
+                # Poll until terminal completion
+                completed_task = await self._poll_task_completion(client, admitted_task_id, timeout=min(self.timeout, 60.0))
+                if completed_task.status.state != pb.TASK_STATE_COMPLETED:
+                    self.record("task-lifecycle-roundtrip", "FAILED",
+                                details=f"Task ended in unexpected state: {pb.TaskState.Name(completed_task.status.state)}",
+                                taskId=admitted_task_id)
+                    return False, admitted_task_id
+
+                # Verify terminal uniqueness: re-send identical messageId returns same task and state
+                resend_task = await self._send_a2a_message(client, msg_id, "production gate e2e task")
+                if resend_task.id != admitted_task_id:
+                    self.record("task-lifecycle-roundtrip", "FAILED",
+                                details="Re-sending same messageId created duplicate task rather than returning original",
+                                taskId=admitted_task_id, duplicateId=resend_task.id)
+                    return False, admitted_task_id
+
+                # Query again to confirm single terminal completion with no subsequent transition
+                t_final = await client.get_task(pb.GetTaskRequest(id=admitted_task_id))
+                if t_final.status.state != pb.TASK_STATE_COMPLETED:
+                    self.record("task-lifecycle-roundtrip", "FAILED",
+                                details="Task state mutated after reaching terminal completion",
+                                taskId=admitted_task_id)
+                    return False, admitted_task_id
+
+                self.record("task-lifecycle-roundtrip", "PASSED",
+                            details="Authenticated task submitted, executed, completed with verified terminal uniqueness via official A2A SDK",
+                            taskId=admitted_task_id, terminalUniquenessVerified=True)
+                return True, admitted_task_id
+        except Exception as exc:
+            self.record("task-lifecycle-roundtrip", "FAILED", details=f"Task lifecycle failed: {exc}")
             return False, ""
-
-        res_json = res.json()
-        if not isinstance(res_json, dict) or "result" not in res_json:
-            self.record("task-lifecycle-roundtrip", "FAILED",
-                        details=f"Task submission returned invalid response: {res.text}")
-            return False, ""
-
-        task_id = res_json["result"].get("id", "")
-        if not task_id:
-            self.record("task-lifecycle-roundtrip", "FAILED", details="Task response missing task ID")
-            return False, ""
-
-        # Poll task until terminal completion
-        terminal_state = None
-        for _ in range(30):
-            get_res = self.http.request(
-                "POST", "/", headers={"Authorization": f"Bearer {self.owner_token}"},
-                json_data={"jsonrpc": "2.0", "id": "gate-2", "method": "tasks/get", "params": {"id": task_id}}
-            )
-            if get_res.status_code == 200:
-                t_data = get_res.json().get("result", {})
-                state = t_data.get("status", {}).get("state")
-                if state in {"TASK_STATE_COMPLETED", "TASK_STATE_FAILED"}:
-                    terminal_state = state
-                    break
-            time.sleep(1)
-
-        if terminal_state != "TASK_STATE_COMPLETED":
-            self.record("task-lifecycle-roundtrip", "FAILED",
-                        details=f"Task did not reach TASK_STATE_COMPLETED: {terminal_state}",
-                        taskId=task_id)
-            return False, task_id
-
-        self.record("task-lifecycle-roundtrip", "PASSED",
-                    details="Authenticated task submitted, executed, completed with 1 terminal end",
-                    taskId=task_id, state=terminal_state)
-        return True, task_id
 
     def _check_owner_and_tenant_authorization(self, task_id: str) -> bool:
         if not self.foreign_owner_token or not self.cross_tenant_token:
@@ -710,9 +901,9 @@ class ProductionDeploymentRunner:
             "POST", "/", headers={"Authorization": f"Bearer {self.foreign_owner_token}"},
             json_data={"jsonrpc": "2.0", "id": "auth-1", "method": "tasks/get", "params": {"id": task_id}}
         )
-        if res_read.status_code == 200 and "error" not in (res_read.json() or {}):
+        if not _is_valid_access_denial(res_read.status_code, res_read.json()):
             self.record("owner-and-tenant-authorization", "FAILED",
-                        details="Foreign owner was able to read another owner's task")
+                        details=f"Foreign owner GetTask was not canonically denied: HTTP {res_read.status_code} {res_read.text}")
             return False
 
         # 2. Foreign owner attempts to cancel task
@@ -720,9 +911,9 @@ class ProductionDeploymentRunner:
             "POST", "/", headers={"Authorization": f"Bearer {self.foreign_owner_token}"},
             json_data={"jsonrpc": "2.0", "id": "auth-2", "method": "tasks/cancel", "params": {"id": task_id}}
         )
-        if res_cancel.status_code == 200 and "error" not in (res_cancel.json() or {}):
+        if not _is_valid_access_denial(res_cancel.status_code, res_cancel.json()):
             self.record("owner-and-tenant-authorization", "FAILED",
-                        details="Foreign owner was able to cancel another owner's task")
+                        details=f"Foreign owner CancelTask was not canonically denied: HTTP {res_cancel.status_code} {res_cancel.text}")
             return False
 
         # 3. Cross-tenant token attempts access
@@ -730,152 +921,137 @@ class ProductionDeploymentRunner:
             "POST", "/", headers={"Authorization": f"Bearer {self.cross_tenant_token}"},
             json_data={"jsonrpc": "2.0", "id": "auth-3", "method": "tasks/get", "params": {"id": task_id}}
         )
-        if res_tenant.status_code == 200 and "error" not in (res_tenant.json() or {}):
+        if not _is_valid_access_denial(res_tenant.status_code, res_tenant.json()):
             self.record("owner-and-tenant-authorization", "FAILED",
-                        details="Cross-tenant identity was able to access task")
+                        details=f"Cross-tenant identity GetTask was not canonically denied: HTTP {res_tenant.status_code} {res_tenant.text}")
             return False
 
         self.record("owner-and-tenant-authorization", "PASSED",
-                    details="Cross-owner access rejected (403/Forbidden); cross-tenant access denied",
+                    details="Cross-owner access rejected (403/Forbidden); cross-tenant access denied with canonical status",
                     foreignOwnerRejected=True, crossTenantRejected=True)
         return True
 
-    def _check_authenticated_mcp(self, task_id: str) -> bool:
+    async def _check_authenticated_mcp(self, task_id: str) -> bool:
         if not self.mcp_token:
             self.record("authenticated-mcp-query", "INCOMPLETE_PREREQUISITE",
                         details="MCP token required for authenticated MCP check")
             return False
 
-        # 1. Invalid token rejected
+        # 1. Negative probe: Invalid token must be canonically denied (401/403, reject 5xx)
         res_invalid = self.http.request(
             "POST", "/mcp", headers={"Authorization": "Bearer invalid-mcp-token"},
             json_data={"jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {}}
         )
-        if res_invalid.status_code in {200, 204}:
+        if not _is_valid_access_denial(res_invalid.status_code, res_invalid.json()):
             self.record("authenticated-mcp-query", "FAILED",
-                        details="Invalid MCP token was accepted by /mcp")
+                        details=f"Invalid MCP token was not canonically denied: HTTP {res_invalid.status_code} {res_invalid.text}")
             return False
 
-        # 2. Valid token lists tools
-        res_valid = self.http.request(
-            "POST", "/mcp", headers={"Authorization": f"Bearer {self.mcp_token}"},
-            json_data={"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}}
-        )
-        if res_valid.status_code != 200:
-            self.record("authenticated-mcp-query", "FAILED",
-                        details=f"MCP tools/list failed with HTTP {res_valid.status_code}: {res_valid.text}")
+        # 2. Positive probe: Use official MCP client
+        try:
+            mhttp = self.http.make_async_client(token=self.mcp_token, timeout=min(self.timeout, 30.0))
+            async with mhttp:
+                mcp_url = urljoin(self.public_url + "/", "mcp")
+                async with McpClient(streamable_http_client(mcp_url, http_client=mhttp)) as mclient:
+                    tools_result = await mclient.list_tools()
+                    tool_names = {t.name for t in tools_result.tools}
+                    if "get_task" not in tool_names:
+                        self.record("authenticated-mcp-query", "FAILED",
+                                    details=f"MCP tools/list missing 'get_task' tool; observed: {sorted(tool_names)}")
+                        return False
+
+                    call_result = await mclient.call_tool("get_task", {"task_id": task_id})
+                    if call_result.is_error:
+                        self.record("authenticated-mcp-query", "FAILED",
+                                    details=f"MCP call_tool get_task failed: {call_result.content}")
+                        return False
+
+            self.record("authenticated-mcp-query", "PASSED",
+                        details="Streamable HTTP MCP tools query authenticated via official client; invalid token rejected",
+                        invalidTokenRejected=True, toolsCount=len(tools_result.tools), queriedTaskId=task_id)
+            return True
+        except Exception as exc:
+            self.record("authenticated-mcp-query", "FAILED", details=f"Authenticated MCP query failed: {exc}")
             return False
 
-        tools_list = res_valid.json().get("result", {}).get("tools", [])
-        tool_names = {t.get("name") for t in tools_list}
-        if "tasks.get" not in tool_names:
-            self.record("authenticated-mcp-query", "FAILED",
-                        details="MCP endpoint missing required 'tasks.get' tool")
-            return False
-
-        # 3. Call tool to query known task
-        res_call = self.http.request(
-            "POST", "/mcp", headers={"Authorization": f"Bearer {self.mcp_token}"},
-            json_data={
-                "jsonrpc": "2.0", "id": 3, "method": "tools/call",
-                "params": {"name": "tasks.get", "arguments": {"id": task_id}},
-            }
-        )
-        if res_call.status_code != 200:
-            self.record("authenticated-mcp-query", "FAILED",
-                        details=f"MCP tools/call tasks.get failed: {res_call.text}")
-            return False
-
-        self.record("authenticated-mcp-query", "PASSED",
-                    details="Streamable HTTP MCP tools query authenticated; invalid token rejected",
-                    invalidTokenRejected=True, toolsCount=len(tools_list), queriedTaskId=task_id)
-        return True
-
-    def _check_workflow_execution_and_restart(self) -> bool:
+    async def _check_workflow_execution_and_restart(self) -> bool:
         if not self.owner_token:
             self.record("workflow-execution-and-restart", "INCOMPLETE_PREREQUISITE",
                         details="Owner token required for workflow execution and restart check")
             return False
 
-        msg_id = f"wf-{uuid4().hex[:12]}"
-        payload = {
-            "jsonrpc": "2.0",
-            "id": "wf-1",
-            "method": "tasks/send",
-            "params": {
-                "message": {
-                    "messageId": msg_id,
-                    "role": "ROLE_USER",
-                    "parts": [{"text": "workflow durable restart task"}],
-                },
-                "metadata": {
-                    "a2amq": {"delaySeconds": 10, "transform": "echo"},
-                },
-                "configuration": {"returnImmediately": True},
-            },
-        }
-        res = self.http.request("POST", "/", headers={"Authorization": f"Bearer {self.owner_token}"},
-                                json_data=payload)
-        if res.status_code != 200:
-            self.record("workflow-execution-and-restart", "FAILED",
-                        details=f"Workflow submission failed: {res.text}")
+        try:
+            async with self._get_a2a_client(self.owner_token) as client:
+                msg_id = f"{self.run_id}-wf-{uuid4().hex[:8]}"
+                task = await self._send_a2a_message(client, msg_id, "workflow durable restart task",
+                                                    metadata={"delaySeconds": 15, "transform": "echo"})
+                wf_task_id = task.id
+                if not wf_task_id:
+                    self.record("workflow-execution-and-restart", "FAILED", details="Missing workflow task ID")
+                    return False
+
+                # Verify task entered non-terminal state before disruption
+                t_initial = await client.get_task(pb.GetTaskRequest(id=wf_task_id))
+                if t_initial.status.state in {pb.TASK_STATE_COMPLETED, pb.TASK_STATE_FAILED, pb.TASK_STATE_CANCELED}:
+                    self.record("workflow-execution-and-restart", "FAILED",
+                                details="Workflow task completed before disruption was applied",
+                                taskId=wf_task_id)
+                    return False
+
+                # Identify worker pod before disruption
+                worker_pods = self.k.get_json("get", "pods", "-l", "app=a2amq-worker")
+                w_items = worker_pods.get("items", []) if isinstance(worker_pods, dict) else []
+                if not w_items:
+                    self.record("workflow-execution-and-restart", "FAILED", details="No a2amq-worker pods found")
+                    return False
+
+                pod_before = w_items[0]["metadata"]["name"]
+                uid_before = w_items[0]["metadata"].get("uid", "")
+
+                # Delete worker pod during workflow delay
+                del_res = self.k.run("delete", "pod", pod_before)
+                if del_res.returncode != 0:
+                    self.record("workflow-execution-and-restart", "FAILED",
+                                details=f"Failed to delete worker pod: {del_res.stderr}")
+                    return False
+
+                roll_res = self.k.run("rollout", "status", "deployment/a2amq-worker", "--timeout=60s")
+                if roll_res.returncode != 0:
+                    self.record("workflow-execution-and-restart", "FAILED",
+                                details=f"Worker replacement rollout failed: {roll_res.stderr}")
+                    return False
+
+                new_worker_pods = self.k.get_json("get", "pods", "-l", "app=a2amq-worker")
+                new_items = new_worker_pods.get("items", []) if isinstance(new_worker_pods, dict) else []
+                if not new_items:
+                    self.record("workflow-execution-and-restart", "FAILED", details="No worker pods found after rollout")
+                    return False
+
+                pod_after = new_items[0]["metadata"]["name"]
+                uid_after = new_items[0]["metadata"].get("uid", "")
+
+                if uid_before and uid_after and uid_before == uid_after:
+                    self.record("workflow-execution-and-restart", "FAILED",
+                                details=f"Worker pod UID did not change after deletion: {uid_before}",
+                                podBefore=pod_before, podAfter=pod_after)
+                    return False
+
+                # Poll the SAME workflow task for completion
+                completed_task = await self._poll_task_completion(client, wf_task_id, timeout=min(self.timeout, 60.0))
+                if completed_task.status.state != pb.TASK_STATE_COMPLETED:
+                    self.record("workflow-execution-and-restart", "FAILED",
+                                details=f"Workflow task did not reach COMPLETED: {pb.TaskState.Name(completed_task.status.state)}",
+                                taskId=wf_task_id)
+                    return False
+
+                self.record("workflow-execution-and-restart", "PASSED",
+                            details="Workflow entered non-terminal state, survived worker pod restart with verified UID change, and completed cleanly",
+                            taskId=wf_task_id, podBefore=pod_before, podBeforeUid=uid_before,
+                            podAfter=pod_after, podAfterUid=uid_after, disruptedBeforeCompletion=True)
+                return True
+        except Exception as exc:
+            self.record("workflow-execution-and-restart", "FAILED", details=f"Workflow restart check failed: {exc}")
             return False
-
-        wf_task_id = res.json().get("result", {}).get("id")
-        if not wf_task_id:
-            self.record("workflow-execution-and-restart", "FAILED", details="Missing workflow task ID")
-            return False
-
-        # Identify worker pod before restart
-        worker_pods = self.k.get_json("get", "pods", "-l", "app=a2amq-worker")
-        w_items = worker_pods.get("items", []) if isinstance(worker_pods, dict) else []
-        if not w_items:
-            self.record("workflow-execution-and-restart", "FAILED", details="No a2amq-worker pods found")
-            return False
-
-        pod_before = w_items[0]["metadata"]["name"]
-
-        # Delete one worker pod during workflow wait
-        del_res = self.k.run("delete", "pod", pod_before)
-        if del_res.returncode != 0:
-            self.record("workflow-execution-and-restart", "FAILED",
-                        details=f"Failed to delete worker pod: {del_res.stderr}")
-            return False
-
-        roll_res = self.k.run("rollout", "status", "deployment/a2amq-worker", "--timeout=60s")
-        if roll_res.returncode != 0:
-            self.record("workflow-execution-and-restart", "FAILED",
-                        details=f"Worker replacement rollout failed: {roll_res.stderr}")
-            return False
-
-        new_worker_pods = self.k.get_json("get", "pods", "-l", "app=a2amq-worker")
-        new_items = new_worker_pods.get("items", []) if isinstance(new_worker_pods, dict) else []
-        pod_after = new_items[0]["metadata"]["name"] if new_items else ""
-
-        # Poll workflow task for completion
-        completed = False
-        for _ in range(40):
-            get_res = self.http.request(
-                "POST", "/", headers={"Authorization": f"Bearer {self.owner_token}"},
-                json_data={"jsonrpc": "2.0", "id": "wf-2", "method": "tasks/get", "params": {"id": wf_task_id}}
-            )
-            if get_res.status_code == 200:
-                state = get_res.json().get("result", {}).get("status", {}).get("state")
-                if state == "TASK_STATE_COMPLETED":
-                    completed = True
-                    break
-            time.sleep(1)
-
-        if not completed:
-            self.record("workflow-execution-and-restart", "FAILED",
-                        details="Workflow task did not complete after worker pod restart",
-                        taskId=wf_task_id, podBefore=pod_before, podAfter=pod_after)
-            return False
-
-        self.record("workflow-execution-and-restart", "PASSED",
-                    details="Workflow survived worker pod restart with single completion",
-                    taskId=wf_task_id, podBefore=pod_before, podAfter=pod_after)
-        return True
 
     def _check_dlq_routing_and_replay(self) -> bool:
         if not self.operator_token:
@@ -883,122 +1059,124 @@ class ProductionDeploymentRunner:
                         details="Operator token required for DLQ inspection and replay check")
             return False
 
-        # 1. Unauthorized access rejected
+        # 1. Unauthenticated or unauthorized access canonically denied
         unauth_res = self.http.request("GET", "/ops/dlq")
-        if unauth_res.status_code == 200:
+        if not _is_valid_access_denial(unauth_res.status_code, unauth_res.json()):
             self.record("dlq-routing-and-replay", "FAILED",
-                        details="Unauthenticated access to /ops/dlq was permitted")
+                        details=f"Unauthenticated /ops/dlq access was not canonically denied: HTTP {unauth_res.status_code}")
             return False
 
         # 2. Authorized operator lists DLQ
         list_res = self.http.request("GET", "/ops/dlq", headers={"Authorization": f"Bearer {self.operator_token}"})
         if list_res.status_code != 200:
             self.record("dlq-routing-and-replay", "FAILED",
-                        details=f"Authorized /ops/dlq query failed: {list_res.text}")
+                        details=f"Authorized /ops/dlq query failed: HTTP {list_res.status_code} {list_res.text}")
             return False
 
         items = list_res.json().get("items", [])
-        entry_id = items[0]["entryId"] if items else "simulated-dlq-entry-1"
-
-        # 3. Unauthorized replay rejected
-        unauth_replay = self.http.request(
-            "POST", f"/ops/dlq/{entry_id}/replay",
-            headers={"Authorization": f"Bearer {self.foreign_owner_token or 'invalid'}"}
-        )
-        if unauth_replay.status_code == 200:
-            self.record("dlq-routing-and-replay", "FAILED",
-                        details="Unauthorized identity was able to replay DLQ message")
+        if not items:
+            self.record("dlq-routing-and-replay", "INCOMPLETE_PREREQUISITE",
+                        details="No DLQ quarantined entries available to verify replay; empty DLQ cannot prove routing/replay")
             return False
 
-        # 4. Authorized replay executed
+        entry = items[0]
+        entry_id = entry.get("id") or entry.get("entryId")
+        if not entry_id:
+            self.record("dlq-routing-and-replay", "FAILED", details="DLQ entry missing ID")
+            return False
+
+        # 3. Unauthorized replay rejected (401/403/404, not 5xx)
+        unauth_replay = self.http.request(
+            "POST", f"/ops/dlq/{entry_id}/replay",
+            headers={"Authorization": f"Bearer {self.foreign_owner_token or 'invalid-token'}"}
+        )
+        if not _is_valid_access_denial(unauth_replay.status_code, unauth_replay.json()):
+            self.record("dlq-routing-and-replay", "FAILED",
+                        details=f"Unauthorized DLQ replay was not canonically denied: HTTP {unauth_replay.status_code}")
+            return False
+
+        # 4. Authorized replay executed (HTTP 200 or 202)
         auth_replay = self.http.request(
             "POST", f"/ops/dlq/{entry_id}/replay",
             headers={"Authorization": f"Bearer {self.operator_token}"}
         )
-        if auth_replay.status_code != 200:
+        if auth_replay.status_code not in {200, 202}:
             self.record("dlq-routing-and-replay", "FAILED",
-                        details=f"Authorized DLQ replay failed: {auth_replay.text}")
+                        details=f"Authorized DLQ replay failed: HTTP {auth_replay.status_code} {auth_replay.text}")
             return False
 
         self.record("dlq-routing-and-replay", "PASSED",
-                    details="Poison delivery quarantined to DLQ; authorized replay executed successfully",
+                    details="Poison delivery quarantined to DLQ; unauthorized replay rejected; authorized replay executed successfully",
                     unauthorizedAccessRejected=True, dlqEntryId=entry_id)
         return True
 
-    def _check_rolling_restart_zero_loss(self) -> bool:
+    async def _check_rolling_restart_zero_loss(self) -> bool:
         if not self.owner_token:
             self.record("rolling-restart-zero-loss", "INCOMPLETE_PREREQUISITE",
                         details="Owner token required for rolling restart zero-loss check")
             return False
 
-        msg_id = f"roll-{uuid4().hex[:12]}"
-        payload = {
-            "jsonrpc": "2.0",
-            "id": "roll-1",
-            "method": "tasks/send",
-            "params": {
-                "message": {
-                    "messageId": msg_id,
-                    "role": "ROLE_USER",
-                    "parts": [{"text": "rolling restart durable task"}],
-                },
-                "configuration": {"returnImmediately": True},
-            },
-        }
-        res = self.http.request("POST", "/", headers={"Authorization": f"Bearer {self.owner_token}"},
-                                json_data=payload)
-        if res.status_code != 200:
-            self.record("rolling-restart-zero-loss", "FAILED",
-                        details=f"Task submission before rolling restart failed: {res.text}")
+        try:
+            async with self._get_a2a_client(self.owner_token) as client:
+                msg_id = f"{self.run_id}-roll-{uuid4().hex[:8]}"
+                task = await self._send_a2a_message(client, msg_id, "rolling restart durable task")
+                task_id = task.id
+
+                # Verify task durably observable before restart
+                t_pre = await client.get_task(pb.GetTaskRequest(id=task_id))
+                if not t_pre.id:
+                    self.record("rolling-restart-zero-loss", "FAILED",
+                                details="Task not observable before restart", taskId=task_id)
+                    return False
+
+                # Record API deployment generation and pod UIDs
+                api_pods_before = self.k.get_json("get", "pods", "-l", "app=a2amq-api")
+                items_before = api_pods_before.get("items", []) if isinstance(api_pods_before, dict) else []
+                uids_before = {p["metadata"]["uid"] for p in items_before if "uid" in p.get("metadata", {})}
+
+                # Execute rollout restart
+                res_restart = self.k.run("rollout", "restart", "deployment/a2amq-api")
+                if res_restart.returncode != 0:
+                    self.record("rolling-restart-zero-loss", "FAILED",
+                                details=f"kubectl rollout restart deployment/a2amq-api failed: {res_restart.stderr}")
+                    return False
+
+                res_status = self.k.run("rollout", "status", "deployment/a2amq-api", "--timeout=180s")
+                if res_status.returncode != 0:
+                    self.record("rolling-restart-zero-loss", "FAILED",
+                                details=f"Rolling restart of a2amq-api failed to achieve ready status: {res_status.stderr}")
+                    return False
+
+                api_pods_after = self.k.get_json("get", "pods", "-l", "app=a2amq-api")
+                items_after = api_pods_after.get("items", []) if isinstance(api_pods_after, dict) else []
+                uids_after = {p["metadata"]["uid"] for p in items_after if "uid" in p.get("metadata", {})}
+
+                if uids_before and uids_after and uids_before == uids_after:
+                    self.record("rolling-restart-zero-loss", "FAILED",
+                                details="API deployment pod UIDs did not change after rolling restart")
+                    return False
+
+                # Query SAME task after restart and poll to clean completion
+                completed_task = await self._poll_task_completion(client, task_id, timeout=min(self.timeout, 60.0))
+                if completed_task.status.state != pb.TASK_STATE_COMPLETED:
+                    self.record("rolling-restart-zero-loss", "FAILED",
+                                details="Task admitted before restart failed to reach COMPLETED", taskId=task_id)
+                    return False
+
+                self.record("rolling-restart-zero-loss", "PASSED",
+                            details="Rolling restart of api pods completed; durable task observed pre-restart and completed cleanly",
+                            taskId=task_id, persistedBeforeRestart=True, completedAfterRestart=True)
+                return True
+        except Exception as exc:
+            self.record("rolling-restart-zero-loss", "FAILED", details=f"Rolling restart check failed: {exc}")
             return False
 
-        task_id = res.json().get("result", {}).get("id")
-
-        # Rollout restart a2amq-api
-        res_restart = self.k.run("rollout", "restart", "deployment/a2amq-api")
-        if res_restart.returncode != 0:
-            self.record("rolling-restart-zero-loss", "FAILED",
-                        details=f"kubectl rollout restart deployment/a2amq-api failed: {res_restart.stderr}")
-            return False
-
-        res_status = self.k.run("rollout", "status", "deployment/a2amq-api", "--timeout=180s")
-        if res_status.returncode != 0:
-            self.record("rolling-restart-zero-loss", "FAILED",
-                        details=f"Rolling restart of a2amq-api failed to achieve ready status: {res_status.stderr}")
-            return False
-
-        # Confirm task still exists and completes
-        completed = False
-        for _ in range(30):
-            get_res = self.http.request(
-                "POST", "/", headers={"Authorization": f"Bearer {self.owner_token}"},
-                json_data={"jsonrpc": "2.0", "id": "roll-2", "method": "tasks/get", "params": {"id": task_id}}
-            )
-            if get_res.status_code == 200:
-                state = get_res.json().get("result", {}).get("status", {}).get("state")
-                if state == "TASK_STATE_COMPLETED":
-                    completed = True
-                    break
-            time.sleep(1)
-
-        if not completed:
-            self.record("rolling-restart-zero-loss", "FAILED",
-                        details="Task admitted before restart was not completed after rolling restart",
-                        taskId=task_id)
-            return False
-
-        self.record("rolling-restart-zero-loss", "PASSED",
-                    details="Rolling restart of api pods completed; durable tasks preserved",
-                    taskId=task_id, persistedBeforeRestart=True, completedAfterRestart=True)
-        return True
-
-    def _check_broker_outage_recovery(self) -> bool:
+    async def _check_broker_outage_recovery(self) -> bool:
         if not self.allow_broker_disruption or not self.disrupt_broker_target:
             self.record("broker-outage-recovery", "INCOMPLETE_PREREQUISITE",
                         details="Controlled broker disruption requires --allow-broker-disruption and an explicitly owned --disrupt-broker-target")
             return False
 
-        # Verify broker target is in namespace and labeled as gate-owned
         target_info = self.k.get_json("get", self.disrupt_broker_target)
         if not target_info or not isinstance(target_info, dict):
             self.record("broker-outage-recovery", "INCOMPLETE_PREREQUISITE",
@@ -1008,42 +1186,85 @@ class ProductionDeploymentRunner:
         labels = target_info.get("metadata", {}).get("labels", {})
         if labels.get(MANAGED_BY_LABEL) != MANAGED_BY_VALUE:
             self.record("broker-outage-recovery", "INCOMPLETE_PREREQUISITE",
-                        details=f"Broker target {self.disrupt_broker_target} is not labeled as gate-managed (refusing to disrupt shared broker)")
+                        details=f"Broker target {self.disrupt_broker_target} lacks '{MANAGED_BY_LABEL}={MANAGED_BY_VALUE}' (refusing to disrupt shared broker)")
             return False
 
-        # Submit task before disruption
-        msg_id = f"outage-{uuid4().hex[:12]}"
-        res_submit = self.http.request(
-            "POST", "/", headers={"Authorization": f"Bearer {self.owner_token}"},
-            json_data={
-                "jsonrpc": "2.0", "id": "outage-1", "method": "tasks/send",
-                "params": {"message": {"messageId": msg_id, "role": "ROLE_USER", "parts": [{"text": "broker outage task"}]}},
-            }
-        )
-        task_id = res_submit.json().get("result", {}).get("id") if res_submit.status_code == 200 else None
+        try:
+            async with self._get_a2a_client(self.owner_token) as client:
+                msg_id = f"{self.run_id}-outage-{uuid4().hex[:8]}"
+                task = await self._send_a2a_message(client, msg_id, "broker outage task")
+                task_id = task.id
 
-        # Scale down target broker
-        scale_down = self.k.run("scale", self.disrupt_broker_target, "--replicas=0")
-        if scale_down.returncode != 0:
-            self.record("broker-outage-recovery", "FAILED",
-                        details=f"Failed to scale down broker target: {scale_down.stderr}")
+                # Verify task is non-terminal before disruption
+                t_init = await client.get_task(pb.GetTaskRequest(id=task_id))
+                if t_init.status.state in {pb.TASK_STATE_COMPLETED, pb.TASK_STATE_FAILED, pb.TASK_STATE_CANCELED}:
+                    self.record("broker-outage-recovery", "FAILED",
+                                details="Task completed before broker disruption was initiated", taskId=task_id)
+                    return False
+
+                orig_replicas = target_info.get("spec", {}).get("replicas", 1)
+
+                # Scale broker target to 0
+                scale_down = self.k.run("scale", self.disrupt_broker_target, "--replicas=0")
+                if scale_down.returncode != 0:
+                    self.record("broker-outage-recovery", "FAILED",
+                                details=f"Failed to scale down broker target: {scale_down.stderr}")
+                    return False
+
+                # Bounded polling to observe 0 replicas
+                zero_observed = False
+                for _ in range(15):
+                    t_check = self.k.get_json("get", self.disrupt_broker_target)
+                    if isinstance(t_check, dict):
+                        status = t_check.get("status", {})
+                        if status.get("readyReplicas", 0) == 0 and status.get("replicas", 0) == 0:
+                            zero_observed = True
+                            break
+                    time.sleep(0.5)
+
+                # Query task DURING outage: verify it does NOT falsely complete while broker is down!
+                t_during = await client.get_task(pb.GetTaskRequest(id=task_id))
+                if t_during.status.state == pb.TASK_STATE_COMPLETED:
+                    self.record("broker-outage-recovery", "FAILED",
+                                details="Task falsely completed while broker was down", taskId=task_id)
+                    return False
+
+                # Scale broker target back up
+                scale_up = self.k.run("scale", self.disrupt_broker_target, f"--replicas={orig_replicas}")
+                if scale_up.returncode != 0:
+                    self.record("broker-outage-recovery", "FAILED",
+                                details=f"Failed to scale up broker target: {scale_up.stderr}")
+                    return False
+
+                # Wait for broker rollout
+                roll_res = self.k.run("rollout", "status", self.disrupt_broker_target, "--timeout=120s")
+                if roll_res.returncode != 0:
+                    self.record("broker-outage-recovery", "FAILED",
+                                details=f"Broker rollout status failed: {roll_res.stderr}")
+                    return False
+
+                # Verify broker condition Ready
+                b_pods = self.k.get_json("get", "pods", "-l", f"app.kubernetes.io/name={target_info.get('metadata', {}).get('name')}")
+                b_items = b_pods.get("items", []) if isinstance(b_pods, dict) else []
+                if b_items and not any(_is_pod_ready(p) for p in b_items):
+                    self.record("broker-outage-recovery", "FAILED", details="Broker pods restored but not in Ready state")
+                    return False
+
+                # Poll SAME task to completion
+                completed_task = await self._poll_task_completion(client, task_id, timeout=min(self.timeout, 120.0))
+                if completed_task.status.state != pb.TASK_STATE_COMPLETED:
+                    self.record("broker-outage-recovery", "FAILED",
+                                details="Task did not complete after broker restoration", taskId=task_id)
+                    return False
+
+                self.record("broker-outage-recovery", "PASSED",
+                            details="Controlled broker outage observed, task did not complete during outage, restored cleanly with verified completion",
+                            disruptTarget=self.disrupt_broker_target, taskId=task_id,
+                            zeroReplicasObserved=zero_observed)
+                return True
+        except Exception as exc:
+            self.record("broker-outage-recovery", "FAILED", details=f"Broker outage check failed: {exc}")
             return False
-
-        time.sleep(3)
-
-        # Scale back up
-        scale_up = self.k.run("scale", self.disrupt_broker_target, "--replicas=1")
-        if scale_up.returncode != 0:
-            self.record("broker-outage-recovery", "FAILED",
-                        details=f"Failed to scale up broker target: {scale_up.stderr}")
-            return False
-
-        self.k.run("rollout", "status", self.disrupt_broker_target, "--timeout=120s")
-
-        self.record("broker-outage-recovery", "PASSED",
-                    details="Controlled broker outage recovered without loss of durable work",
-                    disruptTarget=self.disrupt_broker_target, taskId=task_id)
-        return True
 
     def _build_verdict(self, status: str, reason: str, missing: list[str] | None = None) -> dict[str, Any]:
         self.final_git = get_git_provenance()
@@ -1069,7 +1290,8 @@ class ProductionDeploymentRunner:
                 # Invariant 3: Live PASS requires identical pre/post clean Git provenance
                 if (self.initial_git.get("head") != self.final_git.get("head")
                         or self.initial_git.get("tree") != self.final_git.get("tree")
-                        or self.initial_git.get("status") != "clean"):
+                        or self.initial_git.get("status") != "clean"
+                        or self.final_git.get("status") != "clean"):
                     status = "FAILED"
                     reason = "Git provenance changed or working tree dirty during live gate run"
 

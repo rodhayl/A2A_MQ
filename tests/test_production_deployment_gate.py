@@ -250,12 +250,17 @@ def test_cli_missing_kubectl_clean_exit(tmp_path):
         assert (out / "sha256.json").is_file()
 
 
-def _make_simulated_runner(gate, *, cluster_ok=True, dapr_ok=True, mtls_ok=True,
-                           sched_ok=True, secrets_ok=True, dry_run_ok=True,
+def _make_simulated_runner(gate, *, cluster_ok=True, dapr_ok=True, dapr_ready=True,
+                           mtls_ok=True, sched_ok=True, secrets_ok=True, dry_run_ok=True,
                            rollout_ok=True, pod_sec_ok=True, sidecar_ok=True,
-                           pdb_ok=True, state_ok=True, broker_target_owned=True):
+                           pdb_ok=True, state_ok=True, state_v2_ok=True,
+                           broker_target_owned=True, image_digest_ok=True,
+                           worker_uid_changes=True, api_uid_changes=True,
+                           namespace_exists=True):
     """Factory creating a simulated Kubectl runner returning configurable responses."""
     worker_restart_count = [0]
+    api_restart_count = [0]
+    broker_replicas = [1]
 
     def fake_run(cmd, input_bytes=None, timeout=60.0):
         cmd_str = " ".join(cmd)
@@ -273,11 +278,16 @@ def _make_simulated_runner(gate, *, cluster_ok=True, dapr_ok=True, mtls_ok=True,
         if "get pods -n dapr-system" in cmd_str:
             if not dapr_ok:
                 return gate.CommandResult(0, json.dumps({"items": []}), "")
+            conditions = [{"type": "Ready", "status": "True"}] if dapr_ready else [{"type": "Ready", "status": "False"}]
             return gate.CommandResult(0, json.dumps({"items": [
                 {
                     "metadata": {"name": "dapr-operator-xyz"},
                     "spec": {"containers": [{"image": "daprio/dapr:1.18.3"}]},
-                    "status": {"phase": "Running", "containerStatuses": [{"ready": True}]},
+                    "status": {
+                        "phase": "Running",
+                        "containerStatuses": [{"ready": dapr_ready}],
+                        "conditions": conditions,
+                    },
                 }
             ]}), "")
 
@@ -288,24 +298,38 @@ def _make_simulated_runner(gate, *, cluster_ok=True, dapr_ok=True, mtls_ok=True,
             if not sched_ok:
                 return gate.CommandResult(0, json.dumps({"items": []}), "")
             return gate.CommandResult(0, json.dumps({"items": [
-                {"metadata": {"name": "dapr-placement-0"}, "status": {"phase": "Running"}}
+                {
+                    "metadata": {"name": "dapr-placement-0"},
+                    "status": {
+                        "phase": "Running",
+                        "conditions": [{"type": "Ready", "status": "True"}],
+                    },
+                }
             ]}), "")
 
         if "app=dapr-scheduler" in cmd_str:
             if not sched_ok:
                 return gate.CommandResult(0, json.dumps({"items": []}), "")
             return gate.CommandResult(0, json.dumps({"items": [
-                {"metadata": {"name": "dapr-scheduler-0"}, "status": {"phase": "Running"}}
+                {
+                    "metadata": {"name": "dapr-scheduler-0"},
+                    "status": {
+                        "phase": "Running",
+                        "conditions": [{"type": "Ready", "status": "True"}],
+                    },
+                }
             ]}), "")
 
         if "get namespace" in cmd_str:
+            if not namespace_exists:
+                return gate.CommandResult(1, "", "namespaces 'a2amq-test-ns' not found")
             return gate.CommandResult(0, json.dumps({"metadata": {"name": "a2amq-test-ns"}}), "")
 
         if "get secrets" in cmd_str:
             names = ["a2amq-postgres", "a2amq-workflow-state", "dapr-api-token", "app-api-token"] if secrets_ok else ["a2amq-postgres"]
             return gate.CommandResult(0, json.dumps({"items": [{"metadata": {"name": n}} for n in names]}), "")
 
-        if "delete pod a2amq-worker" in cmd_str:
+        if "delete pod" in cmd_str and "a2amq-worker" in cmd_str:
             worker_restart_count[0] += 1
             return gate.CommandResult(0, "pod deleted", "")
 
@@ -314,65 +338,108 @@ def _make_simulated_runner(gate, *, cluster_ok=True, dapr_ok=True, mtls_ok=True,
                 return gate.CommandResult(1, "", "Deployment rollout timed out")
             return gate.CommandResult(0, "successfully rolled out", "")
 
-        if "rollout restart" in cmd_str:
+        if "rollout restart deployment/a2amq-api" in cmd_str:
+            api_restart_count[0] += 1
             return gate.CommandResult(0, "restarted", "")
 
         if "scale" in cmd_str:
+            if "--replicas=0" in cmd_str:
+                broker_replicas[0] = 0
+            elif "--replicas=1" in cmd_str:
+                broker_replicas[0] = 1
             return gate.CommandResult(0, "scaled", "")
 
         if "get statefulset/nats" in cmd_str or "get deployment/nats" in cmd_str:
             labels = {"app.kubernetes.io/managed-by": "a2amq-production-gate"} if broker_target_owned else {}
-            return gate.CommandResult(0, json.dumps({"metadata": {"name": "nats", "labels": labels}}), "")
+            reps = broker_replicas[0]
+            return gate.CommandResult(0, json.dumps({
+                "metadata": {"name": "nats", "labels": labels},
+                "spec": {"replicas": 1},
+                "status": {"replicas": reps, "readyReplicas": reps},
+            }), "")
 
         if "app=a2amq-worker" in cmd_str and "get pods" in cmd_str:
-            pname = "a2amq-worker-pod-2" if worker_restart_count[0] > 0 else "a2amq-worker-pod-1"
-            return gate.CommandResult(0, json.dumps({"items": [{"metadata": {"name": pname}}]}), "")
+            if worker_restart_count[0] > 0 and worker_uid_changes:
+                pname = "a2amq-worker-pod-2"
+                puid = "uid-worker-2"
+            else:
+                pname = "a2amq-worker-pod-1"
+                puid = "uid-worker-1"
+            return gate.CommandResult(0, json.dumps({"items": [{
+                "metadata": {"name": pname, "uid": puid, "labels": {"app": "a2amq-worker"}},
+                "status": {"phase": "Running", "conditions": [{"type": "Ready", "status": "True"}]},
+            }]}), "")
+
+        if "app=a2amq-api" in cmd_str and "get pods" in cmd_str:
+            if api_restart_count[0] > 0 and api_uid_changes:
+                pname = "a2amq-api-pod-2"
+                puid = "uid-api-2"
+            else:
+                pname = "a2amq-api-pod-1"
+                puid = "uid-api-1"
+            return gate.CommandResult(0, json.dumps({"items": [{
+                "metadata": {"name": pname, "uid": puid, "labels": {"app": "a2amq-api"}},
+                "status": {"phase": "Running", "conditions": [{"type": "Ready", "status": "True"}]},
+            }]}), "")
 
         if "app.kubernetes.io/name=a2a-mq" in cmd_str and "get pods" in cmd_str:
-            containers = []
-            c_statuses = []
-            if pod_sec_ok:
-                containers.append({
-                    "name": "app",
-                    "securityContext": {
-                        "runAsNonRoot": True,
-                        "runAsUser": 10001,
-                        "allowPrivilegeEscalation": False,
-                        "readOnlyRootFilesystem": True,
-                        "capabilities": {"drop": ["ALL"]},
+            items = []
+            for dep in ("a2amq-api", "a2amq-worker", "a2amq-dlq"):
+                containers = []
+                c_statuses = []
+                img_sha = ("a" * 64) if image_digest_ok else ("e" * 64)
+                if pod_sec_ok:
+                    containers.append({
+                        "name": "app",
+                        "securityContext": {
+                            "runAsNonRoot": True,
+                            "runAsUser": 10001,
+                            "allowPrivilegeEscalation": False,
+                            "readOnlyRootFilesystem": True,
+                            "capabilities": {"drop": ["ALL"]},
+                        },
+                    })
+                    c_statuses.append({
+                        "name": "app",
+                        "ready": True,
+                        "imageID": "registry.example.org/a2amq@sha256:" + img_sha,
+                    })
+                else:
+                    containers.append({
+                        "name": "app",
+                        "securityContext": {
+                            "runAsNonRoot": False,
+                            "runAsUser": 0,
+                            "allowPrivilegeEscalation": True,
+                            "readOnlyRootFilesystem": False,
+                        },
+                    })
+                    c_statuses.append({"name": "app", "ready": True})
+
+                if sidecar_ok:
+                    containers.append({"name": "daprd"})
+                    c_statuses.append({"name": "daprd", "ready": True, "state": {"running": {}}})
+
+                uid_val = f"uid-{dep}-1"
+                if dep == "a2amq-worker" and worker_restart_count[0] > 0:
+                    uid_val = "uid-worker-2" if worker_uid_changes else "uid-worker-1"
+                elif dep == "a2amq-api" and api_restart_count[0] > 0:
+                    uid_val = "uid-api-2" if api_uid_changes else "uid-api-1"
+
+                items.append({
+                    "metadata": {"name": f"{dep}-xyz", "uid": uid_val, "labels": {"app": dep}},
+                    "spec": {
+                        "automountServiceAccountToken": False if pod_sec_ok else True,
+                        "securityContext": {"seccompProfile": {"type": "RuntimeDefault" if pod_sec_ok else "Unconfined"}},
+                        "containers": containers,
+                    },
+                    "status": {
+                        "phase": "Running",
+                        "conditions": [{"type": "Ready", "status": "True"}],
+                        "containerStatuses": c_statuses,
                     },
                 })
-                c_statuses.append({
-                    "name": "app",
-                    "ready": True,
-                    "imageID": "registry.example.org/a2amq@sha256:" + "a" * 64,
-                })
-            else:
-                containers.append({
-                    "name": "app",
-                    "securityContext": {
-                        "runAsNonRoot": False,
-                        "runAsUser": 0,
-                        "allowPrivilegeEscalation": True,
-                        "readOnlyRootFilesystem": False,
-                    },
-                })
-                c_statuses.append({"name": "app", "ready": True})
-
-            if sidecar_ok:
-                containers.append({"name": "daprd"})
-                c_statuses.append({"name": "daprd", "ready": True, "state": {"running": {}}})
-
-            pod = {
-                "metadata": {"name": "a2amq-api-xyz", "labels": {"app": "a2amq-api"}},
-                "spec": {
-                    "automountServiceAccountToken": False if pod_sec_ok else True,
-                    "securityContext": {"seccompProfile": {"type": "RuntimeDefault" if pod_sec_ok else "Unconfined"}},
-                    "containers": containers,
-                },
-                "status": {"containerStatuses": c_statuses},
-            }
-            return gate.CommandResult(0, json.dumps({"items": [pod]}), "")
+            return gate.CommandResult(0, json.dumps({"items": items}), "")
 
         if "get pdb" in cmd_str:
             if not pdb_ok:
@@ -389,12 +456,19 @@ def _make_simulated_runner(gate, *, cluster_ok=True, dapr_ok=True, mtls_ok=True,
         if "get components" in cmd_str:
             if not state_ok:
                 return gate.CommandResult(0, json.dumps({"items": []}), "")
+            meta = [
+                {"name": "actorStateStore", "value": "true"},
+                {"name": "connectionString", "secretKeyRef": {"name": "a2amq-workflow-state", "key": "connection-string"}},
+            ]
+            if not state_v2_ok:
+                meta = [{"name": "actorStateStore", "value": "true"}, {"name": "connectionString", "value": "plaintext-password"}]
             return gate.CommandResult(0, json.dumps({"items": [
                 {
                     "metadata": {"name": "workflow-state"},
                     "spec": {
                         "type": "state.postgresql",
-                        "metadata": [{"name": "actorStateStore", "value": "true"}],
+                        "version": "v2" if state_v2_ok else "v1",
+                        "metadata": meta,
                     },
                     "scopes": ["a2amq-worker"],
                 }
@@ -406,11 +480,34 @@ def _make_simulated_runner(gate, *, cluster_ok=True, dapr_ok=True, mtls_ok=True,
 
 
 def _make_simulated_http_runner(gate, *, task_ok=True, auth_ok=True, mcp_ok=True,
-                                wf_ok=True, dlq_ok=True, rolling_ok=True):
+                                wf_ok=True, dlq_ok=True, dlq_empty=False, rolling_ok=True,
+                                broker_false_complete=False):
     """Factory creating a simulated HTTP client runner."""
+    broker_down = [False]
+    wf_query_count = [0]
+    outage_query_count = [0]
+    roll_query_count = [0]
+
     def fake_http(method: str, path: str, *, headers=None, json_data=None, timeout=30.0):
         headers = headers or {}
-        auth = headers.get("Authorization", "")
+        auth = headers.get("Authorization") or headers.get("authorization", "")
+        method_call = (json_data or {}).get("method")
+        params = (json_data or {}).get("params", {})
+        req_id = (json_data or {}).get("id", 1)
+
+        # 0. Discovery Agent Card
+        if path == "/.well-known/agent-card.json":
+            return gate.HttpResponse(200, data={
+                "name": "A2A-MQ test",
+                "version": "0.1.0",
+                "supportedInterfaces": [
+                    {"url": "https://a2amq.example.com/rpc", "protocolBinding": "JSONRPC", "protocolVersion": "1.0"},
+                ],
+                "capabilities": {"streaming": False},
+                "skills": [{"id": "text", "name": "text"}],
+                "defaultInputModes": ["text/plain"],
+                "defaultOutputModes": ["text/plain"],
+            })
 
         # 1. MCP endpoint
         if path == "/mcp":
@@ -418,12 +515,43 @@ def _make_simulated_http_runner(gate, *, task_ok=True, auth_ok=True, mcp_ok=True
                 return gate.HttpResponse(401, text="Unauthorized")
             if not mcp_ok:
                 return gate.HttpResponse(500, text="MCP internal error")
-            method_call = (json_data or {}).get("method")
+            if method_call == "server/discover":
+                return gate.HttpResponse(404, text="Not Found")
+            if method_call == "initialize":
+                return gate.HttpResponse(200, data={
+                    "jsonrpc": "2.0", "id": req_id,
+                    "result": {
+                        "protocolVersion": "2025-11-25",
+                        "capabilities": {"tools": {}},
+                        "serverInfo": {"name": "A2A-MQ", "version": "0.1.0"},
+                    }
+                })
+            if method_call == "notifications/initialized":
+                return gate.HttpResponse(200, data={})
             if method_call == "tools/list":
-                return gate.HttpResponse(200, data={"result": {"tools": [{"name": "tasks.get"}, {"name": "tasks.list"}]}})
+                return gate.HttpResponse(200, data={
+                    "jsonrpc": "2.0", "id": req_id,
+                    "result": {
+                        "tools": [
+                            {"name": "get_task", "description": "Get task", "inputSchema": {"type": "object"}},
+                            {"name": "list_tasks", "description": "List tasks", "inputSchema": {"type": "object"}},
+                            {"name": "submit_task", "description": "Submit task", "inputSchema": {"type": "object"}},
+                            {"name": "submit_task_lite", "description": "Submit task lite", "inputSchema": {"type": "object"}},
+                            {"name": "continue_task", "description": "Continue task", "inputSchema": {"type": "object"}},
+                            {"name": "approve_task", "description": "Approve task", "inputSchema": {"type": "object"}},
+                        ]
+                    }
+                })
             if method_call == "tools/call":
-                return gate.HttpResponse(200, data={"result": {"id": "task-mcp-queried"}})
-            return gate.HttpResponse(200, data={"result": "ok"})
+                t_id = params.get("arguments", {}).get("task_id", params.get("arguments", {}).get("id", "task-mcp-queried"))
+                return gate.HttpResponse(200, data={
+                    "jsonrpc": "2.0", "id": req_id,
+                    "result": {
+                        "content": [{"type": "text", "text": json.dumps({"id": t_id, "status": {"state": "TASK_STATE_COMPLETED"}})}],
+                        "isError": False,
+                    }
+                })
+            return gate.HttpResponse(200, data={"jsonrpc": "2.0", "id": req_id, "result": "ok"})
 
         # 2. DLQ ops endpoint
         if path.startswith("/ops/dlq"):
@@ -432,36 +560,61 @@ def _make_simulated_http_runner(gate, *, task_ok=True, auth_ok=True, mcp_ok=True
             if not dlq_ok:
                 return gate.HttpResponse(500, text="DLQ error")
             if method == "GET":
-                return gate.HttpResponse(200, data={"items": [{"entryId": "dlq-entry-1"}]})
+                items = [] if dlq_empty else [{"id": "dlq-entry-1", "entryId": "dlq-entry-1"}]
+                return gate.HttpResponse(200, data={"items": items})
             if method == "POST" and "replay" in path:
-                return gate.HttpResponse(200, data={"replayed": "replayed-msg-1"})
+                return gate.HttpResponse(202, data={"replayed": True})
 
-        # 3. Tasks JSON-RPC endpoint
-        if path == "/":
-            method_call = (json_data or {}).get("method")
-            params = (json_data or {}).get("params", {})
-
+        # 3. Tasks JSON-RPC endpoint (/ and /rpc)
+        if path in ("/", "/rpc"):
             # Foreign owner rejection test
             if "foreign-token" in auth or "cross-tenant" in auth:
                 if not auth_ok:
-                    return gate.HttpResponse(200, data={"result": {"id": params.get("id")}})
+                    return gate.HttpResponse(200, data={"jsonrpc": "2.0", "id": req_id, "result": {"id": params.get("id")}})
                 return gate.HttpResponse(403, text="Forbidden")
 
             # Task submission
-            if method_call == "tasks/send":
+            if method_call in ("tasks/send", "SendMessage"):
                 if not task_ok:
                     return gate.HttpResponse(500, text="Task admission failed")
                 mid = params.get("message", {}).get("messageId", "sim-task-1")
-                return gate.HttpResponse(200, data={"result": {"id": f"task-{mid}", "status": {"state": "TASK_STATE_SUBMITTED"}}})
+                if "outage-" in mid:
+                    broker_down[0] = True
+                task_data = {"id": f"task-{mid}", "status": {"state": "TASK_STATE_SUBMITTED"}}
+                return gate.HttpResponse(200, data={"jsonrpc": "2.0", "id": req_id, "result": {"task": task_data}})
 
             # Task query
-            if method_call == "tasks/get":
+            if method_call in ("tasks/get", "GetTask"):
                 task_id = params.get("id", "")
-                if "roll-" in task_id and not rolling_ok:
-                    return gate.HttpResponse(404, text="Task lost in restart")
-                if "wf-" in task_id and not wf_ok:
-                    return gate.HttpResponse(500, text="Workflow lost")
-                return gate.HttpResponse(200, data={"result": {"id": task_id, "status": {"state": "TASK_STATE_COMPLETED"}}})
+                if "roll-" in task_id:
+                    roll_query_count[0] += 1
+                    if roll_query_count[0] == 1:
+                        return gate.HttpResponse(200, data={"jsonrpc": "2.0", "id": req_id, "result": {"id": task_id, "status": {"state": "TASK_STATE_WORKING"}}})
+                    if not rolling_ok:
+                        return gate.HttpResponse(200, data={"jsonrpc": "2.0", "id": req_id, "result": {"id": task_id, "status": {"state": "TASK_STATE_FAILED"}}})
+                    return gate.HttpResponse(200, data={"jsonrpc": "2.0", "id": req_id, "result": {"id": task_id, "status": {"state": "TASK_STATE_COMPLETED"}}})
+                if "wf-" in task_id:
+                    if not wf_ok:
+                        return gate.HttpResponse(500, text="Workflow lost")
+                    wf_query_count[0] += 1
+                    if wf_query_count[0] == 1:
+                        return gate.HttpResponse(200, data={"jsonrpc": "2.0", "id": req_id, "result": {"id": task_id, "status": {"state": "TASK_STATE_WORKING"}}})
+                    return gate.HttpResponse(200, data={"jsonrpc": "2.0", "id": req_id, "result": {"id": task_id, "status": {"state": "TASK_STATE_COMPLETED"}}})
+                if "outage-" in task_id:
+                    outage_query_count[0] += 1
+                    if outage_query_count[0] == 1:
+                        return gate.HttpResponse(200, data={"jsonrpc": "2.0", "id": req_id, "result": {"id": task_id, "status": {"state": "TASK_STATE_WORKING"}}})
+                    elif outage_query_count[0] == 2:
+                        state = "TASK_STATE_COMPLETED" if broker_false_complete else "TASK_STATE_WORKING"
+                        return gate.HttpResponse(200, data={"jsonrpc": "2.0", "id": req_id, "result": {"id": task_id, "status": {"state": state}}})
+                    else:
+                        return gate.HttpResponse(200, data={"jsonrpc": "2.0", "id": req_id, "result": {"id": task_id, "status": {"state": "TASK_STATE_COMPLETED"}}})
+                return gate.HttpResponse(200, data={"jsonrpc": "2.0", "id": req_id, "result": {"id": task_id, "status": {"state": "TASK_STATE_COMPLETED"}}})
+
+            # Task cancel
+            if method_call in ("tasks/cancel", "CancelTask"):
+                task_id = params.get("id", "")
+                return gate.HttpResponse(200, data={"jsonrpc": "2.0", "id": req_id, "result": {"id": task_id, "status": {"state": "TASK_STATE_CANCELED"}}})
 
         return gate.HttpResponse(200, data={"status": "ok"})
 
@@ -530,7 +683,7 @@ def test_task_lifecycle_failure(tmp_path):
     assert rc == 1
     verdict = json.loads((out / "production-deployment-verdict.json").read_text())
     assert verdict["status"] == "FAILED"
-    assert "Task submission returned HTTP 500" in verdict["reason"]
+    assert "Task lifecycle failed" in verdict["reason"] or "Task submission returned" in verdict["reason"]
 
 
 def test_owner_authorization_foreign_owner_not_rejected(tmp_path):
@@ -544,7 +697,30 @@ def test_owner_authorization_foreign_owner_not_rejected(tmp_path):
     assert rc == 1
     verdict = json.loads((out / "production-deployment-verdict.json").read_text())
     assert verdict["status"] == "FAILED"
-    assert "Foreign owner was able to read" in verdict["reason"]
+    assert "Foreign owner GetTask was not canonically denied" in verdict["reason"]
+
+
+def test_owner_authorization_5xx_cannot_satisfy_denial(tmp_path):
+    gate = _gate_module()
+    out = tmp_path / "out_auth_5xx"
+    argv = _valid_args(tmp_path, out)
+    fake_k = _make_simulated_runner(gate)
+
+    base_http = _make_simulated_http_runner(gate)
+
+    def http_with_5xx(method, path, **kwargs):
+        headers = kwargs.get("headers", {})
+        auth = headers.get("Authorization", "")
+        if "foreign-token" in auth:
+            # Server crash / unhandled exception returning 500
+            return gate.HttpResponse(500, text="Internal Server Error Crash")
+        return base_http(method, path, **kwargs)
+
+    rc = gate.main(argv, runner_override=fake_k, http_runner_override=http_with_5xx)
+    assert rc == 1
+    verdict = json.loads((out / "production-deployment-verdict.json").read_text())
+    assert verdict["status"] == "FAILED"
+    assert "was not canonically denied" in verdict["reason"]
 
 
 def test_authenticated_mcp_invalid_token_accepted_fails(tmp_path):
@@ -552,17 +728,21 @@ def test_authenticated_mcp_invalid_token_accepted_fails(tmp_path):
     out = tmp_path / "out_mcp_fail"
     argv = _valid_args(tmp_path, out)
     fake_k = _make_simulated_runner(gate)
+    base_mcp_http = _make_simulated_http_runner(gate)
 
     def bad_mcp_http(method, path, **kwargs):
         if path == "/mcp":
-            return gate.HttpResponse(200, text="accepted invalid token")
-        return _make_simulated_http_runner(gate)(method, path, **kwargs)
+            headers = kwargs.get("headers", {})
+            auth = headers.get("Authorization", "")
+            if "invalid" in auth:
+                return gate.HttpResponse(200, text="accepted invalid token")
+        return base_mcp_http(method, path, **kwargs)
 
     rc = gate.main(argv, runner_override=fake_k, http_runner_override=bad_mcp_http)
     assert rc == 1
     verdict = json.loads((out / "production-deployment-verdict.json").read_text())
     assert verdict["status"] == "FAILED"
-    assert "Invalid MCP token was accepted" in verdict["reason"]
+    assert "Invalid MCP token was not canonically denied" in verdict["reason"]
 
 
 def test_workflow_restart_failure(tmp_path):
@@ -579,22 +759,54 @@ def test_workflow_restart_failure(tmp_path):
     assert "Workflow" in verdict["reason"]
 
 
+def test_worker_pod_uid_unchanged_fails_restart(tmp_path):
+    gate = _gate_module()
+    out = tmp_path / "out_wf_uid_fail"
+    argv = _valid_args(tmp_path, out)
+    fake_k = _make_simulated_runner(gate, worker_uid_changes=False)
+    fake_http = _make_simulated_http_runner(gate)
+
+    rc = gate.main(argv, runner_override=fake_k, http_runner_override=fake_http)
+    assert rc == 1
+    verdict = json.loads((out / "production-deployment-verdict.json").read_text())
+    assert verdict["status"] == "FAILED"
+    assert "Worker pod UID did not change" in verdict["reason"]
+
+
 def test_dlq_replay_unauthorized_accepted_fails(tmp_path):
     gate = _gate_module()
     out = tmp_path / "out_dlq_fail"
     argv = _valid_args(tmp_path, out)
     fake_k = _make_simulated_runner(gate)
+    base_dlq_http = _make_simulated_http_runner(gate)
 
     def bad_dlq_http(method, path, **kwargs):
         if path.startswith("/ops/dlq") and "replay" in path:
-            return gate.HttpResponse(200, data={"replayed": "unauthorized-replay"})
-        return _make_simulated_http_runner(gate)(method, path, **kwargs)
+            headers = kwargs.get("headers", {})
+            auth = headers.get("Authorization", "")
+            if "operator" not in auth:
+                return gate.HttpResponse(200, data={"replayed": "unauthorized-replay"})
+        return base_dlq_http(method, path, **kwargs)
 
     rc = gate.main(argv, runner_override=fake_k, http_runner_override=bad_dlq_http)
     assert rc == 1
     verdict = json.loads((out / "production-deployment-verdict.json").read_text())
     assert verdict["status"] == "FAILED"
-    assert "Unauthorized identity was able to replay DLQ message" in verdict["reason"]
+    assert "Unauthorized DLQ replay was not canonically denied" in verdict["reason"]
+
+
+def test_empty_dlq_reports_incomplete_prerequisite(tmp_path):
+    gate = _gate_module()
+    out = tmp_path / "out_dlq_empty"
+    argv = _valid_args(tmp_path, out)
+    fake_k = _make_simulated_runner(gate)
+    fake_http = _make_simulated_http_runner(gate, dlq_empty=True)
+
+    rc = gate.main(argv, runner_override=fake_k, http_runner_override=fake_http)
+    assert rc == 2
+    verdict = json.loads((out / "production-deployment-verdict.json").read_text())
+    assert verdict["status"] == "INCOMPLETE_PREREQUISITE"
+    assert "No DLQ quarantined entries available" in verdict["checks"]["dlq-routing-and-replay"]["details"]
 
 
 def test_rolling_restart_task_loss_fails(tmp_path):
@@ -608,7 +820,21 @@ def test_rolling_restart_task_loss_fails(tmp_path):
     assert rc == 1
     verdict = json.loads((out / "production-deployment-verdict.json").read_text())
     assert verdict["status"] == "FAILED"
-    assert "not completed after rolling restart" in verdict["reason"]
+    assert "Task admitted before restart failed to reach COMPLETED" in verdict["reason"]
+
+
+def test_api_pod_uid_unchanged_fails_rolling_restart(tmp_path):
+    gate = _gate_module()
+    out = tmp_path / "out_api_uid_fail"
+    argv = _valid_args(tmp_path, out)
+    fake_k = _make_simulated_runner(gate, api_uid_changes=False)
+    fake_http = _make_simulated_http_runner(gate)
+
+    rc = gate.main(argv, runner_override=fake_k, http_runner_override=fake_http)
+    assert rc == 1
+    verdict = json.loads((out / "production-deployment-verdict.json").read_text())
+    assert verdict["status"] == "FAILED"
+    assert "API deployment pod UIDs did not change" in verdict["reason"]
 
 
 def test_broker_outage_target_unowned_is_incomplete(tmp_path):
@@ -625,7 +851,114 @@ def test_broker_outage_target_unowned_is_incomplete(tmp_path):
     assert rc == 2
     verdict = json.loads((out / "production-deployment-verdict.json").read_text())
     assert verdict["status"] == "INCOMPLETE_PREREQUISITE"
-    assert "not labeled as gate-managed" in verdict["checks"]["broker-outage-recovery"]["details"]
+    assert "lacks 'app.kubernetes.io/managed-by=a2amq-production-gate'" in verdict["checks"]["broker-outage-recovery"]["details"]
+
+
+def test_broker_false_completion_during_outage_fails(tmp_path):
+    gate = _gate_module()
+    out = tmp_path / "out_broker_false_complete"
+    argv = _valid_args(tmp_path, out) + [
+        "--allow-broker-disruption",
+        "--disrupt-broker-target", "statefulset/nats",
+    ]
+    fake_k = _make_simulated_runner(gate)
+    fake_http = _make_simulated_http_runner(gate, broker_false_complete=True)
+
+    rc = gate.main(argv, runner_override=fake_k, http_runner_override=fake_http)
+    assert rc == 1
+    verdict = json.loads((out / "production-deployment-verdict.json").read_text())
+    assert verdict["status"] == "FAILED"
+    assert "falsely completed while broker was down" in verdict["reason"]
+
+
+def test_image_digest_mismatch_fails_rollout_readiness(tmp_path):
+    gate = _gate_module()
+    out = tmp_path / "out_img_mismatch"
+    argv = _valid_args(tmp_path, out)
+    fake_k = _make_simulated_runner(gate, image_digest_ok=False)
+    fake_http = _make_simulated_http_runner(gate)
+
+    rc = gate.main(argv, runner_override=fake_k, http_runner_override=fake_http)
+    assert rc == 1
+    verdict = json.loads((out / "production-deployment-verdict.json").read_text())
+    assert verdict["status"] == "FAILED"
+    assert "image digest mismatch" in verdict["reason"]
+
+
+def test_postgresql_component_contract_violation_fails(tmp_path):
+    gate = _gate_module()
+    out = tmp_path / "out_state_v2_fail"
+    argv = _valid_args(tmp_path, out)
+    fake_k = _make_simulated_runner(gate, state_v2_ok=False)
+    fake_http = _make_simulated_http_runner(gate)
+
+    rc = gate.main(argv, runner_override=fake_k, http_runner_override=fake_http)
+    assert rc == 1
+    verdict = json.loads((out / "production-deployment-verdict.json").read_text())
+    assert verdict["status"] == "FAILED"
+    assert "workflow-state" in verdict["reason"]
+
+
+def test_missing_ready_condition_fails_dapr_prerequisite(tmp_path):
+    gate = _gate_module()
+    out = tmp_path / "out_dapr_not_ready"
+    argv = _valid_args(tmp_path, out)
+    fake_k = _make_simulated_runner(gate, dapr_ready=False)
+    fake_http = _make_simulated_http_runner(gate)
+
+    rc = gate.main(argv, runner_override=fake_k, http_runner_override=fake_http)
+    assert rc == 2
+    verdict = json.loads((out / "production-deployment-verdict.json").read_text())
+    assert verdict["status"] == "INCOMPLETE_PREREQUISITE"
+    assert "dapr-control-plane" in verdict["missingPrerequisites"]
+
+
+def test_missing_namespace_reports_incomplete_prerequisite(tmp_path):
+    gate = _gate_module()
+    out = tmp_path / "out_no_ns"
+    argv = _valid_args(tmp_path, out)
+    fake_k = _make_simulated_runner(gate, namespace_exists=False)
+    fake_http = _make_simulated_http_runner(gate)
+
+    rc = gate.main(argv, runner_override=fake_k, http_runner_override=fake_http)
+    assert rc == 2
+    verdict = json.loads((out / "production-deployment-verdict.json").read_text())
+    assert verdict["status"] == "INCOMPLETE_PREREQUISITE"
+    assert "namespace" in verdict["missingPrerequisites"]
+
+
+def test_dirty_git_fails_live_run(tmp_path):
+    gate = _gate_module()
+    out = tmp_path / "out_dirty_git"
+    fake_k = _make_simulated_runner(gate)
+    fake_http = _make_simulated_http_runner(gate)
+
+    runner = gate.ProductionDeploymentRunner(
+        k=gate.Kubectl(runner=fake_k),
+        http=gate.HttpClient("https://a2amq.example.com", runner=fake_http),
+        output=out,
+        namespace="a2amq-test-ns",
+        tenant="test-tenant",
+        broker="jetstream",
+        image="registry.example.org/a2amq@sha256:" + "a" * 64,
+        public_url="https://a2amq.example.com",
+        issuer="https://auth.example.com",
+        jwt_kid="prod-key-1",
+        public_key=VALID_PUBLIC_KEY,
+        owner_token="owner-token",
+        foreign_owner_token="foreign-token",
+        cross_tenant_token="cross-tenant-token",
+        mcp_token="mcp-token",
+        operator_token="operator-token",
+        allow_broker_disruption=True,
+        disrupt_broker_target="statefulset/nats",
+        execution_mode="live",
+        initial_git={"head": "abc", "tree": "def", "status": "dirty"},
+    )
+    with patch.object(gate, "get_git_provenance", return_value={"head": "abc", "tree": "def", "status": "dirty"}):
+        verdict = runner.run_all()
+        assert verdict["status"] == "FAILED"
+        assert "dirty" in verdict["reason"]
 
 
 def test_infrastructure_check_failures(tmp_path):
