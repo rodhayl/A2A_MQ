@@ -234,7 +234,7 @@ def _compose_into(output: Path, *, broker: str, source_root: Path, images: dict 
     services["volume-init"] = {"image": app_image, "build": {"context": str(source_root.resolve()),
         "dockerfile": "deploy/Dockerfile.full", "args": {"PYTHON_IMAGE": images["python"]}},
         "user": "0:0", "entrypoint": ["python", "-c"],
-        "command": [f"import os; [os.chown(p,{uid},{gid}) for p in ('/redis','/nats','/scheduler')]"],
+        "command": [f"import os; [os.chown(p,{uid},{gid}) for p in ('/redis','/nats')]; os.chmod('/scheduler',0o777)"],
         "volumes": ["redis-data:/redis", "nats-data:/nats", "scheduler-data:/scheduler"]}
     for service in ("redis", "scheduler", "nats"):
         if service in services:
