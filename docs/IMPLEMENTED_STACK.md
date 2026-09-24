@@ -288,7 +288,7 @@ not rotate/delete production keys or alter Vault policy.
 python -m a2a_mq.acceptance --mode postgres --root "$PWD" --output /tmp/new-pg-evidence
 python -m a2a_mq.acceptance --mode vault --root "$PWD" --output /tmp/new-vault-evidence
 python -m a2a_mq.acceptance --mode full --root "$PWD" --output /tmp/new-full-evidence \
-  --allow-disposable-containers --timeout 1200
+  --allow-disposable-containers --timeout 2400
 ```
 
 Full mode includes local, official SDK, real PostgreSQL/Vault, dependency checks,
