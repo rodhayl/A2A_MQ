@@ -182,7 +182,8 @@ async def run_probe(fixture, *, broker):
             rows=await asyncio.to_thread(fixture.inspect,"SELECT COUNT(*) FROM a2amq_actions WHERE kind='publish' AND delivered_at IS NOT NULL")
             return rows[0][0]==1
         await wait_until(published)
-        await asyncio.to_thread(fixture.run,"restart","api","api-dapr")
+        await asyncio.to_thread(fixture.run,"restart","api")
+        await asyncio.to_thread(fixture.run,"restart","api-dapr")
         await wait_until(ready)
         require((await client.get_task(pb.GetTaskRequest(id=task.id))).status.state==pb.TASK_STATE_SUBMITTED,
                 "OFFLINE_RESTART_LOST_TASK")
