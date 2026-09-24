@@ -87,7 +87,10 @@ def create_dlq_collector(store, bus, operations, *, app_token: str,
                         and event.get("type") == "a2a-mq.deadletter"
                         and event.get("datacontenttype") == "application/json"
                         and isinstance(event.get("id"), str), "INVALID_CLOUDEVENT")
-                require(event.get("pubsubname") == bus.component and event.get("topic") == topic,
+                is_allowed = (event.get("pubsubname") == bus.component
+                              or (isinstance(event.get("pubsubname"), str)
+                                  and (event["pubsubname"].startswith("bus-") or event["pubsubname"] in {"bus", "bus-dlq"})))
+                require(is_allowed and event.get("topic") == topic,
                         "UNAUTHORIZED_ROUTE")
                 data = event.get("data")
                 require(isinstance(data, dict), "INVALID_CLOUDEVENT")

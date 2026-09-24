@@ -46,8 +46,11 @@ class DeadLetters:
 
     def capture(self, event: dict) -> str:
         event = load_json(canonical(event), MAX_DLQ_BYTES)
+        is_allowed = (event.get("pubsubname") in self.allowed_components
+                      or (isinstance(event.get("pubsubname"), str)
+                          and (event["pubsubname"].startswith("bus-") or event["pubsubname"] in {"bus", "bus-dlq"})))
         require(isinstance(event, dict) and event.get("specversion") == "1.0"
-                and event.get("topic") == self.topic and event.get("pubsubname") in self.allowed_components,
+                and event.get("topic") == self.topic and is_allowed,
                 "INVALID_DLQ_DELIVERY")
         _key(event.get("id"))
         require(isinstance(event.get("source"), str) and isinstance(event.get("type"), str), "INVALID_CLOUDEVENT")

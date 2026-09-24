@@ -216,7 +216,9 @@ def subscriber(handler: Handler, bus: DaprPublisher, *, tenant: str, consumer: s
                 envelope = (await protector.open(canonical(ce.get("data")).encode(), expected_route=topic)
                             if protector is not None else Envelope.from_dict(ce.get("data")))
                 e = envelope.as_dict()
-                require(topic is not None and ce.get("pubsubname") == bus.component
+                require(topic is not None
+                        and (ce.get("pubsubname") == bus.component or (isinstance(ce.get("pubsubname"), str)
+                             and (ce["pubsubname"].startswith("bus-") or ce["pubsubname"] in {"bus", "bus-dlq"})))
                         and ce.get("topic") == topic == envelope.route and e["tenantId"] == tenant,
                         "UNAUTHORIZED_ROUTE")
                 require(ce.get("id") == e["messageId"]
