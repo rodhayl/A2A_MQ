@@ -14,10 +14,14 @@ That evidence re-established:
 - `PASS_LOCAL_LITE_RESILIENCE` with real broker/runtime fault injection (113.45s elapsed);
 - optional five-process Workflow resource, functional and resilience passes (`PASS_LOCAL_WORKFLOW` with 370.69 MiB peak RSS <= 640 MiB, 4.23% idle CPU <= 8%, 61.26 MiB state <= 64 MiB);
 - `PASS_LOCAL_SOAK` across the 23.03-minute / 2688-task soak (+0.10 MiB delta, 0 FD/thread leak);
-- `LOCAL_PASS` with 1100 tests and a 1126-test broker-independent suite;
+- `LOCAL_PASS` with 1100 tests, advancing to a 1140-test broker-independent suite;
 - `PASS_CORE_LIGHT`, `PASS_LOCAL_PYTHON`, `PASS_LOCAL_LITE`, `SDK_PASS`, and isolated package wheel verification.
 
-The production-deployment gate (`scripts/production_deployment_gate.py`) is implemented and produces `INCOMPLETE_PREREQUISITE` when cluster tooling is absent.
+The subsequent audit and production gate completion is documented in
+[production-gate-audit-20260924.md](validation/production-gate-audit-20260924.md):
+- Empirical investigation into Dapr Scheduler `0.tmp` preallocation verified that it is 64 MB of unwritten all-zero buffer space created by embedded etcd, cleanly deleted on clean shutdown, and safe to delete without recovery loss.
+- Replaced blanket `.tmp` exclusion with narrow semantic WAL scratch accounting (`candidate.parent.name == "wal"` and 100% all-zero bytes); verified by 5-process Workflow resource gate (`PASS_LOCAL_WORKFLOW`: peak RSS 370.21 MiB, idle CPU 4.03%, runtime state 61.26 MiB running / 61.22 MiB post-shutdown).
+- The production-deployment gate (`scripts/production_deployment_gate.py`) is fully implemented as an executable live Kubernetes acceptance runner with 19 required checks and 27 automated unit/regression tests, cleanly producing exit code 2 and structured `INCOMPLETE_PREREQUISITE` when cluster infrastructure is absent on the host.
 
 `main` remains unchanged at
 `66c17153d7ec75b9ad85808ef141b9dba43a9d91`.

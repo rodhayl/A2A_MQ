@@ -31,6 +31,13 @@ The latest exact-SHA local execution evidence is
 - isolated package wheel build and clean import smoke passed;
 - overall local tier certification re-established: `PASS_LOCAL_TIER_COMPLETE`.
 
+A subsequent audit and production gate completion is documented in
+[production-gate-audit-20260924.md](validation/production-gate-audit-20260924.md):
+- Empirical investigation into Dapr Scheduler `0.tmp` preallocation verified that it is 64 MB of unwritten all-zero buffer space created by embedded etcd, cleanly deleted on clean shutdown, and safe to delete without recovery loss.
+- Replaced blanket `.tmp` exclusion with narrow semantic WAL scratch accounting (`candidate.parent.name == "wal"` and 100% all-zero bytes); verified by 5-process Workflow resource gate (`PASS_LOCAL_WORKFLOW`: peak RSS 370.21 MiB, idle CPU 4.03%, runtime state 61.26 MiB running / 61.22 MiB post-shutdown).
+- Implemented `scripts/production_deployment_gate.py` as a full live Kubernetes acceptance runner with 19 required checks and 27 automated tests; executed against the host returning clean `INCOMPLETE_PREREQUISITE` due to absent cluster infrastructure.
+- Broker-independent test suite expanded to 1140 tests (100% passing).
+
 ## Historical environment
 
 Environment observed: Python 3.13.5; local SQLite; no Docker, Dapr runtime,
