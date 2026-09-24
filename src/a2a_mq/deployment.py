@@ -78,7 +78,7 @@ def component(broker, name, *, tenant="demo", source="workflow-worker", endpoint
     def secret(k, key):
         meta.append({"name": k, "secretKeyRef": {"name": appid + "-broker" if production else key, "key": key}})
     if broker == "jetstream":
-        endpoint = endpoint or ("tls://nats:4222" if production else "nats://nats:4222,nats://nats:4222,nats://nats:4222")
+        endpoint = endpoint or ("tls://nats:4222" if production else "nats://nats:4222")
         _broker_endpoint(endpoint, "tls" if production else "nats")
         value("natsURL", endpoint)
         if production:
@@ -308,8 +308,18 @@ proxy_buffering off; proxy_read_timeout 3700s; proxy_set_header Connection ""; }
 ''')
     services["gateway"] = {"image": images["nginx"], "ports": ["127.0.0.1:18443:8443"], "depends_on": ["api"],
         "volumes": ["./nginx.conf:/etc/nginx/nginx.conf:ro", "./secrets/tls.crt:/certs/tls.crt:ro", "./secrets/tls.key:/certs/tls.key:ro"]}
-    _write(output, "compose.yaml", {"name": "a2amq-full-" + broker, "services": services,
-        "volumes": {v: {} for v in ("pg-data", "redis-data", "scheduler-data", "nats-data", "rabbit-data")}})
+    compose_data: dict[str, Any] = {"name": "a2amq-full-" + broker, "services": services,
+        "volumes": {v: {} for v in ("pg-data", "redis-data", "scheduler-data", "nats-data", "rabbit-data")}}
+    if broker == "jetstream":
+        octet = 100 + secrets.randbelow(150)
+        nats_ip = f"10.{octet}.0.42"
+        subnet = f"10.{octet}.0.0/24"
+        services["nats"]["networks"] = {"default": {"ipv4_address": nats_ip}}
+        for sname in ("api", "workflow-a", "workflow-b", "observer-a", "observer-b", "operator", "broker-init"):
+            if sname in services:
+                services[sname]["extra_hosts"] = [f"nats:{nats_ip}"]
+        compose_data["networks"] = {"default": {"ipam": {"config": [{"subnet": subnet}]}}}
+    _write(output, "compose.yaml", compose_data)
     _write(output, "manifest.json", {"broker": broker, "profile": "disposable-local-not-production", "images": images,
         "ownerUid": uid, "publicUrl": "https://localhost:18443", "source": str(source_root.resolve()),
         "roles": roles, "ports": ports, "requiresLiveValidation": True})
