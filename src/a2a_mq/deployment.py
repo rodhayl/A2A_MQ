@@ -45,16 +45,21 @@ def _broker_endpoint(endpoint, scheme):
     """Keep credentials/query data out of generated component ConfigMaps."""
     require(isinstance(endpoint, str) and bool(endpoint)
             and all(32 < ord(c) < 127 for c in endpoint), "BROKER_TLS_REQUIRED")
-    try:
-        parsed = urlsplit(endpoint)
-        require(parsed.scheme == scheme and bool(parsed.hostname)
-                and parsed.username is None and parsed.password is None
-                and parsed.path in {"", "/"} and "?" not in endpoint and "#" not in endpoint,
-                "BROKER_TLS_REQUIRED")
-        require(parsed.port is None or 1 <= parsed.port <= 65535, "BROKER_TLS_REQUIRED")
-        return parsed
-    except ValueError:
-        raise PermanentError("BROKER_TLS_REQUIRED") from None
+    first = None
+    for part in endpoint.split(","):
+        try:
+            parsed = urlsplit(part)
+            require(parsed.scheme == scheme and bool(parsed.hostname)
+                    and parsed.username is None and parsed.password is None
+                    and parsed.path in {"", "/"} and "?" not in part and "#" not in part,
+                    "BROKER_TLS_REQUIRED")
+            require(parsed.port is None or 1 <= parsed.port <= 65535, "BROKER_TLS_REQUIRED")
+            if first is None:
+                first = parsed
+        except ValueError:
+            raise PermanentError("BROKER_TLS_REQUIRED") from None
+    assert first is not None
+    return first
 
 def component(broker, name, *, tenant="demo", source="workflow-worker", endpoint=None, production=False):
     require(broker in {"jetstream", "rabbitmq"}, "INVALID_BROKER")
@@ -73,7 +78,7 @@ def component(broker, name, *, tenant="demo", source="workflow-worker", endpoint
     def secret(k, key):
         meta.append({"name": k, "secretKeyRef": {"name": appid + "-broker" if production else key, "key": key}})
     if broker == "jetstream":
-        endpoint = endpoint or "nats://nats:4222"
+        endpoint = endpoint or ("tls://nats:4222" if production else "nats://nats:4222,nats://nats:4222,nats://nats:4222")
         _broker_endpoint(endpoint, "tls" if production else "nats")
         value("natsURL", endpoint)
         if production:
