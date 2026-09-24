@@ -254,7 +254,11 @@ async def run_probe(fixture, *, broker):
         facts["checks"].append("owner-coordinated-cancellation")
         rest=factory("HTTP+JSON")
         require((await rest.get_task(pb.GetTaskRequest(id=task.id))).id==task.id,"REST_INTEROP_FAILED")
-        streamed=[r async for r in client.subscribe(pb.SubscribeToTaskRequest(id=task.id))]
+        client._config.streaming = True
+        try:
+            streamed=[r async for r in client.subscribe(pb.SubscribeToTaskRequest(id=task.id))]
+        finally:
+            client._config.streaming = False
         require(bool(streamed) and streamed[0].task.status.state==pb.TASK_STATE_COMPLETED,"SSE_RECONNECT_FAILED")
         facts["checks"].append("official-jsonrpc-rest-sse-client")
         for subject,tenant in (("intruder","demo"),("acceptance","foreign")):
