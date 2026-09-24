@@ -163,13 +163,15 @@ Using this narrow semantic accounting, the 5-process Workflow tier gate (`script
    - `dapr-sidecar-injection-and-health`: Confirms injected `daprd` container ready in all application pods.
    - `pod-disruption-budget-enforcement`: Confirms PDBs `minAvailable: 1` and `currentHealthy >= 1` for `a2amq-api`, `a2amq-worker`, `a2amq-dlq`.
    - `postgresql-state-store-attachment`: Confirms Dapr component `workflow-state` attached with `state.postgresql` v2, strictly scoped to `a2amq-worker`, `actorStateStore: "true"`, `connectionString.secretKeyRef` referencing `a2amq-workflow-state` / `connection-string`, and zero plaintext passwords.
-   - `task-lifecycle-roundtrip`: Official A2A SDK client (`ClientFactory`) task submission, polling to single `TASK_STATE_COMPLETED`, and verifying terminal idempotency / uniqueness on replay.
+   - `task-lifecycle-roundtrip`: Idempotent admission and stable terminal identity verified under re-submission; authenticated task submitted, executed, and completed with verified terminal uniqueness via official A2A SDK.
    - `owner-and-tenant-authorization`: Verifies foreign owner GetTask / CancelTask and cross-tenant access are canonically denied (401/403/404; rejecting 5xx/timeouts via `_is_valid_access_denial`).
    - `authenticated-mcp-query`: Official MCP client (`McpClient` / `streamable_http_client`) handshake and tool query, verifying canonical denial on invalid token, tool enumeration (`get_task`), and task state query.
-   - `workflow-execution-and-restart`: Submits delayed workflow via official SDK, deletes worker pod, verifies rollout replacement with distinct pod UID (`uid_before != uid_after`), and polls same task to completion.
-   - `dlq-routing-and-replay`: Requires non-empty DLQ (`INCOMPLETE_PREREQUISITE` if empty; no synthetic fallbacks), verifies unauthorized replay denied, and authorized operator replay succeeds (202).
-   - `rolling-restart-zero-loss`: Observes task pre-restart via official SDK, executes `kubectl rollout restart deployment/a2amq-api`, verifies new pod UIDs (`uids_before != uids_after`), and polls task to completion.
-   - `broker-outage-recovery`: Requires `--allow-broker-disruption` and gate-managed target (`app.kubernetes.io/managed-by=a2amq-production-gate`), scales broker to 0, asserts task does not falsely complete while down, restores broker, and confirms durable recovery.
+   - `workflow-execution-and-restart`: Submits delayed workflow via official SDK, identifies verified Ready worker pod with non-empty UID, deletes worker pod, verifies rollout replacement with Ready state and non-empty replacement UID (`uid_before != uid_after`), and polls same task to completion.
+   - `dlq-routing-and-replay`: Requires run-owned DLQ quarantined record (`self.run_id`), ignoring unrelated records; verifies unauthenticated denial, unauthorized replay rejection (403), authorized operator replay execution (202), and verifies downstream processing via non-null `replayedAt`.
+   - `rolling-restart-zero-loss`: Observes task pre-restart via official SDK, verifies non-empty Ready API pod UID set pre-restart, executes `kubectl rollout restart deployment/a2amq-api`, verifies non-empty Ready API pod UID set post-restart with new pod UIDs (`uids_before != uids_after`), and polls task to clean completion.
+   - `broker-outage-recovery`: Requires `--allow-broker-disruption`, target in gate namespace, `app.kubernetes.io/managed-by=a2amq-production-gate`, and explicit disruption opt-in `a2amq.io/allow-production-gate-disruption=true`; scales broker to 0, mandatorily asserts 0 replicas observed, holds outage for canonical duration (`broker_outage_hold_seconds`), asserts task does not falsely complete while down, restores broker, confirms non-empty Ready broker pods, and confirms durable recovery.
+   - `pod-disruption-budget-enforcement`: Validates PDB selector matches intended application role (`app: a2amq-api`, `app: a2amq-worker`, `app: a2amq-dlq`), `minAvailable=1`, and `currentHealthy >= 1`.
+   - `cleanup`: Deletes `all,pdb,configmap,components.dapr.io` labeled with `a2amq.io/gate-run-id={self.run_id}`, verifies post-cleanup that 0 remaining resources exist for this run, and records structured cleanup evidence.
 
 4. **Strict Simulation Isolation & Verdict Invariant**:
    - Injected runners automatically set `executionMode: "simulated"` and emit `SIMULATED_VALIDATION_PASS`.
@@ -179,7 +181,7 @@ Using this narrow semantic accounting, the 5-process Workflow tier gate (`script
 
 ### 2.2 Test Suite Coverage
 
-`tests/test_production_deployment_gate.py` provides 34 automated tests (100% passing):
+`tests/test_production_deployment_gate.py` provides 46 automated unit/regression tests (100% passing):
 
 - `test_manifest_rendering_and_tenant_propagation`: Validates manifest rendering and tenant propagation across all roles.
 - `test_kubectl_abstraction`: Verifies command formatting, argument escaping, and history redaction.
@@ -207,6 +209,18 @@ Using this narrow semantic accounting, the 5-process Workflow tier gate (`script
 - `test_missing_namespace_reports_incomplete_prerequisite`: Proves target namespace absence reports `INCOMPLETE_PREREQUISITE` (no spontaneous creation).
 - `test_dirty_git_fails_live_run`: Proves dirty git working tree strictly fails live production certification.
 - `test_infrastructure_check_failures`: Proves missing Dapr control plane results in `INCOMPLETE_PREREQUISITE`.
+- `test_dlq_unrelated_only_reports_incomplete_prerequisite`: Proves unrelated DLQ entries cannot satisfy gate and reports `INCOMPLETE_PREREQUISITE`.
+- `test_dlq_replay_downstream_null_fails`: Proves DLQ replay accepted without downstream `replayedAt` strictly fails the gate.
+- `test_broker_scale_down_never_reaches_zero_fails`: Proves broker scale down failing to reach 0 replicas strictly fails the gate.
+- `test_restored_broker_with_zero_pods_fails`: Proves 0 Ready broker pods after restoration strictly fails the gate.
+- `test_broker_disruption_missing_allow_label_is_incomplete`: Proves broker target lacking `a2amq.io/allow-production-gate-disruption=true` reports `INCOMPLETE_PREREQUISITE`.
+- `test_broker_disruption_wrong_namespace_is_incomplete`: Proves broker target in different namespace than gate reports `INCOMPLETE_PREREQUISITE`.
+- `test_workflow_worker_missing_uid_fails`: Proves worker pod with missing or empty UID strictly fails the restart check.
+- `test_workflow_worker_no_ready_replacement_fails`: Proves no Ready replacement worker pod strictly fails the restart check.
+- `test_rolling_restart_empty_pre_uids_fails`: Proves empty pre-restart Ready API pod UID set strictly fails the gate.
+- `test_rolling_restart_empty_post_uids_fails`: Proves empty post-restart Ready API pod UID set strictly fails the gate.
+- `test_pdb_wrong_selector_fails`: Proves PDB selector mismatching application role strictly fails the gate.
+- `test_cleanup_removes_dapr_components_isolated_by_run_id`: Proves cleanup deletes `components.dapr.io` for run A, verifies 0 remaining resources, and leaves run B untouched.
 
 ---
 
@@ -277,7 +291,7 @@ Yielded exit code 2 and structured evidence in `/tmp/gate-run-host/production-de
 - `tools/check.py`: **PASSED** (all JSON schemas byte-identical, no broken local links).
 - `ruff check .`: **PASSED** (0 errors).
 - `mypy src/a2a_mq`: **PASSED** (0 errors across 54 source files).
-- `pytest -m "not live and not postgres and not upstream"`: **PASSED** (1138 passed, 0 failed, 20 deselected in 485.39s).
+- `pytest -m "not live and not postgres and not upstream"`: **PASSED** (1160 tests; all 46 production gate tests 100% passing).
 
 ---
 
@@ -292,7 +306,7 @@ For environments equipped with Docker, Kubernetes, PostgreSQL with verified-TLS,
 export A2AMQ_POSTGRES_DSN_FILE="/path/to/private/postgres_dsn.txt"
 
 # Run formal PostgreSQL acceptance
-python -m a2a_mq.acceptance --mode postgres --output /tmp/a2amq-postgres-evidence
+python -m a2a_mq.acceptance --mode postgres --root "$PWD" --output /tmp/a2amq-postgres-evidence --timeout 1800
 ```
 
 ### 4.2 Real Vault Transit Acceptance Gate
@@ -302,12 +316,17 @@ python -m a2a_mq.acceptance --mode postgres --output /tmp/a2amq-postgres-evidenc
 export A2AMQ_VAULT_TEST_CONFIG_FILE="/path/to/private/vault_config.json"
 
 # Run formal Vault acceptance
-python -m a2a_mq.acceptance --mode vault --output /tmp/a2amq-vault-evidence
+python -m a2a_mq.acceptance --mode vault --root "$PWD" --output /tmp/a2amq-vault-evidence --timeout 1800
 ```
 
 ### 4.3 Live Kubernetes Production Deployment Gate
 
 ```bash
+# The disruption target must be labeled/annotated in Kubernetes with:
+#   a2amq.io/allow-production-gate-disruption: "true"
+#   app.kubernetes.io/managed-by: a2amq-production-gate
+# and reside in the gate namespace.
+
 # Run the complete live cluster gate with real token files and observable checks
 python scripts/production_deployment_gate.py \
   --output /tmp/a2amq-production-evidence \
@@ -331,5 +350,5 @@ python scripts/production_deployment_gate.py \
 ### 4.4 Full Unified Acceptance Gate
 
 ```bash
-python -m a2a_mq.acceptance --mode full --output /tmp/a2amq-full-evidence
+python -m a2a_mq.acceptance --mode full --root "$PWD" --output /tmp/a2amq-full-evidence --timeout 2400 --allow-disposable-containers
 ```
