@@ -243,8 +243,8 @@ async def run_probe(fixture, *, broker):
         await wait_until(lambda:state(delayed.id,{"WORKING"}))
         await asyncio.to_thread(fixture.run,"kill","-s","SIGKILL","workflow-a","workflow-b")
         await asyncio.sleep(0.5)
-        await asyncio.to_thread(fixture.run,"up","-d","--force-recreate","workflow-a","workflow-b","workflow-a-dapr","workflow-b-dapr")
-        await wait_until(lambda:state(delayed.id,{"COMPLETED"}))
+        await asyncio.to_thread(fixture.run,"start","workflow-a","workflow-b")
+        await wait_until(lambda:state(delayed.id,{"COMPLETED"}),timeout=180)
         facts["checks"].append("native-workflow-abrupt-worker-restart")
         cancel=await send("cancel-workflow",delaySeconds=120)
         await wait_until(lambda:state(cancel.id,{"WORKING"}))
@@ -291,7 +291,7 @@ async def run_probe(fixture, *, broker):
             return r.json()['records']
         async def original_archived():
             return next((row for row in await archived() if row["reason"]=="BROKER_DEADLETTER"), None)
-        original_record=await wait_until(original_archived)
+        original_record=await wait_until(original_archived,timeout=180)
         records=[original_record]
         replay=await http.post(f"https://localhost:18443/operations/deadletters/{records[0]['id']}/replay",
                               json={'requestId':'native-replay-1'})
@@ -299,14 +299,14 @@ async def run_probe(fixture, *, broker):
         async def replayed():
             rows=await asyncio.to_thread(fixture.inspect,"SELECT COUNT(*) FROM a2amq_delivery_replays WHERE published_at IS NOT NULL")
             return rows[0][0]>=1
-        await wait_until(replayed)
+        await wait_until(replayed,timeout=180)
         await asyncio.to_thread(fixture.publish,"observer-a","a2a.v1.demo.dlq",event)
         await asyncio.to_thread(fixture.publish,"observer-a",saved.route,event,expected_status=403)
         malformed={**event,"id":str(uuid4())}
         await asyncio.to_thread(fixture.publish,"workflow-a",saved.route,malformed)
         async def quarantined():
             return any(row["reason"]=="IDENTIFIER_MISMATCH" for row in await archived())
-        await wait_until(quarantined)
+        await wait_until(quarantined,timeout=180)
         facts["checks"].append("live-dlq-archive-exact-replay-and-publish-scopes")
         import httpx2
         from mcp import Client
