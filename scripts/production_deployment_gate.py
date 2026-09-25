@@ -1142,15 +1142,19 @@ class ProductionDeploymentRunner:
         if api_pods:
             pod_name = api_pods[0]["metadata"]["name"]
             py_code = (
-                "import sys, urllib.request, json; "
+                "import os, sys, urllib.request, json; "
                 "payload = json.dumps({'id': sys.argv[1], 'type': 'a2a.malformed.poison', 'data': {'runId': sys.argv[2]}}).encode(); "
-                "req = urllib.request.Request('http://127.0.0.1:3500/v1.0/publish/pubsub/' + sys.argv[3], "
-                "data=payload, headers={'Content-Type': 'application/cloudevents+json'}); "
+                "comp = os.environ.get('A2A_PUBSUB_COMPONENT', 'bus-' + sys.argv[4] + '-api'); "
+                "hdrs = {'Content-Type': 'application/cloudevents+json'}; "
+                "tok = os.environ.get('DAPR_API_TOKEN'); "
+                "if tok: hdrs['dapr-api-token'] = tok; "
+                "req = urllib.request.Request('http://127.0.0.1:3500/v1.0/publish/' + comp + '/' + sys.argv[3], "
+                "data=payload, headers=hdrs); "
                 "urllib.request.urlopen(req, timeout=5)"
             )
             topic = f"a2a.v1.{self.tenant}.dlq"
-            res = self.k.run("exec", "-c", "api", pod_name, "--", "python", "-c", py_code,
-                             corr_id, self.run_id, topic, timeout=10)
+            res = self.k.run("exec", "-c", "app", pod_name, "--", "python", "-c", py_code,
+                             corr_id, self.run_id, topic, self.tenant, timeout=10)
             if res.returncode == 0:
                 poison_injected = True
 
