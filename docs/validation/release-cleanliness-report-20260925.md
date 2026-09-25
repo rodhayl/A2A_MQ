@@ -1,7 +1,7 @@
 # Final Release-Cleanliness & Full Acceptance Report — 2026-09-25
 
 > **Handoff Notice for Incoming Agents**:  
-> This document records the completed final release-cleanliness pass, warning suppression narrowing, and full formal acceptance execution on branch `implementation/production-hardening-20260916`. All 18 release criteria have been satisfied, verified against real infrastructure, and preserved in durable sanitized repository artifacts.
+> This document records the completed final release-cleanliness pass, warning suppression narrowing, and full formal acceptance execution on branch `implementation/production-hardening-20260916`. All 18 release-cleanliness criteria were resolved. Real-infrastructure evidence is preserved where explicitly stated; RabbitMQ Kubernetes production deployment was not separately executed.
 
 ---
 
@@ -20,10 +20,10 @@
 
 ---
 
-### 3. Final Documentation SHA
-- **Final Documentation Commit HEAD**: `2a18767ac1dffe999c61e7573ffb8c19e123d98d`
-- **Final Documentation Git Tree SHA**: `6c88f9d27f2e778aac81d0790e2221adf982828a`
-- **Push Method**: Fast-forward only (`86648ca..2a18767`) to `origin/implementation/production-hardening-20260916`.
+### 3. Documentation Provenance
+- **Release-cleanliness documentation/evidence commit before this handoff report**: `2a18767ac1dffe999c61e7573ffb8c19e123d98d` (tree `6c88f9d27f2e778aac81d0790e2221adf982828a`).
+- **Handoff report introduction commit**: `8789fc1109b3b6cb9a0ed0d3623a2b3469eb2e74` (parent `2a18767ac1dffe999c61e7573ffb8c19e123d98d`).
+- A self-referential "final documentation SHA" is intentionally not asserted here; the branch ref is the source of truth for subsequent documentation-only commits.
 
 ---
 
@@ -58,7 +58,7 @@
 ### 6. Resource Leaks and Root Cause Investigation
 1. **Third-Party Teardown Warnings**:
    - `pytest_asyncio.plugin._temporary_event_loop_policy` initializes an event loop (`_UnixSelectorEventLoop`). When pytest unconfigures during `gc.collect()`, lingering `socket.socketpair` AF_UNIX file descriptors emit `ResourceWarning`, which `_pytest.unraisableexception` catches as `pytest.PytestUnraisableExceptionWarning: Exception ignored in: <function BaseEventLoop.__del__ at ...>`.
-   - The narrow filters specifically target these two unraisable signatures (`<socket.socket` and `<function BaseEventLoop.__del__`), ensuring that any genuine resource leak or unraisable exception from application code will still raise an error.
+   - The filters no longer suppress the entire `ResourceWarning` or `PytestUnraisableExceptionWarning` categories. They are message-scoped rather than origin-scoped, so a future application leak that emits one of the same CPython teardown signatures could also be suppressed. They therefore narrow the previous masking substantially, but are not proof that every possible resource leak would surface.
 2. **Timing Flakiness Resolved**:
    - In `tests/test_service.py` (`test_callback_timeout_keeps_sql_commit_recoverable_and_health_responsive`), `callback_timeout=0.05` was too tight under full-suite CPU contention. Adjusted to `callback_timeout=0.25`.
 
@@ -163,9 +163,11 @@ All certification and acceptance artifacts were sanitized and committed to the r
 ---
 
 ### 18. First Deployment Status
-- **Blocker Status**: **Nothing blocks the first deployment.**
-  - `FULL_PASS` re-established on final source SHA `45c459c`.
-  - `PRODUCTION_DEPLOYMENT_PASS` established on multi-node Kubernetes with Dapr 1.18.3 and NATS JetStream.
-  - Zero broad warning masking or unraisable warnings.
-  - All static checks (`tools/check.py`, `ruff`, `mypy`, `pip check`) pass 100% cleanly.
+- **Blocker Status**: **No known gate blocker for a first JetStream deployment using the Kubernetes-validated image.**
+  - `FULL_PASS` was re-established on final source SHA `45c459c`.
+  - `PRODUCTION_DEPLOYMENT_PASS` was established on multi-node Kubernetes with Dapr 1.18.3 and NATS JetStream using the digest-pinned image built from `6458195`.
+  - Between `6458195` and `45c459c`, no deployed application runtime module changed; the delta is documentation, pytest warning configuration, the formal acceptance harness, and tests. A newly rebuilt image from `45c459c` would nevertheless be a new artifact and should not inherit the old image digest evidence automatically.
+  - No broad warning-category suppression remains; four known teardown signatures are message-scoped exceptions documented above.
+  - Hosted CI remains pre-runner/unexecuted, RabbitMQ Kubernetes parity was not separately executed, and both certification booleans remain false. These are evidence boundaries, not hidden PASS claims.
+  - All recorded static checks (`tools/check.py`, `ruff`, `mypy`, `pip check`) passed on the stated source.
   - Fast-forward push to origin completed cleanly.

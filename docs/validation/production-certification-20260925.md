@@ -6,7 +6,7 @@ This validation record documents the end-to-end production deployment acceptance
 
 - **Formal Acceptance Source SHA**: `45c459c632977143b8681c055847775e88d7ad97` (clean working tree).
 - **Formal Acceptance Git Tree SHA**: `23fdbcdf30adedf984c631b8a060442cc97b426a`
-- **Certified Image Source SHA**: `6458195b171020ece1911e68bc6d14998d216164` (clean tree `ed9af9e6c04a3b6bba1f0880ca40d7f9a7f4e758`).
+- **Kubernetes-Validated Image Source SHA**: `6458195b171020ece1911e68bc6d14998d216164` (clean tree `ed9af9e6c04a3b6bba1f0880ca40d7f9a7f4e758`).
 - **Application Image Reference**: `a2amq-prod:6458195-ca@sha256:a54c969183a0c314c77df93c7761db53de19dea8da9e9b20ddebccec425958af`
 - **Formal Acceptance Gate (`a2a_mq.acceptance`) Verdict**: `FULL_PASS` (11/11 sub-gates passed).
 - **Production Deployment Gate (`scripts/production_deployment_gate.py`) Verdict**: `PRODUCTION_DEPLOYMENT_PASS` (19/19 checks passed on live 3-node Kubernetes cluster with Dapr 1.18.3 and NATS JetStream).

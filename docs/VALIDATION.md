@@ -11,7 +11,7 @@ The latest exact-SHA production deployment acceptance and full acceptance eviden
 recorded in [production-certification-20260925.md](validation/production-certification-20260925.md) and
 [release-cleanliness-report-20260925.md](validation/release-cleanliness-report-20260925.md):
 - Formal full acceptance source at `45c459c632977143b8681c055847775e88d7ad97` (clean tree `23fdbcdf30adedf984c631b8a060442cc97b426a`).
-- Certified Kubernetes application image built from `6458195b171020ece1911e68bc6d14998d216164` (clean tree `ed9af9e6c04a3b6bba1f0880ca40d7f9a7f4e758`).
+- Kubernetes-validated application image built from `6458195b171020ece1911e68bc6d14998d216164` (clean tree `ed9af9e6c04a3b6bba1f0880ca40d7f9a7f4e758`).
 
 That execution established:
 
