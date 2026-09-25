@@ -336,6 +336,8 @@ def render_production_manifests(*, namespace: str, tenant: str, broker: str,
             t_meta = template.setdefault("metadata", {})
             t_labels = t_meta.setdefault("labels", {})
             t_labels[MANAGED_BY_LABEL] = MANAGED_BY_VALUE
+            if "app.kubernetes.io/name" in metadata.get("labels", {}):
+                t_labels["app.kubernetes.io/name"] = metadata["labels"]["app.kubernetes.io/name"]
             if run_id:
                 t_labels[GATE_RUN_ID_LABEL] = run_id
     return manifests
@@ -588,7 +590,7 @@ class ProductionDeploymentRunner:
             return self._build_verdict("FAILED", f"Manifest apply failed: {apply_res.stderr}")
 
         for dep in ("a2amq-api", "a2amq-worker", "a2amq-dlq"):
-            status_res = self.k.run("rollout", "status", f"deployment/{dep}", "--timeout=180s")
+            status_res = self.k.run("rollout", "status", f"deployment/{dep}", "--timeout=180s", timeout=190.0)
             if status_res.returncode != 0:
                 self.record("deployment-rollout-readiness", "FAILED",
                             details=f"Rollout of {dep} failed: {status_res.stderr}")
@@ -602,6 +604,9 @@ class ProductionDeploymentRunner:
 
         all_pods = self.k.get_json("get", "pods", "-l", "app.kubernetes.io/name=a2a-mq")
         pod_items = all_pods.get("items", []) if isinstance(all_pods, dict) else []
+        if not pod_items and self.run_id:
+            all_pods = self.k.get_json("get", "pods", "-l", f"{GATE_RUN_ID_LABEL}={self.run_id}")
+            pod_items = all_pods.get("items", []) if isinstance(all_pods, dict) else []
 
         for dep in ("a2amq-api", "a2amq-worker", "a2amq-dlq"):
             dep_pods = [p for p in pod_items if p.get("metadata", {}).get("labels", {}).get("app") == dep]
@@ -1076,7 +1081,7 @@ class ProductionDeploymentRunner:
                                 details=f"Failed to delete worker pod: {del_res.stderr}")
                     return False
 
-                roll_res = self.k.run("rollout", "status", "deployment/a2amq-worker", "--timeout=60s")
+                roll_res = self.k.run("rollout", "status", "deployment/a2amq-worker", "--timeout=60s", timeout=70.0)
                 if roll_res.returncode != 0:
                     self.record("workflow-execution-and-restart", "FAILED",
                                 details=f"Worker replacement rollout failed: {roll_res.stderr}")
@@ -1298,7 +1303,7 @@ class ProductionDeploymentRunner:
                                 details=f"kubectl rollout restart deployment/a2amq-api failed: {res_restart.stderr}")
                     return False
 
-                res_status = self.k.run("rollout", "status", "deployment/a2amq-api", "--timeout=180s")
+                res_status = self.k.run("rollout", "status", "deployment/a2amq-api", "--timeout=180s", timeout=190.0)
                 if res_status.returncode != 0:
                     self.record("rolling-restart-zero-loss", "FAILED",
                                 details=f"Rolling restart of a2amq-api failed to achieve ready status: {res_status.stderr}")
@@ -1428,7 +1433,7 @@ class ProductionDeploymentRunner:
                     return False
 
                 # Wait for broker rollout
-                roll_res = self.k.run("rollout", "status", self.disrupt_broker_target, "--timeout=120s")
+                roll_res = self.k.run("rollout", "status", self.disrupt_broker_target, "--timeout=120s", timeout=130.0)
                 if roll_res.returncode != 0:
                     self.record("broker-outage-recovery", "FAILED",
                                 details=f"Broker rollout status failed: {roll_res.stderr}")
