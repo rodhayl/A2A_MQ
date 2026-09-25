@@ -524,8 +524,14 @@ class ProductionDeploymentRunner:
         # 6. Check Placement & Scheduler for Workflow (must be in Ready state)
         placement = self.k.get_json("get", "pods", "-n", "dapr-system", "-l", "app=dapr-placement",
                                     use_namespace=False)
+        if not (placement and isinstance(placement, dict) and placement.get("items")):
+            placement = self.k.get_json("get", "pods", "-n", "dapr-system", "-l", "app.kubernetes.io/component=placement",
+                                        use_namespace=False)
         scheduler = self.k.get_json("get", "pods", "-n", "dapr-system", "-l", "app=dapr-scheduler",
                                     use_namespace=False)
+        if not (scheduler and isinstance(scheduler, dict) and scheduler.get("items")):
+            scheduler = self.k.get_json("get", "pods", "-n", "dapr-system", "-l", "app.kubernetes.io/component=scheduler",
+                                        use_namespace=False)
         p_items = placement.get("items", []) if isinstance(placement, dict) else []
         s_items = scheduler.get("items", []) if isinstance(scheduler, dict) else []
         p_running = [p for p in p_items if p.get("status", {}).get("phase") == "Running"]
