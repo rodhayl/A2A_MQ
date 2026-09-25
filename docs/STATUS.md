@@ -4,8 +4,9 @@
 
 Branch: `implementation/production-hardening-20260916`.
 
-The end-to-end production deployment acceptance and full acceptance gate execution is recorded in
-`docs/validation/production-certification-20260925.md`:
+The end-to-end production deployment acceptance, release-cleanliness verification, and full acceptance gate execution are recorded in:
+- [production-certification-20260925.md](validation/production-certification-20260925.md)
+- [release-cleanliness-report-20260925.md](validation/release-cleanliness-report-20260925.md) (comprehensive 18-point release-cleanliness handoff report)
 - Formal full acceptance source at `45c459c632977143b8681c055847775e88d7ad97` (clean tree `23fdbcdf30adedf984c631b8a060442cc97b426a`).
 - Certified Kubernetes application image built from `6458195b171020ece1911e68bc6d14998d216164` (clean tree `ed9af9e6c04a3b6bba1f0880ca40d7f9a7f4e758`).
 
