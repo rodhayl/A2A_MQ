@@ -65,7 +65,7 @@
 ---
 
 ### 7. Broker-Independent Test Exact Counts
-- **Formal Acceptance `local` subgate**: **1,150 passed**, 32 deselected in 1,007.89s (0 failures, 0 errors, 0 skipped, 0 unraisable exception warnings).
+- **Formal Acceptance `local` subgate**: **1,150 passed**, 32 deselected in 1,007.89s (0 failures, 0 errors, 0 skipped, and no unexpected/unfiltered warning failures).
 - **CI Contract Test Suite (`tests/test_ci_contract.py`)**: **7 passed** in 0.18s.
 
 ---
@@ -121,9 +121,9 @@ Re-executed against the clean source SHA `45c459c632977143b8681c055847775e88d7ad
 ---
 
 ### 12. Sanitized Artifacts Preserved
-All certification and acceptance artifacts were sanitized and committed to the repository under `docs/validation/evidence/20260925/`:
+A selected sanitized evidence set was committed under `docs/validation/evidence/20260925/`, together with the original checksum manifest. Raw fixture trees and secret-bearing files were intentionally not committed:
 - `full/verdict.json`: Formal acceptance verdict recording `FULL_PASS` at SHA `45c459c` (14.1 KB).
-- `full/sha256.json`: Complete SHA256 checksum manifest for all acceptance logs and JUnit reports (56.2 KB).
+- `full/sha256.json`: Original SHA256 checksum manifest for the full acceptance evidence tree (including hashes for files intentionally not preserved in Git) (56.2 KB).
 - `prod-gate/production-deployment-verdict.json`: 19-check Kubernetes production deployment verdict (`935cdbf6...`, 8.0 KB).
 - `prod-gate/rendered-manifests.json`: Sanitized, secret-free Kubernetes manifests applied during live gate (`d6746e0e...`, 26.0 KB).
 - `prod-gate/command-history.json`: Complete audited execution history (`ca530a5d...`, 14.4 KB).

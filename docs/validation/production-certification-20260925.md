@@ -28,7 +28,7 @@ Executed with `--mode full --allow-disposable-containers` in an isolated environ
 
 | Sub-Gate | Tests / Scope | Status | Notes |
 | :--- | :--- | :--- | :--- |
-| `local` | 1150 tests | **PASSED** | 0 failures, 0 errors, 0 skipped, 0 unraisable exception warnings |
+| `local` | 1150 tests | **PASSED** | 0 failures, 0 errors, 0 skipped, and no unexpected/unfiltered warning failures |
 | `sdk` | 26 tests | **PASSED** | Upstream SDK & canonical MCP contracts |
 | `postgres` | 4 tests | **PASSED** | Verified TLS connection (`sslmode=verify-full`), schema migration, ACID transactions |
 | `vault` | 1 test | **PASSED** | TLS Vault Transit authenticated payload cipher/decipher |
@@ -90,9 +90,9 @@ Executed against a live 3-node disposable Kubernetes v1.31.0 cluster (`a2amq-clu
 
 ## 4. Provenance & Artifact Verification
 
-- **Preserved Durable Evidence Package (`docs/validation/evidence/20260925/`)**:
+- **Preserved Sanitized Evidence Selection (`docs/validation/evidence/20260925/`)**:
   - `full/verdict.json`: Formal full acceptance verdict recording `FULL_PASS` across all 11 sub-gates at source SHA `45c459c632977143b8681c055847775e88d7ad97` (tree `23fdbcdf30adedf984c631b8a060442cc97b426a`).
-  - `full/sha256.json`: Complete SHA256 checksum tree for all acceptance logs and reports.
+  - `full/sha256.json`: Original SHA256 checksum manifest for the full acceptance evidence tree; not every referenced raw file is preserved in Git.
   - `prod-gate/production-deployment-verdict.json`: 19-check Kubernetes production deployment verdict (`935cdbf6593c94454643ceb2c471fe30b22e4ab51118f011d1d7338ba21788c5`).
   - `prod-gate/rendered-manifests.json`: Sanitized, secret-free Kubernetes manifests applied during live gate (`d6746e0eaaa102f2a9139da24cd59e9ec958e863bd8599c4b8cf7f4d1764c46e`).
   - `prod-gate/command-history.json`: Complete command execution log (`ca530a5d33cdb005b18eab6c64f5251e294890b1fc3bbd03e6764d65bc4cfab0`).

@@ -16,7 +16,7 @@ recorded in [production-certification-20260925.md](validation/production-certifi
 That execution established:
 
 - **Formal Acceptance Gate (`a2a_mq.acceptance`) achieved `FULL_PASS`**:
-  - `local`: 1150 tests passed (0 failures, 0 errors, 0 skipped, 0 unraisable exception warnings);
+  - `local`: 1150 tests passed (0 failures, 0 errors, 0 skipped, and no unexpected/unfiltered warning failures);
   - `sdk`: 26 tests passed (official upstream SDK & canonical MCP contracts);
   - `postgres`: 4 tests passed using real verified-TLS PostgreSQL 16 (`sslmode=verify-full`);
   - `vault`: 1 test passed using real TLS HashiCorp Vault Transit;
