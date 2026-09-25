@@ -1385,17 +1385,7 @@ class ProductionDeploymentRunner:
 
         try:
             async with self._get_a2a_client(self.owner_token) as client:
-                msg_id = f"{self.run_id}-outage-{uuid4().hex[:8]}"
-                task = await self._send_a2a_message(client, msg_id, "broker outage task")
-                task_id = task.id
-
-                # Verify task is non-terminal before disruption
-                t_init = await client.get_task(pb.GetTaskRequest(id=task_id))
-                if t_init.status.state in {pb.TASK_STATE_COMPLETED, pb.TASK_STATE_FAILED, pb.TASK_STATE_CANCELED}:
-                    self.record("broker-outage-recovery", "FAILED",
-                                details="Task completed before broker disruption was initiated", taskId=task_id)
-                    return False
-
+                task_id = ""
                 orig_replicas = target_info.get("spec", {}).get("replicas", 1)
 
                 # Scale broker target to 0
@@ -1420,8 +1410,20 @@ class ProductionDeploymentRunner:
                 if not zero_observed:
                     self.record("broker-outage-recovery", "FAILED",
                                 details=f"Broker scale-down never reached 0 replicas within deadline for {self.disrupt_broker_target}",
-                                disruptTarget=self.disrupt_broker_target, taskId=task_id,
+                                disruptTarget=self.disrupt_broker_target,
                                 zeroReplicasObserved=False)
+                    return False
+
+                # Durably admit task while broker is down (canonical transactional outbox proof)
+                msg_id = f"{self.run_id}-outage-{uuid4().hex[:8]}"
+                task = await self._send_a2a_message(client, msg_id, "broker outage task")
+                task_id = task.id
+
+                # Verify task is non-terminal during disruption
+                t_init = await client.get_task(pb.GetTaskRequest(id=task_id))
+                if t_init.status.state in {pb.TASK_STATE_COMPLETED, pb.TASK_STATE_FAILED, pb.TASK_STATE_CANCELED}:
+                    self.record("broker-outage-recovery", "FAILED",
+                                details="Task completed before broker disruption was initiated", taskId=task_id)
                     return False
 
                 # Hold outage using canonical hold duration (JetStream: 135s, RabbitMQ: 5s)
