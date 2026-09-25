@@ -80,7 +80,7 @@ def jetstream_component(*, component: str, consumer: str, app_ids: tuple[str, ..
     metadata = _metadata([
         ("natsURL", _secret(secret, "url")), ("token", _secret(secret, "token")),
         ("streamName", stream), ("durableName", consumer), ("queueGroupName", consumer),
-        ("ackPolicy", "explicit"), ("deliverPolicy", "all"), ("ackWait", "30s"),
+        ("ackPolicy", "explicit"), ("deliverPolicy", "all"), ("ackWait", "1s"),
         ("maxDeliver", 10), ("backOff", "1s,5s,30s,2m"),
         ("maxAckPending", max_ack_pending), ("replicas", replicas), ("memoryStorage", False),
     ])
