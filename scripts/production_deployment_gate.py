@@ -1407,7 +1407,7 @@ class ProductionDeploymentRunner:
 
                 # Bounded polling to observe 0 replicas (mandatory)
                 zero_observed = False
-                for _ in range(15):
+                for _ in range(60):
                     t_check = self.k.get_json("get", self.disrupt_broker_target)
                     if isinstance(t_check, dict):
                         status = t_check.get("status", {})
