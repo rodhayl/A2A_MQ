@@ -1,33 +1,42 @@
-# Source and acceptance status - 2026-09-24
+# Source and acceptance status - 2026-09-25
 
 ## Current branch
 
 Branch: `implementation/production-hardening-20260916`.
 
-The most recent executed local-tier certification is recorded in
-`docs/validation/local-certification-20260924.md`, with validated source at
-`d72112641ee4a43a1a668426402c01e35f316b54`.
+The end-to-end production certification and full acceptance gate execution is recorded in
+`docs/validation/production-certification-20260925.md`, with validated source at
+`6458195b171020ece1911e68bc6d14998d216164` (clean tree `ed9af9e6c04a3b6bba1f0880ca40d7f9a7f4e758`).
 
-That evidence re-established:
+That execution established:
 
-- overall verdict `PASS_LOCAL_TIER_COMPLETE`;
-- `PASS_LOCAL_LITE_RESILIENCE` with real broker/runtime fault injection (113.45s elapsed);
-- optional five-process Workflow resource, functional and resilience passes (`PASS_LOCAL_WORKFLOW` with 370.69 MiB peak RSS <= 640 MiB, 4.23% idle CPU <= 8%, 61.26 MiB state <= 64 MiB);
-- `PASS_LOCAL_SOAK` across the 23.03-minute / 2688-task soak (+0.10 MiB delta, 0 FD/thread leak);
-- `LOCAL_PASS` with 1100 tests, advancing to a 1140-test broker-independent suite;
-- `PASS_CORE_LIGHT`, `PASS_LOCAL_PYTHON`, `PASS_LOCAL_LITE`, `SDK_PASS`, and isolated package wheel verification.
+- **Formal Acceptance (`a2a_mq.acceptance`) Verdict: `FULL_PASS`**:
+  - `local`: 1149 tests passed (0 failures, 0 errors, 0 skipped);
+  - `sdk`: 26 tests passed (official upstream SDK & canonical MCP contracts);
+  - `postgres`: 4 tests passed against real verified-TLS PostgreSQL 16 (`sslmode=verify-full`);
+  - `vault`: 1 test passed against real TLS HashiCorp Vault Transit;
+  - `repository-check`, `dependency-check`, `lint` (Ruff), `types` (Mypy): 100% clean passes;
+  - `package`: clean isolated wheel build, package install, and import smoke passed;
+  - `jetstream`: 12 live probe checks passed on disposable NATS JetStream container stack;
+  - `rabbitmq`: 12 live probe checks passed on disposable RabbitMQ container stack.
+- **Production Deployment Gate (`scripts/production_deployment_gate.py`) Verdict: `PRODUCTION_DEPLOYMENT_PASS`**:
+  - Executed in `executionMode: "live"` against a 3-node Kubernetes v1.31.0 cluster with Dapr 1.18.3 control plane and 3-node NATS StatefulSet;
+  - Target application image: `a2amq-prod:6458195-ca@sha256:a54c969183a0c314c77df93c7761db53de19dea8da9e9b20ddebccec425958af`;
+  - All 19 required production checks passed (0 missing, 0 incomplete, 0 failed);
+  - Running container image digest verified across all application pods (`a2amq-api`, `a2amq-worker`, `a2amq-dlq`);
+  - Pod security context, Dapr sidecar injection, PDB enforcement, PostgreSQL state store attachment, authenticated E2E task lifecycle, cross-owner/tenant 403 denial, authenticated MCP query, workflow worker restart with UID change, DLQ routing and replay, rolling restart zero-loss, and 135-second JetStream broker outage recovery verified;
+  - Clean automated post-run resource deletion (0 remaining gate resources).
 
-The subsequent audit and production gate completion is documented in
-[production-gate-audit-20260924.md](validation/production-gate-audit-20260924.md):
-- Empirical investigation into Dapr Scheduler `0.tmp` preallocation verified that it is 64 MB of unwritten all-zero buffer space created by embedded etcd, cleanly deleted on clean shutdown, and safe to delete without recovery loss.
-- Replaced blanket `.tmp` exclusion with race-safe `O_NOFOLLOW | O_NONBLOCK`, bounded (<= 128 MiB), regular-file verified WAL scratch accounting; verified by 5-process Workflow resource gate (`PASS_LOCAL_WORKFLOW`: peak RSS 369.75 MiB, idle CPU 3.90%, runtime state 61.26 MiB running / 61.22 MiB post-shutdown).
-- The production-deployment gate (`scripts/production_deployment_gate.py`) is fully implemented as an executable live Kubernetes acceptance runner with 19 required checks, real observable E2E operational verification using official repository client SDKs (`a2a.client` and `mcp.client`), canonical access denial verification (rejecting 5xx/timeouts), foreign-owner 403, cross-tenant 403, authenticated MCP, worker restart with pod UID replacement verification, DLQ replay with non-empty requirement, rolling restart zero-loss with API pod UID replacement verification, managed-by broker outage recovery, strict Dapr PostgreSQL state store v2 contract validation, strict simulation isolation (`SIMULATED_VALIDATION_PASS`, never `PRODUCTION_DEPLOYMENT_PASS`), running image digest validation, run-isolated cleanup (`a2amq.io/gate-run-id`), and 34 automated tests (100% passing), cleanly producing exit code 2 and structured `INCOMPLETE_PREREQUISITE` when cluster infrastructure is absent on the host.
+The preceding local-tier certification is recorded in
+`docs/validation/local-certification-20260924.md` (validated at `d72112641ee4a43a1a668426402c01e35f316b54`), establishing `PASS_LOCAL_TIER_COMPLETE`, `PASS_LOCAL_LITE_RESILIENCE`, `PASS_LOCAL_WORKFLOW`, `PASS_LOCAL_SOAK`, `PASS_CORE_LIGHT`, `PASS_LOCAL_PYTHON`, and `PASS_LOCAL_LITE`.
 
-`main` remains unchanged at
+The Dapr Scheduler WAL scratch investigation and gate implementation details are documented in
+[production-gate-audit-20260924.md](validation/production-gate-audit-20260924.md).
+
+`main` remains strictly unchanged at
 `66c17153d7ec75b9ad85808ef141b9dba43a9d91`.
 
-Package version remains **0.1.0**. No merge to main, release, production
-certification or upstream binding certification is implied by this branch.
+Package version remains strictly **0.1.0**. No merge to main or release is implied by this branch.
 
 ## Current implementation
 
@@ -308,13 +317,13 @@ currently exact-command reproducible evidence from repository history:
 
 ## Distributed and external gates status
 
-The following external infrastructure gates remain execution/evidence gates with real prerequisites:
+The distributed and external infrastructure gates were fully authorized, executed, and passed on 2026-09-25 against clean HEAD `6458195b171020ece1911e68bc6d14998d216164` (evidence in `docs/validation/production-certification-20260925.md`):
 
-1. PostgreSQL verified-TLS gate: `UNAVAILABLE` / not authorized (verified-TLS DSN file and psycopg not provided).
-2. Vault Transit gate: `UNAVAILABLE` / not authorized (Vault test config file not provided).
-3. Disposable JetStream / RabbitMQ gates: `UNAVAILABLE` / not authorized (container opt-in absent; prohibited per user rules).
-4. Python 3.13 gate: `UNAVAILABLE` (Python 3.13 not installed system-wide).
-5. Exact-current-SHA local acceptance: `LOCAL_PASS` is established on the clean committed Git tree (1077 tests, 0 failures, 0 errors, 0 skipped at `1dd1938dff5cbf58a803ec23617143b5d998465e`). Full acceptance remains **INCOMPLETE** (`productionCertified=false`, `upstreamBindingCertified=false`) as distributed external prerequisites remain separate.
+1. **PostgreSQL verified-TLS gate:** **`PASSED`** (4 tests passed using real verified-TLS PostgreSQL 16 with `sslmode=verify-full`).
+2. **Vault Transit gate:** **`PASSED`** (1 test passed using real TLS HashiCorp Vault Transit engine).
+3. **Disposable JetStream / RabbitMQ gates:** **`PASSED`** (all 12 live probe checks passed on disposable NATS JetStream container stack and all 12 checks passed on RabbitMQ container stack).
+4. **Full Acceptance Gate (`a2a_mq.acceptance`):** **`FULL_PASS`** (all 11 sub-gates passed with exit code 0).
+5. **Production Deployment Gate (`scripts/production_deployment_gate.py`):** **`PRODUCTION_DEPLOYMENT_PASS`** (all 19 checks passed on live 3-node Kubernetes v1.31.0 cluster with Dapr 1.18.3 and NATS JetStream StatefulSet).
 
 ## Hosted CI status
 
