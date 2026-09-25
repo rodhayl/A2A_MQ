@@ -1,14 +1,16 @@
-# Production Certification & Full Acceptance Report — 2026-09-25
+# Production Deployment Acceptance & Full Acceptance Report — 2026-09-25
 
 ## 0. Executive Summary
 
-This validation record documents the end-to-end production certification and full acceptance gate execution for A2A-MQ on branch `implementation/production-hardening-20260916`:
+This validation record documents the end-to-end production deployment acceptance and formal full acceptance gate execution for A2A-MQ on branch `implementation/production-hardening-20260916`:
 
-- **Exact Git Commit**: `6458195b171020ece1911e68bc6d14998d216164` (clean working tree).
-- **Git Tree SHA**: `ed9af9e6c04a3b6bba1f0880ca40d7f9a7f4e758`
+- **Formal Acceptance Source SHA**: `45c459c632977143b8681c055847775e88d7ad97` (clean working tree).
+- **Formal Acceptance Git Tree SHA**: `23fdbcdf30adedf984c631b8a060442cc97b426a`
+- **Certified Image Source SHA**: `6458195b171020ece1911e68bc6d14998d216164` (clean tree `ed9af9e6c04a3b6bba1f0880ca40d7f9a7f4e758`).
 - **Application Image Reference**: `a2amq-prod:6458195-ca@sha256:a54c969183a0c314c77df93c7761db53de19dea8da9e9b20ddebccec425958af`
 - **Formal Acceptance Gate (`a2a_mq.acceptance`) Verdict**: `FULL_PASS` (11/11 sub-gates passed).
 - **Production Deployment Gate (`scripts/production_deployment_gate.py`) Verdict**: `PRODUCTION_DEPLOYMENT_PASS` (19/19 checks passed on live 3-node Kubernetes cluster with Dapr 1.18.3 and NATS JetStream).
+- **Certification Booleans**: `productionCertified: false` and `upstreamBindingCertified: false` strictly preserved; this report reflects successful acceptance gate executions rather than signed certification booleans.
 - **Protected `main` Invariant**: `66c17153d7ec75b9ad85808ef141b9dba43a9d91` strictly untouched.
 - **Package Version**: strictly `0.1.0`.
 
@@ -26,20 +28,21 @@ Executed with `--mode full --allow-disposable-containers` in an isolated environ
 
 | Sub-Gate | Tests / Scope | Status | Notes |
 | :--- | :--- | :--- | :--- |
-| `local` | 1149 tests | **PASSED** | 0 failures, 0 errors, 0 skipped |
+| `local` | 1150 tests | **PASSED** | 0 failures, 0 errors, 0 skipped, 0 unraisable exception warnings |
 | `sdk` | 26 tests | **PASSED** | Upstream SDK & canonical MCP contracts |
 | `postgres` | 4 tests | **PASSED** | Verified TLS connection (`sslmode=verify-full`), schema migration, ACID transactions |
 | `vault` | 1 test | **PASSED** | TLS Vault Transit authenticated payload cipher/decipher |
 | `repository-check` | Static check | **PASSED** | Clean repo tree, license/metadata verification |
 | `dependency-check` | Requirements | **PASSED** | Bounded version verification |
 | `lint` | Ruff | **PASSED** | 0 lint errors |
-| `types` | Mypy | **PASSED** | Strict typing across all packages |
+| `types` | Mypy | **PASSED** | Mypy validation across src/a2a_mq: PASS |
 | `package` | Wheel & Smoke | **PASSED** | Isolated build, install, import smoke |
 | `jetstream` | 12 live checks | **PASSED** | JetStream live probe with unique CloudEvent IDs across hold windows |
 | `rabbitmq` | 12 live checks | **PASSED** | RabbitMQ live probe with quorum queues and dead-lettering |
 
-**Overall Acceptance Status**: `FULL_PASS`
-**Verdict File**: `/tmp/a2amq-full-evidence/verdict.json`
+**Overall Acceptance Status**: `FULL_PASS`  
+**Verdict Artifact**: `docs/validation/evidence/20260925/full/verdict.json`  
+**Checksums Artifact**: `docs/validation/evidence/20260925/full/sha256.json`  
 
 ---
 
@@ -71,59 +74,34 @@ Executed against a live 3-node disposable Kubernetes v1.31.0 cluster (`a2amq-clu
 | 18 | `rolling-restart-zero-loss` | **PASSED** | Rolling restart of `a2amq-api` completed with zero durable loss; pre-restart admitted task completed cleanly |
 | 19 | `broker-outage-recovery` | **PASSED** | Controlled broker outage (NATS scaled to 0 replicas); held for 135s (canonical JetStream hold); verified task did not complete during outage; restored 3 ready broker pods; task completed cleanly |
 
-**Overall Gate Status**: `PRODUCTION_DEPLOYMENT_PASS`
-**Verdict File**: `/tmp/a2amq-prod-gate-evidence/production-deployment-verdict.json`
+**Overall Gate Status**: `PRODUCTION_DEPLOYMENT_PASS`  
+**Verdict Artifact**: `docs/validation/evidence/20260925/prod-gate/production-deployment-verdict.json`  
 **Cleanup**: 0 remaining gate resources, clean automated teardown.
 
 ---
 
-## 3. Provenance & Artifact Verification
+## 3. RabbitMQ Kubernetes Production Parity Boundary
 
-- **Evidence Checksums (`/tmp/a2amq-prod-gate-evidence/sha256.json`)**:
-  - `command-history.json`: `ca530a5d33cdb005b18eab6c64f5251e294890b1fc3bbd03e6764d65bc4cfab0`
-  - `production-deployment-verdict.json`: `935cdbf6593c94454643ceb2c471fe30b22e4ab51118f011d1d7338ba21788c5`
-  - `rendered-manifests.json`: `d6746e0eaaa102f2a9139da24cd59e9ec958e863bd8599c4b8cf7f4d1764c46e`
+- **RabbitMQ Real Live / Full-Stack Acceptance**: **PASS** (all 12 live probe checks passed in disposable container stack during formal full acceptance).
+- **JetStream Kubernetes Production Deployment**: **PASS** (all 19 required production checks passed on live multi-node Kubernetes cluster).
+- **RabbitMQ Kubernetes Production Deployment**: **Not separately executed** (the disposable Kubernetes cluster topology was provisioned with NATS JetStream; RabbitMQ live acceptance was independently verified in the container topology without exposing implementation defects).
+
+---
+
+## 4. Provenance & Artifact Verification
+
+- **Preserved Durable Evidence Package (`docs/validation/evidence/20260925/`)**:
+  - `full/verdict.json`: Formal full acceptance verdict recording `FULL_PASS` across all 11 sub-gates at source SHA `45c459c632977143b8681c055847775e88d7ad97` (tree `23fdbcdf30adedf984c631b8a060442cc97b426a`).
+  - `full/sha256.json`: Complete SHA256 checksum tree for all acceptance logs and reports.
+  - `prod-gate/production-deployment-verdict.json`: 19-check Kubernetes production deployment verdict (`935cdbf6593c94454643ceb2c471fe30b22e4ab51118f011d1d7338ba21788c5`).
+  - `prod-gate/rendered-manifests.json`: Sanitized, secret-free Kubernetes manifests applied during live gate (`d6746e0eaaa102f2a9139da24cd59e9ec958e863bd8599c4b8cf7f4d1764c46e`).
+  - `prod-gate/command-history.json`: Complete command execution log (`ca530a5d33cdb005b18eab6c64f5251e294890b1fc3bbd03e6764d65bc4cfab0`).
+  - `prod-gate/sha256.json`: Checksum manifest confirming evidence integrity.
 - **Application Image**:
   - Local Tag: `localhost:5001/a2amq-prod:6458195-ca`
   - Registry Manifest Digest: `sha256:a54c969183a0c314c77df93c7761db53de19dea8da9e9b20ddebccec425958af`
   - Build Base: Clean Git tree at `6458195b171020ece1911e68bc6d14998d216164` with trusted PostgreSQL TLS CA.
-- **Git State**:
-  - HEAD: `6458195b171020ece1911e68bc6d14998d216164`
-  - Tree: `ed9af9e6c04a3b6bba1f0880ca40d7f9a7f4e758`
+- **Git Provenance**:
+  - Formal Acceptance Source HEAD: `45c459c632977143b8681c055847775e88d7ad97`
+  - Formal Acceptance Source Tree: `23fdbcdf30adedf984c631b8a060442cc97b426a`
   - Status: Clean (no untracked or modified source files).
-
----
-
-## 4. Replication and Verification Commands
-
-To independently reproduce the certification on an authorized host with disposable infrastructure:
-
-```bash
-# 1. Full acceptance gate
-python -m a2a_mq.acceptance \
-  --mode full \
-  --output /tmp/a2amq-full-evidence \
-  --allow-disposable-containers \
-  --timeout 2400
-
-# 2. Production deployment gate
-python scripts/production_deployment_gate.py \
-  --output /tmp/a2amq-prod-gate-evidence \
-  --namespace a2amq-prod-gate \
-  --tenant prod-tenant \
-  --broker jetstream \
-  --image "a2amq-prod:6458195-ca@sha256:a54c969183a0c314c77df93c7761db53de19dea8da9e9b20ddebccec425958af" \
-  --public-url "https://127.0.0.1:31443" \
-  --issuer "https://a2amq-idp.internal" \
-  --jwt-kid "prod-key-1" \
-  --jwt-public-key-file /tmp/disposable-infra/gate/jwt_public.pem \
-  --owner-token-file /tmp/disposable-infra/gate/owner.jwt \
-  --foreign-owner-token-file /tmp/disposable-infra/gate/foreign_owner.jwt \
-  --cross-tenant-token-file /tmp/disposable-infra/gate/cross_tenant.jwt \
-  --mcp-token-file /tmp/disposable-infra/gate/mcp.jwt \
-  --operator-token-file /tmp/disposable-infra/gate/operator.jwt \
-  --ca-bundle /tmp/disposable-infra/gate/ca.crt \
-  --disrupt-broker-target "statefulset/nats" \
-  --allow-broker-disruption \
-  --timeout 900
-```

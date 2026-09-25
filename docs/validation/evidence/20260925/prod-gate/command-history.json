@@ -1,0 +1,729 @@
+[
+  {
+    "cmd": [
+      "kubectl",
+      "--kubeconfig",
+      "/tmp/disposable-infra/kubeconfig",
+      "version",
+      "-o",
+      "json"
+    ],
+    "returncode": 0,
+    "timestamp": 1790346856.617198
+  },
+  {
+    "cmd": [
+      "kubectl",
+      "--kubeconfig",
+      "/tmp/disposable-infra/kubeconfig",
+      "apply",
+      "--dry-run=server",
+      "-f",
+      "/tmp/a2amq-prod-gate-evidence/rendered-manifests.json"
+    ],
+    "returncode": 0,
+    "timestamp": 1790346856.8675573
+  },
+  {
+    "cmd": [
+      "kubectl",
+      "--kubeconfig",
+      "/tmp/disposable-infra/kubeconfig",
+      "get",
+      "pods",
+      "-n",
+      "dapr-system",
+      "-o",
+      "json"
+    ],
+    "returncode": 0,
+    "timestamp": 1790346856.97331
+  },
+  {
+    "cmd": [
+      "kubectl",
+      "--kubeconfig",
+      "/tmp/disposable-infra/kubeconfig",
+      "get",
+      "configuration",
+      "dapr-config",
+      "-n",
+      "dapr-system",
+      "-o",
+      "json"
+    ],
+    "returncode": 0,
+    "timestamp": 1790346857.0482614
+  },
+  {
+    "cmd": [
+      "kubectl",
+      "--kubeconfig",
+      "/tmp/disposable-infra/kubeconfig",
+      "get",
+      "pods",
+      "-n",
+      "dapr-system",
+      "-l",
+      "app=dapr-placement",
+      "-o",
+      "json"
+    ],
+    "returncode": 0,
+    "timestamp": 1790346857.1202033
+  },
+  {
+    "cmd": [
+      "kubectl",
+      "--kubeconfig",
+      "/tmp/disposable-infra/kubeconfig",
+      "get",
+      "pods",
+      "-n",
+      "dapr-system",
+      "-l",
+      "app.kubernetes.io/component=placement",
+      "-o",
+      "json"
+    ],
+    "returncode": 0,
+    "timestamp": 1790346857.1900675
+  },
+  {
+    "cmd": [
+      "kubectl",
+      "--kubeconfig",
+      "/tmp/disposable-infra/kubeconfig",
+      "get",
+      "pods",
+      "-n",
+      "dapr-system",
+      "-l",
+      "app=dapr-scheduler",
+      "-o",
+      "json"
+    ],
+    "returncode": 0,
+    "timestamp": 1790346857.2554464
+  },
+  {
+    "cmd": [
+      "kubectl",
+      "--kubeconfig",
+      "/tmp/disposable-infra/kubeconfig",
+      "get",
+      "pods",
+      "-n",
+      "dapr-system",
+      "-l",
+      "app.kubernetes.io/component=scheduler",
+      "-o",
+      "json"
+    ],
+    "returncode": 0,
+    "timestamp": 1790346857.3713493
+  },
+  {
+    "cmd": [
+      "kubectl",
+      "--kubeconfig",
+      "/tmp/disposable-infra/kubeconfig",
+      "get",
+      "namespace",
+      "a2amq-prod-gate",
+      "-o",
+      "json"
+    ],
+    "returncode": 0,
+    "timestamp": 1790346857.4397774
+  },
+  {
+    "cmd": [
+      "kubectl",
+      "--kubeconfig",
+      "/tmp/disposable-infra/kubeconfig",
+      "-n",
+      "a2amq-prod-gate",
+      "get",
+      "secrets",
+      "-o",
+      "json"
+    ],
+    "returncode": 0,
+    "timestamp": 1790346857.6085484
+  },
+  {
+    "cmd": [
+      "kubectl",
+      "--kubeconfig",
+      "/tmp/disposable-infra/kubeconfig",
+      "-n",
+      "a2amq-prod-gate",
+      "apply",
+      "-f",
+      "/tmp/a2amq-prod-gate-evidence/rendered-manifests.json"
+    ],
+    "returncode": 0,
+    "timestamp": 1790346865.715306
+  },
+  {
+    "cmd": [
+      "kubectl",
+      "--kubeconfig",
+      "/tmp/disposable-infra/kubeconfig",
+      "-n",
+      "a2amq-prod-gate",
+      "rollout",
+      "status",
+      "deployment/a2amq-api",
+      "--timeout=180s"
+    ],
+    "returncode": 0,
+    "timestamp": 1790346873.804061
+  },
+  {
+    "cmd": [
+      "kubectl",
+      "--kubeconfig",
+      "/tmp/disposable-infra/kubeconfig",
+      "-n",
+      "a2amq-prod-gate",
+      "rollout",
+      "status",
+      "deployment/a2amq-worker",
+      "--timeout=180s"
+    ],
+    "returncode": 0,
+    "timestamp": 1790346875.7054827
+  },
+  {
+    "cmd": [
+      "kubectl",
+      "--kubeconfig",
+      "/tmp/disposable-infra/kubeconfig",
+      "-n",
+      "a2amq-prod-gate",
+      "rollout",
+      "status",
+      "deployment/a2amq-dlq",
+      "--timeout=180s"
+    ],
+    "returncode": 0,
+    "timestamp": 1790346877.344294
+  },
+  {
+    "cmd": [
+      "kubectl",
+      "--kubeconfig",
+      "/tmp/disposable-infra/kubeconfig",
+      "-n",
+      "a2amq-prod-gate",
+      "get",
+      "pods",
+      "-l",
+      "app.kubernetes.io/name=a2a-mq",
+      "-o",
+      "json"
+    ],
+    "returncode": 0,
+    "timestamp": 1790346877.5326529
+  },
+  {
+    "cmd": [
+      "kubectl",
+      "--kubeconfig",
+      "/tmp/disposable-infra/kubeconfig",
+      "-n",
+      "a2amq-prod-gate",
+      "get",
+      "pdb",
+      "-o",
+      "json"
+    ],
+    "returncode": 0,
+    "timestamp": 1790346877.7199152
+  },
+  {
+    "cmd": [
+      "kubectl",
+      "--kubeconfig",
+      "/tmp/disposable-infra/kubeconfig",
+      "-n",
+      "a2amq-prod-gate",
+      "get",
+      "components",
+      "-o",
+      "json"
+    ],
+    "returncode": 0,
+    "timestamp": 1790346877.8823276
+  },
+  {
+    "cmd": [
+      "kubectl",
+      "--kubeconfig",
+      "/tmp/disposable-infra/kubeconfig",
+      "-n",
+      "a2amq-prod-gate",
+      "get",
+      "pods",
+      "-l",
+      "app=a2amq-worker",
+      "-o",
+      "json"
+    ],
+    "returncode": 0,
+    "timestamp": 1790346886.55762
+  },
+  {
+    "cmd": [
+      "kubectl",
+      "--kubeconfig",
+      "/tmp/disposable-infra/kubeconfig",
+      "-n",
+      "a2amq-prod-gate",
+      "delete",
+      "pod",
+      "a2amq-worker-84cc8d746-l52j8"
+    ],
+    "returncode": 0,
+    "timestamp": 1790346896.0253808
+  },
+  {
+    "cmd": [
+      "kubectl",
+      "--kubeconfig",
+      "/tmp/disposable-infra/kubeconfig",
+      "-n",
+      "a2amq-prod-gate",
+      "rollout",
+      "status",
+      "deployment/a2amq-worker",
+      "--timeout=60s"
+    ],
+    "returncode": 0,
+    "timestamp": 1790346902.8866012
+  },
+  {
+    "cmd": [
+      "kubectl",
+      "--kubeconfig",
+      "/tmp/disposable-infra/kubeconfig",
+      "-n",
+      "a2amq-prod-gate",
+      "get",
+      "pods",
+      "-l",
+      "app=a2amq-worker",
+      "-o",
+      "json"
+    ],
+    "returncode": 0,
+    "timestamp": 1790346902.9565034
+  },
+  {
+    "cmd": [
+      "kubectl",
+      "--kubeconfig",
+      "/tmp/disposable-infra/kubeconfig",
+      "-n",
+      "a2amq-prod-gate",
+      "get",
+      "pods",
+      "-l",
+      "app=a2amq-api",
+      "-o",
+      "json"
+    ],
+    "returncode": 0,
+    "timestamp": 1790346910.7289789
+  },
+  {
+    "cmd": [
+      "kubectl",
+      "--kubeconfig",
+      "/tmp/disposable-infra/kubeconfig",
+      "-n",
+      "a2amq-prod-gate",
+      "exec",
+      "-c",
+      "app",
+      "a2amq-api-76cd777d87-vjlmw",
+      "--",
+      "python",
+      "-c",
+      "import os, sys, urllib.request, json, base64, hashlib; from a2a_mq.domain import command; env = command('dlq poison ' + sys.argv[2], tenant=sys.argv[4], source='worker'); d = env.as_dict(); d['correlationId'] = sys.argv[1]; d['payload']['runId'] = sys.argv[2]; raw = json.dumps(d, separators=(',', ':')).encode('utf-8'); ce = {   'specversion': '1.0', 'id': sys.argv[1], 'source': 'urn:a2a-mq:worker',   'type': 'a2a-mq.deadletter', 'datacontenttype': 'application/json',   'data': { 'reason': 'POISON_PAYLOAD', 'consumer': 'worker', 'truncated': False,             'originalBase64': base64.b64encode(raw).decode('ascii'),             'capturedBytesSha256': hashlib.sha256(raw).hexdigest() } }; comp = os.environ.get('A2A_PUBSUB_COMPONENT', 'bus-' + sys.argv[4] + '-api'); tok = os.environ.get('DAPR_API_TOKEN'); hdrs = {'Content-Type': 'application/cloudevents+json', **({'dapr-api-token': tok} if tok else {})}; req = urllib.request.Request('http://127.0.0.1:3500/v1.0/publish/' + comp + '/' + sys.argv[3], data=json.dumps(ce).encode('utf-8'), headers=hdrs); urllib.request.urlopen(req, timeout=5)",
+      "gate-536f235d-dlq-1d92fb3d",
+      "gate-536f235d",
+      "a2a.v1.prod-tenant.dlq",
+      "prod-tenant"
+    ],
+    "returncode": 0,
+    "timestamp": 1790346915.0435987
+  },
+  {
+    "cmd": [
+      "kubectl",
+      "--kubeconfig",
+      "/tmp/disposable-infra/kubeconfig",
+      "-n",
+      "a2amq-prod-gate",
+      "get",
+      "pods",
+      "-l",
+      "app=a2amq-api",
+      "-o",
+      "json"
+    ],
+    "returncode": 0,
+    "timestamp": 1790346915.854743
+  },
+  {
+    "cmd": [
+      "kubectl",
+      "--kubeconfig",
+      "/tmp/disposable-infra/kubeconfig",
+      "-n",
+      "a2amq-prod-gate",
+      "rollout",
+      "restart",
+      "deployment/a2amq-api"
+    ],
+    "returncode": 0,
+    "timestamp": 1790346916.219351
+  },
+  {
+    "cmd": [
+      "kubectl",
+      "--kubeconfig",
+      "/tmp/disposable-infra/kubeconfig",
+      "-n",
+      "a2amq-prod-gate",
+      "rollout",
+      "status",
+      "deployment/a2amq-api",
+      "--timeout=180s"
+    ],
+    "returncode": 0,
+    "timestamp": 1790346944.4867904
+  },
+  {
+    "cmd": [
+      "kubectl",
+      "--kubeconfig",
+      "/tmp/disposable-infra/kubeconfig",
+      "-n",
+      "a2amq-prod-gate",
+      "get",
+      "pods",
+      "-l",
+      "app=a2amq-api",
+      "-o",
+      "json"
+    ],
+    "returncode": 0,
+    "timestamp": 1790346944.7416317
+  },
+  {
+    "cmd": [
+      "kubectl",
+      "--kubeconfig",
+      "/tmp/disposable-infra/kubeconfig",
+      "-n",
+      "a2amq-prod-gate",
+      "get",
+      "statefulset/nats",
+      "-o",
+      "json"
+    ],
+    "returncode": 0,
+    "timestamp": 1790346944.9732833
+  },
+  {
+    "cmd": [
+      "kubectl",
+      "--kubeconfig",
+      "/tmp/disposable-infra/kubeconfig",
+      "-n",
+      "a2amq-prod-gate",
+      "scale",
+      "statefulset/nats",
+      "--replicas=0"
+    ],
+    "returncode": 0,
+    "timestamp": 1790346945.5797572
+  },
+  {
+    "cmd": [
+      "kubectl",
+      "--kubeconfig",
+      "/tmp/disposable-infra/kubeconfig",
+      "-n",
+      "a2amq-prod-gate",
+      "get",
+      "statefulset/nats",
+      "-o",
+      "json"
+    ],
+    "returncode": 0,
+    "timestamp": 1790346945.7711735
+  },
+  {
+    "cmd": [
+      "kubectl",
+      "--kubeconfig",
+      "/tmp/disposable-infra/kubeconfig",
+      "-n",
+      "a2amq-prod-gate",
+      "get",
+      "statefulset/nats",
+      "-o",
+      "json"
+    ],
+    "returncode": 0,
+    "timestamp": 1790346946.55465
+  },
+  {
+    "cmd": [
+      "kubectl",
+      "--kubeconfig",
+      "/tmp/disposable-infra/kubeconfig",
+      "-n",
+      "a2amq-prod-gate",
+      "get",
+      "statefulset/nats",
+      "-o",
+      "json"
+    ],
+    "returncode": 0,
+    "timestamp": 1790346947.1217182
+  },
+  {
+    "cmd": [
+      "kubectl",
+      "--kubeconfig",
+      "/tmp/disposable-infra/kubeconfig",
+      "-n",
+      "a2amq-prod-gate",
+      "get",
+      "statefulset/nats",
+      "-o",
+      "json"
+    ],
+    "returncode": 0,
+    "timestamp": 1790346947.7890682
+  },
+  {
+    "cmd": [
+      "kubectl",
+      "--kubeconfig",
+      "/tmp/disposable-infra/kubeconfig",
+      "-n",
+      "a2amq-prod-gate",
+      "get",
+      "statefulset/nats",
+      "-o",
+      "json"
+    ],
+    "returncode": 0,
+    "timestamp": 1790346948.4919786
+  },
+  {
+    "cmd": [
+      "kubectl",
+      "--kubeconfig",
+      "/tmp/disposable-infra/kubeconfig",
+      "-n",
+      "a2amq-prod-gate",
+      "get",
+      "statefulset/nats",
+      "-o",
+      "json"
+    ],
+    "returncode": 0,
+    "timestamp": 1790346949.0642486
+  },
+  {
+    "cmd": [
+      "kubectl",
+      "--kubeconfig",
+      "/tmp/disposable-infra/kubeconfig",
+      "-n",
+      "a2amq-prod-gate",
+      "get",
+      "statefulset/nats",
+      "-o",
+      "json"
+    ],
+    "returncode": 0,
+    "timestamp": 1790346949.7240794
+  },
+  {
+    "cmd": [
+      "kubectl",
+      "--kubeconfig",
+      "/tmp/disposable-infra/kubeconfig",
+      "-n",
+      "a2amq-prod-gate",
+      "get",
+      "statefulset/nats",
+      "-o",
+      "json"
+    ],
+    "returncode": 0,
+    "timestamp": 1790346950.332565
+  },
+  {
+    "cmd": [
+      "kubectl",
+      "--kubeconfig",
+      "/tmp/disposable-infra/kubeconfig",
+      "-n",
+      "a2amq-prod-gate",
+      "get",
+      "statefulset/nats",
+      "-o",
+      "json"
+    ],
+    "returncode": 0,
+    "timestamp": 1790346950.933576
+  },
+  {
+    "cmd": [
+      "kubectl",
+      "--kubeconfig",
+      "/tmp/disposable-infra/kubeconfig",
+      "-n",
+      "a2amq-prod-gate",
+      "get",
+      "statefulset/nats",
+      "-o",
+      "json"
+    ],
+    "returncode": 0,
+    "timestamp": 1790346951.6219301
+  },
+  {
+    "cmd": [
+      "kubectl",
+      "--kubeconfig",
+      "/tmp/disposable-infra/kubeconfig",
+      "-n",
+      "a2amq-prod-gate",
+      "get",
+      "statefulset/nats",
+      "-o",
+      "json"
+    ],
+    "returncode": 0,
+    "timestamp": 1790346952.3256874
+  },
+  {
+    "cmd": [
+      "kubectl",
+      "--kubeconfig",
+      "/tmp/disposable-infra/kubeconfig",
+      "-n",
+      "a2amq-prod-gate",
+      "get",
+      "statefulset/nats",
+      "-o",
+      "json"
+    ],
+    "returncode": 0,
+    "timestamp": 1790346952.8900888
+  },
+  {
+    "cmd": [
+      "kubectl",
+      "--kubeconfig",
+      "/tmp/disposable-infra/kubeconfig",
+      "-n",
+      "a2amq-prod-gate",
+      "get",
+      "statefulset/nats",
+      "-o",
+      "json"
+    ],
+    "returncode": 0,
+    "timestamp": 1790346953.4559603
+  },
+  {
+    "cmd": [
+      "kubectl",
+      "--kubeconfig",
+      "/tmp/disposable-infra/kubeconfig",
+      "-n",
+      "a2amq-prod-gate",
+      "scale",
+      "statefulset/nats",
+      "--replicas=3"
+    ],
+    "returncode": 0,
+    "timestamp": 1790347088.7865272
+  },
+  {
+    "cmd": [
+      "kubectl",
+      "--kubeconfig",
+      "/tmp/disposable-infra/kubeconfig",
+      "-n",
+      "a2amq-prod-gate",
+      "rollout",
+      "status",
+      "statefulset/nats",
+      "--timeout=120s"
+    ],
+    "returncode": 0,
+    "timestamp": 1790347101.9827433
+  },
+  {
+    "cmd": [
+      "kubectl",
+      "--kubeconfig",
+      "/tmp/disposable-infra/kubeconfig",
+      "-n",
+      "a2amq-prod-gate",
+      "get",
+      "pods",
+      "-l",
+      "app=nats,app.kubernetes.io/name=nats",
+      "-o",
+      "json"
+    ],
+    "returncode": 0,
+    "timestamp": 1790347102.0695367
+  },
+  {
+    "cmd": [
+      "kubectl",
+      "--kubeconfig",
+      "/tmp/disposable-infra/kubeconfig",
+      "-n",
+      "a2amq-prod-gate",
+      "delete",
+      "all,pdb,configmap,components.dapr.io",
+      "-l",
+      "a2amq.io/gate-run-id=gate-536f235d"
+    ],
+    "returncode": 0,
+    "timestamp": 1790347139.0427032
+  },
+  {
+    "cmd": [
+      "kubectl",
+      "--kubeconfig",
+      "/tmp/disposable-infra/kubeconfig",
+      "-n",
+      "a2amq-prod-gate",
+      "get",
+      "all,pdb,configmap,components.dapr.io",
+      "-l",
+      "a2amq.io/gate-run-id=gate-536f235d",
+      "-o",
+      "json"
+    ],
+    "returncode": 0,
+    "timestamp": 1790347139.215573
+  }
+]

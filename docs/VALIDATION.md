@@ -7,16 +7,19 @@
 The branch contains both local tiers described in ADR 0011 plus the distributed
 production-like implementation.
 
-The latest exact-SHA production certification and full acceptance evidence is
-[production-certification-20260925.md](validation/production-certification-20260925.md) at
-`6458195b171020ece1911e68bc6d14998d216164` (clean tree `ed9af9e6c04a3b6bba1f0880ca40d7f9a7f4e758`). On that SHA:
+The latest exact-SHA production deployment acceptance and full acceptance evidence is
+[production-certification-20260925.md](validation/production-certification-20260925.md):
+- Formal full acceptance source at `45c459c632977143b8681c055847775e88d7ad97` (clean tree `23fdbcdf30adedf984c631b8a060442cc97b426a`).
+- Certified Kubernetes application image built from `6458195b171020ece1911e68bc6d14998d216164` (clean tree `ed9af9e6c04a3b6bba1f0880ca40d7f9a7f4e758`).
+
+That execution established:
 
 - **Formal Acceptance Gate (`a2a_mq.acceptance`) achieved `FULL_PASS`**:
-  - `local`: 1149 tests passed (0 failures, 0 errors, 0 skipped);
+  - `local`: 1150 tests passed (0 failures, 0 errors, 0 skipped, 0 unraisable exception warnings);
   - `sdk`: 26 tests passed (official upstream SDK & canonical MCP contracts);
   - `postgres`: 4 tests passed using real verified-TLS PostgreSQL 16 (`sslmode=verify-full`);
   - `vault`: 1 test passed using real TLS HashiCorp Vault Transit;
-  - `repository-check`, `dependency-check`, `lint`, `types`, `package`: all passed;
+  - `repository-check`, `dependency-check`, `lint`, `types` (Mypy PASS), `package`: all passed;
   - `jetstream`: 12 live probe checks passed on disposable NATS JetStream container stack;
   - `rabbitmq`: 12 live probe checks passed on disposable RabbitMQ container stack.
 - **Production Deployment Gate (`scripts/production_deployment_gate.py`) achieved `PRODUCTION_DEPLOYMENT_PASS`**:
@@ -25,6 +28,11 @@ The latest exact-SHA production certification and full acceptance evidence is
   - All 19 required production checks passed (100% passing, 0 missing, 0 incomplete);
   - Verified image digest across all application pods, security context (non-root UID 10001, drop ALL, read-only rootfs), Dapr sidecar injection, PDB enforcement, PostgreSQL state store v2 attachment, authenticated E2E task lifecycle, owner/tenant 403 denial, authenticated MCP query (6 tools), workflow restart with UID change, DLQ routing and replay, rolling restart zero-loss, and 135s JetStream broker outage recovery;
   - Clean automated post-run resource deletion (0 remaining gate resources).
+- **Parity Boundary**:
+  - RabbitMQ real live acceptance: `PASS` (12 live probe checks in container stack).
+  - JetStream Kubernetes production deployment: `PASS` (19 checks on live multi-node Kubernetes cluster).
+  - RabbitMQ Kubernetes production deployment: not separately executed.
+- **Certification Booleans**: `productionCertified: false` and `upstreamBindingCertified: false` strictly preserved.
 
 The preceding local-tier execution evidence is
 [local-certification-20260924.md](validation/local-certification-20260924.md) at

@@ -4,14 +4,15 @@
 
 Branch: `implementation/production-hardening-20260916`.
 
-The end-to-end production certification and full acceptance gate execution is recorded in
-`docs/validation/production-certification-20260925.md`, with validated source at
-`6458195b171020ece1911e68bc6d14998d216164` (clean tree `ed9af9e6c04a3b6bba1f0880ca40d7f9a7f4e758`).
+The end-to-end production deployment acceptance and full acceptance gate execution is recorded in
+`docs/validation/production-certification-20260925.md`:
+- Formal full acceptance source at `45c459c632977143b8681c055847775e88d7ad97` (clean tree `23fdbcdf30adedf984c631b8a060442cc97b426a`).
+- Certified Kubernetes application image built from `6458195b171020ece1911e68bc6d14998d216164` (clean tree `ed9af9e6c04a3b6bba1f0880ca40d7f9a7f4e758`).
 
 That execution established:
 
 - **Formal Acceptance (`a2a_mq.acceptance`) Verdict: `FULL_PASS`**:
-  - `local`: 1149 tests passed (0 failures, 0 errors, 0 skipped);
+  - `local`: 1150 tests passed (0 failures, 0 errors, 0 skipped, 0 unraisable exception warnings);
   - `sdk`: 26 tests passed (official upstream SDK & canonical MCP contracts);
   - `postgres`: 4 tests passed against real verified-TLS PostgreSQL 16 (`sslmode=verify-full`);
   - `vault`: 1 test passed against real TLS HashiCorp Vault Transit;
@@ -26,6 +27,11 @@ That execution established:
   - Running container image digest verified across all application pods (`a2amq-api`, `a2amq-worker`, `a2amq-dlq`);
   - Pod security context, Dapr sidecar injection, PDB enforcement, PostgreSQL state store attachment, authenticated E2E task lifecycle, cross-owner/tenant 403 denial, authenticated MCP query, workflow worker restart with UID change, DLQ routing and replay, rolling restart zero-loss, and 135-second JetStream broker outage recovery verified;
   - Clean automated post-run resource deletion (0 remaining gate resources).
+- **Parity Boundary**:
+  - RabbitMQ real live acceptance: `PASS` (12 checks in container stack).
+  - JetStream Kubernetes production deployment: `PASS` (19 checks on live multi-node Kubernetes cluster).
+  - RabbitMQ Kubernetes production deployment: not separately executed.
+- **Certification Booleans**: `productionCertified: false` and `upstreamBindingCertified: false` strictly preserved.
 
 The preceding local-tier certification is recorded in
 `docs/validation/local-certification-20260924.md` (validated at `d72112641ee4a43a1a668426402c01e35f316b54`), establishing `PASS_LOCAL_TIER_COMPLETE`, `PASS_LOCAL_LITE_RESILIENCE`, `PASS_LOCAL_WORKFLOW`, `PASS_LOCAL_SOAK`, `PASS_CORE_LIGHT`, `PASS_LOCAL_PYTHON`, and `PASS_LOCAL_LITE`.

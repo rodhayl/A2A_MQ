@@ -1,0 +1,210 @@
+{
+  "applicationImageDigest": "a2amq-prod:6458195-ca@sha256:a54c969183a0c314c77df93c7761db53de19dea8da9e9b20ddebccec425958af",
+  "broker": "jetstream",
+  "checks": {
+    "authenticated-mcp-query": {
+      "details": "Streamable HTTP MCP tools query authenticated via official client; invalid token rejected",
+      "invalidTokenRejected": true,
+      "queriedTaskId": "ee9fcbc2-f6d7-5778-9ae8-f01477823a3d",
+      "status": "PASSED",
+      "toolsCount": 6
+    },
+    "broker-outage-recovery": {
+      "details": "Controlled broker outage observed, task did not complete during outage, restored cleanly with verified completion",
+      "disruptTarget": "statefulset/nats",
+      "holdSeconds": 135,
+      "restoredReadyBrokerPods": 3,
+      "status": "PASSED",
+      "taskId": "48a75ffc-70fe-582d-8393-52c1ded9bd01",
+      "zeroReplicasObserved": true
+    },
+    "cluster-connectivity-and-auth": {
+      "details": "Connected to Kubernetes v1.31.0",
+      "serverVersion": "v1.31.0",
+      "status": "PASSED"
+    },
+    "dapr-sidecar-injection-and-health": {
+      "details": "daprd sidecar verified injected and ready on all deployment pods",
+      "status": "PASSED"
+    },
+    "deployment-rollout-readiness": {
+      "details": "Deployments a2amq-api, a2amq-worker, a2amq-dlq ready with verified running image digests",
+      "imageDigestVerification": {
+        "a2amq-api": {
+          "match": true,
+          "observedDigest": "a54c969183a0c314c77df93c7761db53de19dea8da9e9b20ddebccec425958af",
+          "requestedDigest": "a54c969183a0c314c77df93c7761db53de19dea8da9e9b20ddebccec425958af"
+        },
+        "a2amq-dlq": {
+          "match": true,
+          "observedDigest": "a54c969183a0c314c77df93c7761db53de19dea8da9e9b20ddebccec425958af",
+          "requestedDigest": "a54c969183a0c314c77df93c7761db53de19dea8da9e9b20ddebccec425958af"
+        },
+        "a2amq-worker": {
+          "match": true,
+          "observedDigest": "a54c969183a0c314c77df93c7761db53de19dea8da9e9b20ddebccec425958af",
+          "requestedDigest": "a54c969183a0c314c77df93c7761db53de19dea8da9e9b20ddebccec425958af"
+        }
+      },
+      "status": "PASSED"
+    },
+    "dlq-routing-and-replay": {
+      "details": "Run-owned poison delivery quarantined to DLQ; unauthorized replay rejected; authorized replay executed and downstream completion verified with non-null replayedAt",
+      "dlqEntryId": "b1083395-ffc0-5b53-aaa3-1fb16e10c249",
+      "downstreamReplayed": true,
+      "runId": "gate-536f235d",
+      "status": "PASSED",
+      "unauthorizedAccessRejected": true
+    },
+    "manifest-synthesis-and-validation": {
+      "details": "Manifests rendered and tagged cleanly",
+      "manifestSha256": "d6746e0eaaa102f2a9139da24cd59e9ec958e863bd8599c4b8cf7f4d1764c46e",
+      "runId": "gate-536f235d",
+      "status": "PASSED"
+    },
+    "owner-and-tenant-authorization": {
+      "crossTenantRejected": true,
+      "details": "Cross-owner access rejected (403/Forbidden); cross-tenant access denied with canonical status",
+      "foreignOwnerRejected": true,
+      "status": "PASSED"
+    },
+    "pod-disruption-budget-enforcement": {
+      "details": "PDBs minAvailable=1, valid role selectors, and currentHealthy>=1 verified for api, worker, and dlq roles",
+      "pdbStatus": {
+        "a2amq-api": {
+          "currentHealthy": 2,
+          "desiredHealthy": 1,
+          "disruptionsAllowed": 1,
+          "minAvailable": 1,
+          "selector": {
+            "app": "a2amq-api"
+          }
+        },
+        "a2amq-dlq": {
+          "currentHealthy": 2,
+          "desiredHealthy": 1,
+          "disruptionsAllowed": 1,
+          "minAvailable": 1,
+          "selector": {
+            "app": "a2amq-dlq"
+          }
+        },
+        "a2amq-worker": {
+          "currentHealthy": 2,
+          "desiredHealthy": 1,
+          "disruptionsAllowed": 1,
+          "minAvailable": 1,
+          "selector": {
+            "app": "a2amq-worker"
+          }
+        }
+      },
+      "status": "PASSED"
+    },
+    "pod-security-context-verification": {
+      "details": "Verified securityContext across 6 active pods",
+      "status": "PASSED"
+    },
+    "postgresql-state-store-attachment": {
+      "details": "state.postgresql v2 workflow-state attached, scoped to worker, actorStateStore enabled, secretKeyRef verified",
+      "status": "PASSED"
+    },
+    "prerequisite-dapr-control-plane": {
+      "daprVersion": "1.18.3",
+      "details": "Dapr control plane active and Ready (version 1.18.3)",
+      "podCounts": {
+        "discovered": 7,
+        "ready": 7,
+        "running": 7
+      },
+      "status": "PASSED"
+    },
+    "prerequisite-dapr-mtls": {
+      "details": "Verified spec.mtls.enabled=true in dapr-system/dapr-config",
+      "status": "PASSED"
+    },
+    "prerequisite-dapr-placement-scheduler": {
+      "details": "Placement and Scheduler control services present and Ready in dapr-system",
+      "placementCounts": {
+        "discovered": 1,
+        "ready": 1,
+        "running": 1
+      },
+      "schedulerCounts": {
+        "discovered": 3,
+        "ready": 3,
+        "running": 3
+      },
+      "status": "PASSED"
+    },
+    "prerequisite-secrets-and-configmaps": {
+      "details": "All required secrets and configmaps bound in pre-provisioned namespace",
+      "status": "PASSED"
+    },
+    "rolling-restart-zero-loss": {
+      "completedAfterRestart": true,
+      "details": "Rolling restart of api pods completed; durable task observed pre-restart and completed cleanly",
+      "persistedBeforeRestart": true,
+      "status": "PASSED",
+      "taskId": "8ff6e42d-649e-574c-9891-5f262677e24c"
+    },
+    "server-side-manifest-validation": {
+      "details": "Server-side dry-run accepted all manifests",
+      "status": "PASSED"
+    },
+    "task-lifecycle-roundtrip": {
+      "details": "Idempotent admission and stable terminal identity verified under re-submission; terminal uniqueness verified via official A2A SDK",
+      "idempotentAdmission": true,
+      "status": "PASSED",
+      "taskId": "ee9fcbc2-f6d7-5778-9ae8-f01477823a3d",
+      "terminalUniquenessVerified": true
+    },
+    "workflow-execution-and-restart": {
+      "details": "Workflow entered non-terminal state, survived worker pod restart with verified UID change, and completed cleanly",
+      "disruptedBeforeCompletion": true,
+      "podAfter": "a2amq-worker-84cc8d746-fwssh",
+      "podAfterUid": "47f7b80c-7bb8-4a69-97be-ab767edacf5e",
+      "podBefore": "a2amq-worker-84cc8d746-l52j8",
+      "podBeforeUid": "d9124336-6b23-4374-89ad-d354b824c769",
+      "status": "PASSED",
+      "taskId": "3299dca9-e8fb-520d-9378-19fbadfd2bd0"
+    }
+  },
+  "cleanup": {
+    "attempted": true,
+    "error": null,
+    "remainingGateResources": 0,
+    "resourcesDeleted": true,
+    "retained": false
+  },
+  "daprVersion": "1.18.3",
+  "endTime": 1790347107.7627196,
+  "executedCheckCount": 19,
+  "executionMode": "live",
+  "finalGitProvenance": {
+    "head": "6458195b171020ece1911e68bc6d14998d216164",
+    "status": "clean",
+    "tree": "ed9af9e6c04a3b6bba1f0880ca40d7f9a7f4e758"
+  },
+  "initialGitProvenance": {
+    "head": "6458195b171020ece1911e68bc6d14998d216164",
+    "status": "clean",
+    "tree": "ed9af9e6c04a3b6bba1f0880ca40d7f9a7f4e758"
+  },
+  "kubernetesServerVersion": "v1.31.0",
+  "manifestSha256": "d6746e0eaaa102f2a9139da24cd59e9ec958e863bd8599c4b8cf7f4d1764c46e",
+  "missingChecks": [],
+  "namespace": "a2amq-prod-gate",
+  "observedImageIds": {
+    "a2amq-api": "docker.io/library/a2amq-prod@sha256:a54c969183a0c314c77df93c7761db53de19dea8da9e9b20ddebccec425958af",
+    "a2amq-dlq": "docker.io/library/a2amq-prod@sha256:a54c969183a0c314c77df93c7761db53de19dea8da9e9b20ddebccec425958af",
+    "a2amq-worker": "docker.io/library/a2amq-prod@sha256:a54c969183a0c314c77df93c7761db53de19dea8da9e9b20ddebccec425958af"
+  },
+  "productionCertified": false,
+  "reason": "All live production checks passed",
+  "requiredCheckCount": 19,
+  "startTime": 1790346856.5459332,
+  "status": "PRODUCTION_DEPLOYMENT_PASS",
+  "tenant": "prod-tenant",
+  "upstreamBindingCertified": false
+}
