@@ -1,0 +1,10 @@
+# Minimal broker-free source-test environment; pins copied from pyproject.toml.
+# Install only inside the dedicated venv with --only-binary=:all:.
+# This is a direct-dependency list, not a transitive hash lock or a full dev extra.
+jsonschema[format-nongpl]==4.26.0
+httpx==0.28.1
+fastapi==0.128.2
+uvicorn==0.48.0
+pytest==9.0.2
+pytest-asyncio==1.3.0
+PyYAML==6.0.3
