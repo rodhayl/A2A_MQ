@@ -84,9 +84,9 @@ def test_warning_suppression_policy_does_not_mask_broad_resource_or_unraisable_w
     assert "ignore::pytest.PytestUnraisableExceptionWarning" not in pyproject
     assert "ignore::ResourceWarning" not in acceptance
     assert "ignore::pytest.PytestUnraisableExceptionWarning" not in acceptance
-    assert "ignore:Exception ignored in.<socket.socket:pytest.PytestUnraisableExceptionWarning" in pyproject
-    assert "ignore:Exception ignored in.<function BaseEventLoop.__del__:pytest.PytestUnraisableExceptionWarning" in pyproject
-    assert "ignore:Exception ignored in.<socket.socket:pytest.PytestUnraisableExceptionWarning" in acceptance
-    assert "ignore:Exception ignored in.<function BaseEventLoop.__del__:pytest.PytestUnraisableExceptionWarning" in acceptance
+    assert "ignore:<socket.socket:pytest.PytestUnraisableExceptionWarning" in pyproject
+    assert "ignore:<function BaseEventLoop.__del__:pytest.PytestUnraisableExceptionWarning" in pyproject
+    assert "ignore:<socket.socket:pytest.PytestUnraisableExceptionWarning" in acceptance
+    assert "ignore:<function BaseEventLoop.__del__:pytest.PytestUnraisableExceptionWarning" in acceptance
 
 

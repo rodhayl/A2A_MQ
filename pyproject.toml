@@ -37,8 +37,8 @@ filterwarnings = [
     "error",
     "ignore:unclosed <socket.socket:ResourceWarning",
     "ignore:unclosed event loop:ResourceWarning",
-    "ignore:Exception ignored in.<socket.socket:pytest.PytestUnraisableExceptionWarning",
-    "ignore:Exception ignored in.<function BaseEventLoop.__del__:pytest.PytestUnraisableExceptionWarning",
+    "ignore:<socket.socket:pytest.PytestUnraisableExceptionWarning",
+    "ignore:<function BaseEventLoop.__del__:pytest.PytestUnraisableExceptionWarning",
 ]
 [tool.ruff]
 line-length = 110
