@@ -282,7 +282,7 @@ async def run_probe(fixture, *, broker):
         from .domain import Envelope
         from .transport import cloud_event
         rows=await asyncio.to_thread(fixture.inspect,"SELECT event_wire FROM a2amq_steps WHERE step_id='completed' ORDER BY task_id LIMIT 1")
-        saved=Envelope(rows[0][0])
+        saved=Envelope.from_dict({**Envelope(rows[0][0]).as_dict(),"messageId":str(uuid4())})
         event=cloud_event(saved)
         await asyncio.to_thread(fixture.publish,"workflow-a","a2a.v1.demo.dlq",event)
         async def archived():

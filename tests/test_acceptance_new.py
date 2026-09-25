@@ -367,3 +367,20 @@ def test_postgres_marker_suites_share_acceptance_dsn_name():
     assert "A2AMQ_TEST_POSTGRES_DSN" not in adapter
     assert "A2A_TEST_POSTGRES_DSN" in adapter
     assert "A2A_TEST_POSTGRES_DSN" in live
+
+
+def test_live_probe_dlq_republish_envelope_uses_fresh_message_id():
+    from uuid import uuid4
+    from a2a_mq.domain import Envelope, command
+    from a2a_mq.transport import cloud_event
+
+    original = command("task payload")
+    republished = Envelope.from_dict({**original.as_dict(), "messageId": str(uuid4())})
+    assert republished.as_dict()["messageId"] != original.as_dict()["messageId"]
+    assert republished.as_dict()["payload"] == original.as_dict()["payload"]
+    assert republished.as_dict()["operation"] == original.as_dict()["operation"]
+    event = cloud_event(republished)
+    assert event["id"] == str(republished.as_dict()["messageId"])
+    assert event["id"] != str(original.as_dict()["messageId"])
+
+
