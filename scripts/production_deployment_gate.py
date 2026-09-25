@@ -1151,7 +1151,7 @@ class ProductionDeploymentRunner:
         # 2. Boundedly query for THIS run's DLQ record (unrelated records cannot satisfy)
         target_entry = None
         headers = {"Authorization": f"Bearer {self.operator_token}", "X-Gate-Run-Id": self.run_id}
-        poll_deadline = time.time() + (10.0 if (poison_injected and self.execution_mode != "simulation") else 1.0)
+        poll_deadline = time.time() + (10.0 if (poison_injected and self.execution_mode == "live") else 1.0)
         while True:
             list_res = self.http.request("GET", "/ops/dlq", headers=headers)
             if list_res.status_code != 200:
@@ -1185,7 +1185,7 @@ class ProductionDeploymentRunner:
                         except Exception:
                             pass
 
-            if target_entry or time.time() >= poll_deadline or self.execution_mode == "simulation":
+            if target_entry or time.time() >= poll_deadline or self.execution_mode != "live":
                 break
             time.sleep(0.5)
 
@@ -1224,7 +1224,7 @@ class ProductionDeploymentRunner:
 
         # 5. Verify downstream processing: replayedAt must be non-null in GET /ops/dlq?include_replayed=true
         downstream_verified = False
-        check_deadline = time.time() + (10.0 if self.execution_mode != "simulation" else 1.0)
+        check_deadline = time.time() + (10.0 if self.execution_mode == "live" else 1.0)
         while True:
             rep_check = self.http.request(
                 "GET", "/ops/dlq?include_replayed=true",
@@ -1237,7 +1237,7 @@ class ProductionDeploymentRunner:
                     if item_id == entry_id and item.get("replayedAt") is not None:
                         downstream_verified = True
                         break
-            if downstream_verified or time.time() >= check_deadline or self.execution_mode == "simulation":
+            if downstream_verified or time.time() >= check_deadline or self.execution_mode != "live":
                 break
             time.sleep(0.5)
 
@@ -1388,7 +1388,7 @@ class ProductionDeploymentRunner:
                         if status.get("readyReplicas", 0) == 0 and status.get("replicas", 0) == 0:
                             zero_observed = True
                             break
-                    if self.execution_mode != "simulation":
+                    if self.execution_mode == "live":
                         time.sleep(0.5)
 
                 if not zero_observed:
@@ -1400,7 +1400,7 @@ class ProductionDeploymentRunner:
 
                 # Hold outage using canonical hold duration (JetStream: 135s, RabbitMQ: 5s)
                 hold_seconds = broker_outage_hold_seconds(self.broker)
-                if self.execution_mode != "simulation" and os.environ.get("A2AMQ_SIMULATE_SLEEP") != "1":
+                if self.execution_mode == "live" and os.environ.get("A2AMQ_SIMULATE_SLEEP") != "1":
                     time.sleep(hold_seconds)
 
                 # Query task DURING outage: verify it does NOT falsely complete while broker is down!

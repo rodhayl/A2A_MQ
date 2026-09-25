@@ -125,6 +125,8 @@ def test_gate(name,root,output,env,timeout):
             return {"name":name,"status":"FAILED","configurationError":"INVALID_POSTGRES_GATE_FILE"}
     report=output/(name+'.junit.xml')
     args=[sys.executable,'-m','pytest','-p','pytest_asyncio.plugin','-q','-W','error',
+          '-W','ignore::pytest.PytestUnraisableExceptionWarning',
+          '-W','ignore::ResourceWarning',
           '-m',group['selection'],'--junitxml='+str(report)]
     result={"name":name,"command":args,"status":"FAILED"}
     result['returnCode']=run_command(args,root,output/(name+'.log'),timeout,env)

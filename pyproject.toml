@@ -33,6 +33,13 @@ testpaths = ["tests"]
 pythonpath = ["src"]
 asyncio_mode = "auto"
 markers = ["live: requires a running Dapr/broker stack", "postgres: requires a PostgreSQL DSN", "upstream: requires pinned protocol SDKs", "mcp: requires the official MCP SDK", "vault: requires a real TLS Vault Transit service"]
+filterwarnings = [
+    "error",
+    "ignore:unclosed <socket.socket:ResourceWarning",
+    "ignore:unclosed event loop:ResourceWarning",
+    "ignore::pytest.PytestUnraisableExceptionWarning",
+    "ignore::ResourceWarning",
+]
 [tool.ruff]
 line-length = 110
 target-version = "py312"

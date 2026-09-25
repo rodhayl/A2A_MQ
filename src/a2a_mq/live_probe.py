@@ -350,6 +350,9 @@ def main():
         report.update(asyncio.run(run_probe(fixture,broker=args.broker)),status='PASSED')
     except Exception as error:
         report['errorType']=type(error).__name__
+        report['errorMessage']=str(error)
+        import traceback
+        report['traceback']=traceback.format_exc()
     finally:
         cleaned = False
         if report['status']=='PASSED' or not args.keep_failed:
