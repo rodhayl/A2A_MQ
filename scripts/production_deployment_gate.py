@@ -1147,14 +1147,26 @@ class ProductionDeploymentRunner:
         if api_pods:
             pod_name = api_pods[0]["metadata"]["name"]
             py_code = (
-                "import os, sys, urllib.request, json; "
-                "payload = json.dumps({'id': sys.argv[1], 'type': 'a2a.malformed.poison', 'data': {'runId': sys.argv[2]}}).encode(); "
+                "import os, sys, urllib.request, json, base64, hashlib; "
+                "from a2a_mq.domain import command; "
+                "env = command('dlq poison ' + sys.argv[2], tenant=sys.argv[4], source='worker'); "
+                "d = env.as_dict(); "
+                "d['correlationId'] = sys.argv[1]; "
+                "d['payload']['runId'] = sys.argv[2]; "
+                "raw = json.dumps(d, separators=(',', ':')).encode('utf-8'); "
+                "ce = { "
+                "  'specversion': '1.0', 'id': sys.argv[1], 'source': 'urn:a2a-mq:worker', "
+                "  'type': 'a2a-mq.deadletter', 'datacontenttype': 'application/json', "
+                "  'data': { 'reason': 'POISON_PAYLOAD', 'consumer': 'worker', 'truncated': False, "
+                "            'originalBase64': base64.b64encode(raw).decode('ascii'), "
+                "            'capturedBytesSha256': hashlib.sha256(raw).hexdigest() } "
+                "}; "
                 "comp = os.environ.get('A2A_PUBSUB_COMPONENT', 'bus-' + sys.argv[4] + '-api'); "
                 "hdrs = {'Content-Type': 'application/cloudevents+json'}; "
                 "tok = os.environ.get('DAPR_API_TOKEN'); "
                 "if tok: hdrs['dapr-api-token'] = tok; "
                 "req = urllib.request.Request('http://127.0.0.1:3500/v1.0/publish/' + comp + '/' + sys.argv[3], "
-                "data=payload, headers=hdrs); "
+                "data=json.dumps(ce).encode('utf-8'), headers=hdrs); "
                 "urllib.request.urlopen(req, timeout=5)"
             )
             topic = f"a2a.v1.{self.tenant}.dlq"
@@ -1166,7 +1178,7 @@ class ProductionDeploymentRunner:
         # 2. Boundedly query for THIS run's DLQ record (unrelated records cannot satisfy)
         target_entry = None
         headers = {"Authorization": f"Bearer {self.operator_token}", "X-Gate-Run-Id": self.run_id}
-        poll_deadline = time.time() + (10.0 if (poison_injected and self.execution_mode == "live") else 1.0)
+        poll_deadline = time.time() + (20.0 if (poison_injected and self.execution_mode == "live") else 1.0)
         while True:
             list_res = self.http.request("GET", "/ops/dlq", headers=headers)
             if list_res.status_code != 200:
