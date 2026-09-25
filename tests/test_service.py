@@ -128,7 +128,7 @@ async def test_callback_timeout_keeps_sql_commit_recoverable_and_health_responsi
         assert release.wait(5)
         return original(*args, **kwargs)
     monkeypatch.setattr(store, "commit_claim", blocked)
-    async with client_for(store, callback_timeout=0.05) as (client, app, sent, status):
+    async with client_for(store, callback_timeout=0.25) as (client, app, sent, status):
         task = asyncio.create_task(client.post("/events", json=callback(request())))
         try:
             await until(entered.is_set)

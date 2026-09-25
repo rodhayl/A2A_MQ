@@ -73,3 +73,20 @@ def test_wheel_smoke_imports_the_installed_target_under_isolated_python():
     assert "pip wheel --no-deps --wheel-dir" in command
     assert "--no-build-isolation" not in command
 
+
+def test_warning_suppression_policy_does_not_mask_broad_resource_or_unraisable_warnings():
+    from pathlib import Path
+
+    root = Path(__file__).parent.parent
+    pyproject = (root / "pyproject.toml").read_text(encoding="utf-8")
+    acceptance = (root / "src/a2a_mq/acceptance.py").read_text(encoding="utf-8")
+    assert "ignore::ResourceWarning" not in pyproject
+    assert "ignore::pytest.PytestUnraisableExceptionWarning" not in pyproject
+    assert "ignore::ResourceWarning" not in acceptance
+    assert "ignore::pytest.PytestUnraisableExceptionWarning" not in acceptance
+    assert "ignore:Exception ignored in.<socket.socket:pytest.PytestUnraisableExceptionWarning" in pyproject
+    assert "ignore:Exception ignored in.<function BaseEventLoop.__del__:pytest.PytestUnraisableExceptionWarning" in pyproject
+    assert "ignore:Exception ignored in.<socket.socket:pytest.PytestUnraisableExceptionWarning" in acceptance
+    assert "ignore:Exception ignored in.<function BaseEventLoop.__del__:pytest.PytestUnraisableExceptionWarning" in acceptance
+
+
