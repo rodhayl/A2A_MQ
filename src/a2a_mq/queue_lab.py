@@ -1159,6 +1159,10 @@ LAB_JS = r"""
               {status: response.status});
           return;
         }
+        if (response.status === 401) {
+          log("Subscribe authentication expired; reload client.jwt and reconnect.", "error");
+          return;
+        }
         log("Streaming subscription unavailable; falling back to follow. " + body, "error");
         followTask(id);
         return;
@@ -1171,6 +1175,10 @@ LAB_JS = r"""
       if (!fallback) {
         $("#raw-response").textContent = error.message;
         log("Raw SubscribeToTask failed: " + error.message, "error");
+        return;
+      }
+      if (!state.authenticated) {
+        log("Subscribe authentication is no longer valid; reconnect before retrying.", "error");
         return;
       }
       log("Subscribe failed; falling back to follow: " + error.message, "error");
