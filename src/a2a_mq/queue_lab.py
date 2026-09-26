@@ -819,6 +819,7 @@ LAB_JS = r"""
         const button = document.createElement("button");
         button.className = "ghost";
         button.textContent = name;
+        if (name === "Subscribe" && terminal.has(st)) button.disabled = true;
         button.addEventListener("click", function () {
           selectTask(task.id);
           if (name === "Follow") followTask(task.id);
@@ -861,6 +862,7 @@ LAB_JS = r"""
     $("#task-continue").disabled = st !== "INPUT_REQUIRED";
     $("#task-approve").disabled = st !== "AUTH_REQUIRED";
     $("#task-reject").disabled = st !== "AUTH_REQUIRED";
+    $("#task-subscribe").disabled = terminal.has(st);
     $("#task-cancel").disabled = terminal.has(st);
   }
 
