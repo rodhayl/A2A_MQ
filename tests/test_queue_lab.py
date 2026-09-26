@@ -117,8 +117,11 @@ async def test_queue_lab_agent_pause_control_requires_real_bearer_authorization(
 
     class Verifier:
         def verify(self, encoded):
-            assert encoded == "lab-token"
-            return Principal("owner", "demo", frozenset({"a2a:operate"}))
+            scopes = {"lab-token": {"a2a:operate"}, "read-token": {"a2a:read"}}.get(encoded)
+            if scopes is None:
+                from a2a_mq.domain import PermanentError
+                raise PermanentError("UNAUTHENTICATED")
+            return Principal("owner", "demo", frozenset(scopes))
 
     app = create_queue_lab(
         settings, profile="local-lite", verifier=Verifier(), agent_pause=paused
@@ -127,7 +130,13 @@ async def test_queue_lab_agent_pause_control_requires_real_bearer_authorization(
         transport=httpx.ASGITransport(app=app), base_url="http://local"
     ) as client:
         assert (await client.get("/control/agent")).status_code == 401
+        forbidden = await client.get(
+            "/control/agent", headers={"Authorization": "Bearer read-token"}
+        )
+        assert forbidden.status_code == 403
         headers = {"Authorization": "Bearer lab-token"}
+        invalid = await client.post("/control/agent", headers=headers, json={"paused": "yes"})
+        assert invalid.status_code == 422
         initial = await client.get("/control/agent", headers=headers)
         changed = await client.post(
             "/control/agent", headers=headers, json={"paused": True}
