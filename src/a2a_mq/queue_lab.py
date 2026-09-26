@@ -1166,7 +1166,10 @@ LAB_JS = r"""
         signal: controller.signal
       });
       const type = response.headers.get("content-type") || "";
-      if (response.status === 401) state.authenticated = false;
+      if (response.status === 401) {
+        state.authenticated = false;
+        state.sessionEpoch += 1;
+      }
       if (!response.ok || !response.body || type.indexOf("text/event-stream") === -1) {
         const body = await response.text();
         throw new Error("SendStreamingMessage returned HTTP " + response.status + ": " + body);
@@ -1207,7 +1210,10 @@ LAB_JS = r"""
         signal: controller.signal
       });
       const type = response.headers.get("content-type") || "";
-      if (response.status === 401) state.authenticated = false;
+      if (response.status === 401) {
+        state.authenticated = false;
+        state.sessionEpoch += 1;
+      }
       if (!response.ok || !response.body || type.indexOf("text/event-stream") === -1) {
         const body = await response.text();
         if (!fallback) {
@@ -1365,6 +1371,8 @@ LAB_JS = r"""
   }
 
   async function connect() {
+    state.sessionEpoch += 1;
+    state.authenticated = false;
     let value;
     try {
       value = validateToken(token());
