@@ -152,6 +152,49 @@ async def test_local_resource_cleanup_always_closes_publisher():
     assert events == ["database", "bus"]
 
 
+async def test_local_lite_queue_lab_exposes_pause_feature(tmp_path, monkeypatch):
+    import json
+    import httpx
+    from starlette.applications import Starlette
+    from a2a_mq.local_lite import create_app
+
+    app_token = tmp_path / "app-token"
+    dapr_token = tmp_path / "dapr-token"
+    keys = tmp_path / "keys.json"
+    for path, value in ((app_token, "a" * 32), (dapr_token, "d" * 32)):
+        path.write_text(value)
+        path.chmod(0o600)
+    keys.write_text(json.dumps({"local": "unused-fixture-key"}))
+    keys.chmod(0o600)
+
+    class Identity:
+        audience = "http://127.0.0.1:18000"
+        issuer = "https://local-a2amq.invalid"
+
+    monkeypatch.setattr("a2a_mq.local_lite.verifier", lambda settings, audience=None: Identity())
+    monkeypatch.setattr("a2a_mq.local_lite.create_bridge", lambda *a, **k: Starlette())
+    settings = LocalLiteSettings(
+        sqlite_path=str(tmp_path / "local.db"),
+        app_token_file=str(app_token),
+        dapr_token_file=str(dapr_token),
+        jwt_keys_file=str(keys),
+        issuer="https://local-a2amq.invalid",
+    )
+    app = create_app(settings)
+    try:
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://local"
+        ) as client:
+            response = await client.get("/lab/config")
+        assert response.status_code == 200
+        value = response.json()
+        assert value["profile"] == "local-lite"
+        assert value["features"]["agentPause"] is True
+        assert value["features"]["workflow"] is False
+    finally:
+        await app.state.a2amq_api.database.aclose()
+
+
 def test_local_app_exposes_lazy_owned_bus_for_resource_probe(tmp_path, monkeypatch):
     import json
     from starlette.applications import Starlette
