@@ -154,6 +154,7 @@ LAB_HTML = """<!doctype html>
         <button id="send">Enqueue</button>
         <button id="send-and-follow" class="secondary">Enqueue + follow</button>
         <button id="send-stream" class="secondary">Enqueue + A2A stream</button>
+        <button id="stop-stream" class="ghost" disabled>Stop stream</button>
         <button id="refresh" class="ghost">Refresh queue</button>
       </div>
     </section>
@@ -515,7 +516,8 @@ LAB_JS = r"""
     selected: null,
     autoTimer: null,
     autoRefreshing: false,
-    followTimers: new Map()
+    followTimers: new Map(),
+    streamController: null
   };
   const terminal = new Set(["COMPLETED", "FAILED", "CANCELED", "REJECTED"]);
   const interrupted = new Set(["INPUT_REQUIRED", "AUTH_REQUIRED"]);
@@ -1045,6 +1047,32 @@ LAB_JS = r"""
     await tick();
   }
 
+  function beginStream(label) {
+    if (state.streamController) {
+      state.streamController.abort();
+      log("Previous SSE stream stopped before opening " + label + ".");
+    }
+    const controller = new AbortController();
+    state.streamController = controller;
+    $("#stop-stream").disabled = false;
+    return controller;
+  }
+
+  function endStream(controller) {
+    if (state.streamController === controller) {
+      state.streamController = null;
+      $("#stop-stream").disabled = true;
+    }
+  }
+
+  function stopStream() {
+    if (!state.streamController) return;
+    state.streamController.abort();
+    state.streamController = null;
+    $("#stop-stream").disabled = true;
+    log("SSE stream stopped by user.");
+  }
+
   async function consumeSSE(response, label) {
     const reader = response.body.getReader();
     const decoder = new TextDecoder();
@@ -1097,6 +1125,7 @@ LAB_JS = r"""
     $("#send").disabled = true;
     $("#send-and-follow").disabled = true;
     $("#send-stream").disabled = true;
+    const controller = beginStream("SendStreamingMessage");
     try {
       const request = {
         jsonrpc: "2.0",
@@ -1110,7 +1139,8 @@ LAB_JS = r"""
           "Content-Type": "application/json",
           "Accept": "text/event-stream"
         }),
-        body: JSON.stringify(request)
+        body: JSON.stringify(request),
+        signal: controller.signal
       });
       const type = response.headers.get("content-type") || "";
       if (response.status === 401) state.authenticated = false;
@@ -1122,8 +1152,10 @@ LAB_JS = r"""
       log("SendStreamingMessage stream closed", "ok", {events: count});
       await refreshAll();
     } catch (error) {
-      log("SendStreamingMessage failed: " + error.message, "error");
+      if (error.name === "AbortError") log("SendStreamingMessage stream stopped.");
+      else log("SendStreamingMessage failed: " + error.message, "error");
     } finally {
+      endStream(controller);
       $("#send").disabled = false;
       $("#send-and-follow").disabled = false;
       $("#send-stream").disabled = false;
@@ -1140,6 +1172,7 @@ LAB_JS = r"""
       method: "SubscribeToTask",
       params: {id: id}
     };
+    const controller = beginStream("SubscribeToTask");
     try {
       const response = await fetch("/rpc", {
         method: "POST",
@@ -1147,7 +1180,8 @@ LAB_JS = r"""
           "Content-Type": "application/json",
           "Accept": "text/event-stream"
         }),
-        body: JSON.stringify(request)
+        body: JSON.stringify(request),
+        signal: controller.signal
       });
       const type = response.headers.get("content-type") || "";
       if (response.status === 401) state.authenticated = false;
@@ -1172,6 +1206,10 @@ LAB_JS = r"""
       await selectTask(id);
       await listTasks();
     } catch (error) {
+      if (error.name === "AbortError") {
+        log("SubscribeToTask stream stopped.");
+        return;
+      }
       if (!fallback) {
         $("#raw-response").textContent = error.message;
         log("Raw SubscribeToTask failed: " + error.message, "error");
@@ -1183,6 +1221,8 @@ LAB_JS = r"""
       }
       log("Subscribe failed; falling back to follow: " + error.message, "error");
       followTask(id);
+    } finally {
+      endStream(controller);
     }
   }
 
@@ -1369,6 +1409,7 @@ LAB_JS = r"""
   $("#send").addEventListener("click", function () { enqueue(false); });
   $("#send-and-follow").addEventListener("click", function () { enqueue(true); });
   $("#send-stream").addEventListener("click", sendStreaming);
+  $("#stop-stream").addEventListener("click", stopStream);
   $("#refresh").addEventListener("click", refreshAll);
   $("#state-filter").addEventListener("change", renderTasks);
   $("#task-follow").addEventListener("click", function () {
