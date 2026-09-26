@@ -1,4 +1,5 @@
 """Official SDK route contract. Selected explicitly; absence is not a passing gate."""
+import asyncio
 import time
 
 import httpx
@@ -83,6 +84,48 @@ async def test_discovery_auth_and_rest(environment):
     response = await client.get("/tasks", headers=headers())
     assert response.status_code == 200
     assert (await client.get("/tasks", headers=headers(tenant="other"))).status_code == 403
+
+
+async def test_official_send_streaming_message_sse(environment):
+    client, ledger, headers, user = environment
+
+    async def complete_after_admission():
+        from a2a_mq.domain import Envelope
+        for _ in range(200):
+            pending = ledger.pending(("publish",))
+            if pending:
+                task_id = Envelope(pending[0].body).as_dict()["taskId"]
+                ledger.step(task_id, "stream-working", "WORKING")
+                await asyncio.sleep(0.01)
+                ledger.step(
+                    task_id,
+                    "stream-completed",
+                    "COMPLETED",
+                    artifacts=[{"artifactId": "out", "parts": [{"text": "done"}]}],
+                )
+                return
+            await asyncio.sleep(0.005)
+        raise AssertionError("streaming task was not admitted")
+
+    finisher = asyncio.create_task(complete_after_admission())
+    req = {
+        "message": {
+            "messageId": "stream-one",
+            "role": "ROLE_USER",
+            "parts": [{"text": "hello"}],
+        }
+    }
+    async with client.stream(
+        "POST",
+        "/rpc",
+        headers={**headers(), "Accept": "text/event-stream"},
+        json={"jsonrpc": "2.0", "id": 7, "method": "SendStreamingMessage", "params": req},
+    ) as response:
+        body = await response.aread()
+        assert response.status_code == 200
+        assert response.headers["content-type"].startswith("text/event-stream")
+    await finisher
+    assert b"TASK_STATE_COMPLETED" in body
 
 
 async def test_subscribe_rejects_terminal_task(environment):
