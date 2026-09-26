@@ -528,6 +528,9 @@ LAB_JS = r"""
   };
   const terminal = new Set(["COMPLETED", "FAILED", "CANCELED", "REJECTED"]);
   const interrupted = new Set(["INPUT_REQUIRED", "AUTH_REQUIRED"]);
+  const workflowPresets = new Set(["input", "auth", "delay"]);
+  const MAX_ACTIVITY_ITEMS = 500;
+  const MAX_SSE_BUFFER = 1048576;
 
   function uid(prefix) {
     const value = (globalThis.crypto && crypto.randomUUID) ?
@@ -545,7 +548,11 @@ LAB_JS = r"""
     item.className = "log-item " + (kind || "");
     item.textContent = "[" + now() + "] " + message +
       (data === undefined ? "" : "  " + JSON.stringify(data));
-    $("#activity-log").prepend(item);
+    const root = $("#activity-log");
+    root.prepend(item);
+    while (root.childElementCount > MAX_ACTIVITY_ITEMS) {
+      root.removeChild(root.lastElementChild);
+    }
   }
 
   function token() {
@@ -678,6 +685,13 @@ LAB_JS = r"""
     $("#task-demo-dlq").hidden = !state.config.features.demoDeadLetter;
 
     const workflow = !!state.config.features.workflow;
+    Array.from($("#preset").options).forEach(function (option) {
+      if (workflowPresets.has(option.value)) option.disabled = !workflow;
+    });
+    if (!workflow && workflowPresets.has($("#preset").value)) {
+      $("#preset").value = "echo";
+      applyPreset();
+    }
     document.querySelectorAll(".workflow-field").forEach(function (node) {
       node.querySelectorAll("input,select").forEach(function (input) {
         input.disabled = !workflow;
@@ -1161,6 +1175,9 @@ LAB_JS = r"""
       const next = await reader.read();
       if (next.done) break;
       buffer += decoder.decode(next.value, {stream: true});
+      if (buffer.length > MAX_SSE_BUFFER) {
+        throw new Error("SSE event exceeds the 1 MiB Queue Lab display limit.");
+      }
       const lines = buffer.split(/\r?\n/);
       buffer = lines.pop() || "";
       lines.forEach(line);
