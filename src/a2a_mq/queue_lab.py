@@ -153,6 +153,7 @@ LAB_HTML = """<!doctype html>
       <div class="actions">
         <button id="send">Enqueue</button>
         <button id="send-and-follow" class="secondary">Enqueue + follow</button>
+        <button id="send-stream" class="secondary">Enqueue + A2A stream</button>
         <button id="refresh" class="ghost">Refresh queue</button>
       </div>
     </section>
@@ -937,7 +938,7 @@ LAB_JS = r"""
     return Object.assign({}, extra, {a2amq: a2amq});
   }
 
-  async function sendOne(index) {
+  function buildRequestParams(index) {
     const base = ($("#message-id").value || "").trim();
     const messageId = base ?
       (index === 0 ? base : base + "-" + (index + 1)) :
@@ -953,12 +954,15 @@ LAB_JS = r"""
     };
     const contextId = ($("#context-id").value || "").trim();
     if (contextId) message.contextId = contextId;
-    const params = {
+    return {
       message: message,
       configuration: {returnImmediately: $("#return-immediately").value === "true"},
       metadata: readMetadata()
     };
-    return taskFromResult(await rpc("SendMessage", params));
+  }
+
+  async function sendOne(index) {
+    return taskFromResult(await rpc("SendMessage", buildRequestParams(index)));
   }
 
   async function enqueue(follow) {
@@ -975,6 +979,7 @@ LAB_JS = r"""
     }
     $("#send").disabled = true;
     $("#send-and-follow").disabled = true;
+    $("#send-stream").disabled = true;
     try {
       let last = null;
       for (let i = 0; i < count; i += 1) {
@@ -991,6 +996,7 @@ LAB_JS = r"""
     } finally {
       $("#send").disabled = false;
       $("#send-and-follow").disabled = false;
+      $("#send-stream").disabled = false;
     }
   }
 
@@ -1033,6 +1039,90 @@ LAB_JS = r"""
     await tick();
   }
 
+  async function consumeSSE(response, label) {
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    let dataLines = [];
+    let count = 0;
+
+    function flushEvent() {
+      if (!dataLines.length) return;
+      const raw = dataLines.join("\n");
+      dataLines = [];
+      try {
+        const value = JSON.parse(raw);
+        count += 1;
+        log(label, "ok", value);
+      } catch (_) {
+        log(label + " (non-JSON data) " + raw, "error");
+      }
+    }
+
+    function line(value) {
+      if (value === "") {
+        flushEvent();
+        return;
+      }
+      if (value.startsWith("data:")) {
+        dataLines.push(value.slice(5).replace(/^ /, ""));
+      }
+    }
+
+    while (true) {
+      const next = await reader.read();
+      if (next.done) break;
+      buffer += decoder.decode(next.value, {stream: true});
+      const lines = buffer.split(/\r?\n/);
+      buffer = lines.pop() || "";
+      lines.forEach(line);
+    }
+    buffer += decoder.decode();
+    if (buffer) line(buffer);
+    flushEvent();
+    return count;
+  }
+
+  async function sendStreaming() {
+    if ($("#toggle-agent").dataset.paused === "true") {
+      log("Resume the simulated agent before SendStreamingMessage, or the stream may wait for normal delivery timeout.", "error");
+      return;
+    }
+    $("#send").disabled = true;
+    $("#send-and-follow").disabled = true;
+    $("#send-stream").disabled = true;
+    try {
+      const request = {
+        jsonrpc: "2.0",
+        id: uid("stream"),
+        method: "SendStreamingMessage",
+        params: buildRequestParams(0)
+      };
+      const response = await fetch("/rpc", {
+        method: "POST",
+        headers: authHeaders({
+          "Content-Type": "application/json",
+          "Accept": "text/event-stream"
+        }),
+        body: JSON.stringify(request)
+      });
+      const type = response.headers.get("content-type") || "";
+      if (!response.ok || !response.body || type.indexOf("text/event-stream") === -1) {
+        const body = await response.text();
+        throw new Error("SendStreamingMessage returned HTTP " + response.status + ": " + body);
+      }
+      const count = await consumeSSE(response, "SendStreamingMessage event");
+      log("SendStreamingMessage stream closed", "ok", {events: count});
+      await refreshAll();
+    } catch (error) {
+      log("SendStreamingMessage failed: " + error.message, "error");
+    } finally {
+      $("#send").disabled = false;
+      $("#send-and-follow").disabled = false;
+      $("#send-stream").disabled = false;
+    }
+  }
+
   async function subscribeTask(id, allowFallback) {
     if (!token()) return;
     const fallback = allowFallback !== false;
@@ -1065,27 +1155,7 @@ LAB_JS = r"""
         followTask(id);
         return;
       }
-      const reader = response.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = "";
-      while (true) {
-        const next = await reader.read();
-        if (next.done) break;
-        buffer += decoder.decode(next.value, {stream: true});
-        const lines = buffer.split(/\r?\n/);
-        buffer = lines.pop() || "";
-        lines.forEach(function (line) {
-          if (!line.startsWith("data:")) return;
-          const raw = line.slice(5).trim();
-          if (!raw) return;
-          try {
-            const value = JSON.parse(raw);
-            log("SSE task event", "ok", value);
-          } catch (_) {
-            log("SSE data " + raw);
-          }
-        });
-      }
+      await consumeSSE(response, "SubscribeToTask event");
       log("Subscription closed for " + id);
       await selectTask(id);
       await listTasks();
@@ -1278,6 +1348,7 @@ LAB_JS = r"""
   $("#preset").addEventListener("change", applyPreset);
   $("#send").addEventListener("click", function () { enqueue(false); });
   $("#send-and-follow").addEventListener("click", function () { enqueue(true); });
+  $("#send-stream").addEventListener("click", sendStreaming);
   $("#refresh").addEventListener("click", refreshAll);
   $("#state-filter").addEventListener("change", renderTasks);
   $("#task-follow").addEventListener("click", function () {
