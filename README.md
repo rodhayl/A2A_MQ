@@ -3,8 +3,10 @@
 A2A-MQ is an experimental durable A2A task transport with a deliberately lightweight
 local product and a separate distributed/Workflow profile.
 
-Package version is **0.1.0 pre-release**. The current source-bearing
-release-cleanliness SHA is `45c459c632977143b8681c055847775e88d7ad97`.
+Package version is **0.1.0 pre-release**. `v0.1.0-rc1` is the latest tagged,
+smoke-tested release candidate. The working branch now contains post-RC1 Queue Lab
+source changes; historical FULL_PASS and RC1 smoke evidence remain bound to their
+recorded SHAs/tags until the new GUI receives its own focused smoke.
 
 ## Navigation
 
