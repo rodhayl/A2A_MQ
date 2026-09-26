@@ -8,6 +8,7 @@ from a2a_mq.identity import Principal
 from a2a_mq.local_lite import LocalLiteSettings, create_app as create_lite
 from a2a_mq.local_workflow import LocalWorkflowSettings
 from a2a_mq.queue_lab import create_queue_lab
+from a2a_mq.transport import cloud_event
 
 
 def _files(tmp_path):
@@ -135,3 +136,72 @@ async def test_queue_lab_agent_pause_control_requires_real_bearer_authorization(
     assert changed.json() == {"paused": True}
     assert final.json() == {"paused": True}
     assert paused.is_set()
+
+
+async def test_local_lite_pause_retries_real_dapr_delivery_until_resumed(tmp_path, monkeypatch):
+    settings = _lite_settings(tmp_path)
+
+    class Verifier:
+        audience = "http://127.0.0.1:18000"
+        issuer = "https://local-a2amq.invalid"
+
+        def verify(self, encoded):
+            if encoded != "lab-token":
+                raise AssertionError("unexpected token")
+            return Principal(
+                "owner",
+                "demo",
+                frozenset({"a2a:send", "a2a:read", "a2a:cancel", "a2a:operate"}),
+            )
+
+    verifier = Verifier()
+    monkeypatch.setattr("a2a_mq.local_lite.verifier", lambda settings, audience=None: verifier)
+    monkeypatch.setattr("a2a_mq.local_lite.create_bridge", lambda *a, **k: Starlette())
+    app = create_lite(settings)
+    ledger = app.state.a2amq_ledger
+    owner = Principal("owner", "demo", frozenset({"a2a:send", "a2a:read", "a2a:cancel"}))
+    task = ledger.submit(owner, {
+        "message": {
+            "messageId": "paused-delivery",
+            "role": "ROLE_USER",
+            "parts": [{"text": "hello"}],
+        },
+        "configuration": {"returnImmediately": True},
+    })
+    publish = ledger.pending(("publish",))[0]
+    envelope = __import__("a2a_mq.domain", fromlist=["Envelope"]).Envelope(publish.body)
+    ledger.delivered(publish)
+    incoming = {
+        **cloud_event(envelope),
+        "topic": envelope.route,
+        "pubsubname": "bus",
+    }
+
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://local"
+    ) as client:
+        auth = {"Authorization": "Bearer lab-token"}
+        paused = await client.post("/lab/control/agent", headers=auth, json={"paused": True})
+        assert paused.status_code == 200 and paused.json() == {"paused": True}
+
+        held = await client.post(
+            "/events",
+            headers={"dapr-api-token": "a" * 32},
+            json=incoming,
+        )
+        assert held.status_code == 200
+        assert held.json() == {"status": "RETRY"}
+        assert not [a for a in ledger.pending(("start",)) if a.task_id == task["id"]]
+
+        resumed = await client.post("/lab/control/agent", headers=auth, json={"paused": False})
+        assert resumed.status_code == 200 and resumed.json() == {"paused": False}
+
+        accepted = await client.post(
+            "/events",
+            headers={"dapr-api-token": "a" * 32},
+            json=incoming,
+        )
+        assert accepted.status_code == 200
+        assert accepted.json() == {"status": "SUCCESS"}
+
+    assert any(a.task_id == task["id"] for a in ledger.pending(("start",)))
