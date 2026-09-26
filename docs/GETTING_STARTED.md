@@ -161,8 +161,10 @@ agent**, enqueue one task or a burst, watch the tasks remain `SUBMITTED` in **Qu
 submitted**, then click **Resume simulated agent** and watch the same durable tasks
 drain and complete.
 
-No external LLM or agent process is required. See [QUEUE_LAB.md](QUEUE_LAB.md) for
-the full manual-testing guide and the optional Workflow controls.
+No external LLM or agent process is required. Queue Lab can also publish the selected
+task through the real local DLQ quarantine path with **Demo DLQ**, then Inspect/Replay
+it from the same page. See [QUEUE_LAB.md](QUEUE_LAB.md) for the full manual-testing
+guide and the optional Workflow controls.
 
 ---
 
