@@ -9,7 +9,7 @@ from contextlib import contextmanager
 from urllib.parse import urlsplit
 
 from .binding import assert_agent_card
-from .domain import PermanentError, RetryableError, canonical, require, state_of
+from .domain import PermanentError, RetryableError, TERMINAL, canonical, require, state_of
 from .http_boundary import BoundedJSON, sanitize_sdk_logs
 from .identity import BearerIdentity, current_principal
 
@@ -176,7 +176,9 @@ def create_bridge(api, verifier, *, public_url: str, profile: str = "workflow",
         async def on_subscribe_to_task(self, params, context):
             with mapped_errors():
                 caller = principal(params)
-                await api.get(caller, params.id)
+                task = await api.get(caller, params.id)
+                if state_of(task) in TERMINAL:
+                    raise errors.UnsupportedOperationError()
                 stream = events(api.snapshots(caller, params.id))
                 try:
                     async for event in stream:
