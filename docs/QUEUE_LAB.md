@@ -198,11 +198,15 @@ the normal task/message idempotency rules.
 
 ### Raw JSON-RPC
 
-The advanced panel lets you edit and send JSON-RPC manually. Presets are provided for
-`ListTasks`, `GetTask`, `CancelTask` and `SubscribeToTask`.
+The advanced panel lets you edit and send JSON-RPC manually. It defaults to the
+non-mutating `ListTasks` preset and also provides `SendMessage`,
+`SendStreamingMessage`, `GetTask`, `CancelTask` and `SubscribeToTask`.
 
-This is useful for deliberately changing parameters and observing protocol errors
-without writing a separate client.
+For streaming methods the exact JSON written in the editor is sent unchanged and
+the SSE events are shown in Activity; the raw console never reconstructs the request
+or hides a protocol error behind the UI's polling fallback. This is useful for
+deliberately changing parameters and observing protocol errors without writing a
+separate client.
 
 ## Local-lite versus Workflow
 
