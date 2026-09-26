@@ -8,7 +8,7 @@ from starlette.applications import Starlette
 from a2a_mq.domain import Envelope
 from a2a_mq.identity import Principal
 from a2a_mq.local_lite import LocalLiteSettings, create_app as create_lite
-from a2a_mq.local_workflow import LocalWorkflowSettings
+from a2a_mq.local_workflow import LocalWorkflowSettings, create_app as create_workflow
 from a2a_mq.queue_lab import create_queue_lab
 from a2a_mq.transport import cloud_event
 
@@ -369,5 +369,38 @@ async def test_local_lite_demo_deadletter_uses_persisted_command_and_real_bus_bo
         assert response.status_code == 200
         assert response.json() == {"queued": True, "taskId": task["id"]}
         assert seen == [(expected, "demo", "local", "QUEUE_LAB_DEMO", False)]
+    finally:
+        await app.state.a2amq_api.database.aclose()
+
+
+async def test_local_workflow_mounts_queue_lab_with_workflow_and_demo_dlq(tmp_path, monkeypatch):
+    app_token, dapr_token, keys = _files(tmp_path)
+    settings = LocalWorkflowSettings(
+        sqlite_path=str(tmp_path / "workflow-app.db"),
+        app_token_file=str(app_token),
+        dapr_token_file=str(dapr_token),
+        jwt_keys_file=str(keys),
+        issuer="https://local-a2amq.invalid",
+    )
+
+    class Identity:
+        audience = "http://127.0.0.1:18000"
+        issuer = "https://local-a2amq.invalid"
+
+    monkeypatch.setattr("a2a_mq.local_workflow.verifier", lambda settings, audience=None: Identity())
+    monkeypatch.setattr("a2a_mq.bridge.create_bridge", lambda *a, **k: Starlette())
+    app = create_workflow(settings)
+
+    try:
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://local"
+        ) as client:
+            response = await client.get("/lab/config")
+        assert response.status_code == 200
+        value = response.json()
+        assert value["profile"] == "local-workflow"
+        assert value["features"]["workflow"] is True
+        assert value["features"]["demoDeadLetter"] is True
+        assert value["features"]["agentPause"] is False
     finally:
         await app.state.a2amq_api.database.aclose()
