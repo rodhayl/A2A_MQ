@@ -311,7 +311,8 @@ def create_app(settings: LocalLiteSettings):
     replay = ReplayService(archive, database, bus,
                            allowed_routes=frozenset({settings.command_route, settings.event_route}))
 
-    async def demo_deadletter(task_id: str):
+    async def demo_deadletter(principal, task_id: str):
+        await api.get(principal, task_id)
         envelope = await database.call(ledger.command, task_id)
         await bus.quarantine(
             canonical(cloud_event(envelope)).encode(),
