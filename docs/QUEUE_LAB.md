@@ -183,6 +183,16 @@ The DLQ panel lists real archived dead letters through
 `/operations/deadletters`. Each record can be inspected through the authenticated
 record endpoint or replayed with a fresh replay request ID.
 
+For a deterministic manual DLQ test, select any real task and click **Demo DLQ**.
+The control requires `a2a:replay`; the generated local owner token already has that
+scope. Queue Lab does not insert a row directly. The server loads that task's
+persisted command envelope and publishes it through the real
+`DaprPublisher.quarantine()` path to the configured DLQ topic. The normal Dapr
+subscription then archives it, after which **Inspect** and **Replay** exercise the
+ordinary operations/replay path. Replaying the duplicate command remains subject to
+the normal task/message idempotency rules.
+
+
 ### Raw JSON-RPC
 
 The advanced panel lets you edit and send JSON-RPC manually. Presets are provided for
@@ -240,3 +250,37 @@ keys, app tokens, Dapr tokens, NATS credentials or raw SQLite access.
 
 For distributed/production environments, use the normal authenticated APIs and
 operational tooling instead of exposing this local manual console.
+
+## Focused Linux smoke before v0.1.0-rc2
+
+Do not replace this with a full certification run. For the Queue Lab handoff, verify
+these user-visible paths on a fresh Linux local profile:
+
+1. **Connect** — load the generated `client.jwt`; health/readiness and queue metrics
+   populate.
+2. **Ordinary task** — Echo and Uppercase each admit and complete; Inspect shows the
+   real A2A Task.
+3. **Pause / queue / resume** — pause the simulated agent, enqueue a Burst, confirm
+   the tasks remain `SUBMITTED`, cancel one while paused, resume, and confirm the
+   remaining tasks complete.
+4. **Streaming send** — `Enqueue + A2A stream` produces official
+   `SendStreamingMessage` SSE events and reaches a terminal task.
+5. **Subscribe** — subscribe to a non-terminal task and observe official
+   `SubscribeToTask` SSE. Confirm the UI refuses subscription on a terminal task.
+6. **DLQ / replay** — select a task, click **Demo DLQ**, wait for it to appear in
+   Dead letters, Inspect it, Replay it, and confirm replay does not corrupt or
+   duplicate the committed task result.
+7. **Raw console** — List/Get work; an intentionally invalid request returns the
+   protocol error without breaking the UI.
+8. **Session lifecycle** — Clear removes task/raw/activity data. If practical, replace
+   or invalidate the JWT and confirm a 401 clears authenticated data and allows
+   reconnect with the current token.
+9. **Workflow profile** — only targeted smoke: input-required continuation,
+   auth-required approve/reject, and a short delay. Do not rerun the historical
+   Workflow resource/soak certification.
+10. **Shutdown** — stop the profile and confirm no app/daprd/nats processes or local
+    ports from this run remain.
+
+The targeted automated checks for this handoff are documented in the agent prompt;
+full acceptance, Kubernetes, PostgreSQL, Vault, RabbitMQ and long soak runs are out
+of scope unless a focused failure proves they are directly affected.
