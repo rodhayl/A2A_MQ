@@ -557,7 +557,8 @@ def run(root: Path) -> int:
         import uvicorn
         print(json.dumps({"status": "starting", "profile": "local-lite",
                           "processes": {"app": os.getpid(), "daprd": sidecar.pid, "nats": nats.pid},
-                          "url": profile["publicUrl"]}, sort_keys=True), flush=True)
+                          "url": profile["publicUrl"],
+                          "labUrl": profile["publicUrl"].rstrip("/") + "/lab/"}, sort_keys=True), flush=True)
         config = uvicorn.Config("a2a_mq.local_lite:from_env", factory=True,
                                 host="127.0.0.1", port=18000, workers=1, log_level="warning")
         server = uvicorn.Server(config)
