@@ -1,67 +1,53 @@
 # Implementation guidance
 
-Read docs/IMPLEMENTATION_PLAN.md and docs/VALIDATION.md before changing scope.
-Preserve requirement/scenario IDs and document contract changes with an ADR.
-Run python tools/check.py and pytest; run ruff/mypy when installed. Never describe
-skipped infrastructure tests as passing. Commit a tested phase separately.
+Read these before changing the repository:
 
-Do not add a broker, workflow engine, crypto primitive or model dependency to the
-core. Never ACK an unfinished claim or execute arbitrary external side effects under
-reference-fixture exactly-once assumptions. Preserve tenant/consumer namespacing,
-immutable message IDs, fencing, transactional outbox and terminal guards.
-Keep spec/envelope.schema.json and packaged src/a2a_mq/schema.json byte-identical.
+1. `docs/README.md`
+2. `docs/STATUS.md`
+3. `docs/VALIDATION.md`
+4. the relevant ADR under `docs/adr/`
 
-## Local-product priority
+Everything under `docs/archive/` is historical context, not current instruction.
 
-For the owner's resource-constrained server, local economics is a correctness gate.
-Follow ADR 0011 and docs/LOCAL_RUNTIME.md.
+## Release invariants
 
-The default local product is already implemented as `a2a_mq.local_lite` plus the
-`a2amq-local` launcher. Its intended steady state is exactly:
+- Keep package version at `0.1.0` until an explicit release/version decision.
+- Do not modify protected `main` as part of branch hardening.
+- Never convert missing/skipped infrastructure into PASS.
+- Bind acceptance evidence to exact source SHA/tree.
+- Bind deployment evidence to exact image digest.
+- Keep `productionCertified=false` and `upstreamBindingCertified=false` unless
+  their actual certification mechanisms complete.
+- Keep `spec/envelope.schema.json` and `src/a2a_mq/schema.json` byte-identical.
+
+## Architecture invariants
+
+Default local-lite remains exactly:
 
 - one Python A2A-MQ process;
-- one native daprd;
-- one native nats-server;
+- one native `daprd`;
+- one native `nats-server`;
 - SQLite application state.
 
-Do not reintroduce PostgreSQL, Redis, Docker/Kubernetes, Vault, OTLP, Placement,
-Scheduler, multiple application roles or the Dapr Workflow Python runtime into the
-default local tier merely for convenience.
+Do not pull PostgreSQL, Redis, Kubernetes, Vault, OTLP, Placement, Scheduler or
+multiple app roles into local-lite merely for convenience. Workflow-only semantics
+belong to the optional Workflow tier.
 
-Local-lite deliberately rejects Workflow-only waits/timers/approval/input/fan-out.
-The optional `a2a_mq.local_workflow` / `a2amq-local-workflow` tier already
-reuses official Dapr Workflow with SQLite state plus Placement/Scheduler. Extend
-that tier rather than adding a second scheduler to local-lite. Do not make the
-five-process Workflow tier the default without separate resource evidence.
+Preserve tenant/consumer namespacing, immutable message IDs, fencing, transactional
+outbox behavior, terminal guards and explicit replay authorization. Do not claim
+generic exactly-once external effects.
 
-Before broad local testing, create the isolated venv and run the core resource probe
-from PROMPT_AGENT_LOCAL_TEST.md. A core PASS is followed by
-`scripts/local_python_probe.py`, which measures the actual local Python product
-and its maintenance loops without daprd/NATS. Only an exit-0
-`PASS_LOCAL_PYTHON` clears that second economic gate. After the
-core/Python/selected regressions pass, run the real three-process local stack probe
-with the repository-pinned private native bootstrap inside the current ignored
-`.local-validation` run directory.
-The acceptance gate deliberately does not trust an arbitrary same-version host
-daprd because JetStream requires Dapr's all-components flavor, which
-`--version`/`--build-info` do not identify. Require the bootstrap manifest and
-native-version check. Never install host binaries or services.
+## Validation discipline
 
-## Low-resource validation
+Run the narrowest relevant tests first. A source change invalidates prior SHA-bound
+evidence; rebuilding a container invalidates the old image-digest deployment
+evidence until the new image is exercised.
 
-Use an isolated project-local venv. Keep generated state under ignored
-`.local-validation/`. Start with `requirements/core-probe.txt`; only after the
-core resource gate passes extend the venv with eligible validation dependencies.
-The project's `.[local]` extra is only needed for an authorized real local-lite run.
+Do not repeat expensive resource/soak gates for documentation-only changes.
+Hosted CI's current pre-runner failure is not a repository test failure.
 
-Run one inspected test file at a time. Do not run Docker/full distributed stacks,
-parallel load tests or host package installation on this machine. Native
-PostgreSQL/Vault/Workflow/RabbitMQ/full-stack gates remain separate and unexecuted,
-not implicitly passed.
+## Documentation discipline
 
-For the 2026-09-22 audit follow-up, read `PROMPT_AGENT_LOCAL_FOLLOWUP.md` and
-`docs/validation/local-audit-20260922.md`. Include the new launcher/core-probe/stack-
-probe regression files. Missing measurements are INCOMPLETE, never zero-cost PASS;
-only exit 0 with the expected PASS verdict clears the respective economic gate.
-Preserve unpushed local work when updating and keep native measurements separate
-from core-only and synthetic fixture results.
+Keep active docs concise and current. Put superseded plans, prompts and historical
+execution reports under `docs/archive/`. ADRs are decision records and may retain
+historical state descriptions; `docs/STATUS.md` is the current source of truth.

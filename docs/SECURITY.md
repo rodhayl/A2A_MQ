@@ -1,66 +1,47 @@
-# Security model and implementation boundary
+# Security model — current v0.1.0 pre-release
 
 ## Trust boundaries
 
-Protect publishers, tenant routing, broker access, worker execution, task queries,
-SQL state, DLQ data and key material separately. An envelope's `source`, tenant,
-role, Agent Card or CloudEvent source is a claim, not authenticated identity. Bind
-those claims to workload credentials at authenticated ingress before production.
-The development echo worker trusts its configured local environment only.
+Treat publisher identity, tenant routing, broker access, worker execution, task
+queries, SQL state, DLQ data and key material as separate boundaries.
 
-Dapr-to-Dapr mTLS does not automatically encrypt/authenticate Dapr-to-NATS traffic.
-Use broker TLS and per-workload accounts/subject permissions, network isolation,
-Dapr scopes and API/app tokens. Topic filters in application code are defense in
-depth, not a hard isolation boundary. A query tenant parameter is not authorization:
-production query access must derive permitted tenants from a verified principal.
+Envelope/CloudEvent source fields are claims. Production authorization is derived
+from verified principals/workload configuration, not payload fields.
 
-## Threats and controls
+Dapr mTLS does not by itself secure Dapr-to-broker traffic. Production profiles
+require broker TLS/credentials, Dapr component scopes/tokens and network policy.
 
-| Threat | Control | Initial status |
-|---|---|---|
-| Duplicate/replayed command | Tenant/consumer inbox, immutable hash, expiry | Phases 1/3 |
-| Stale executor | Lease fencing at SQL commit | Phase 3 |
-| Conflicting snapshot | Owner/context/version checks | Phase 3 |
-| Malformed/large JSON | Byte/depth limits, strict schema, no executable deserialization | Phases 1/2 |
-| Leaked prompts in logs | Identifier-only logs; no exception/payload dumps | Phase 2 |
-| Forged source/tenant | Authenticated workload-to-policy mapping | Production phase 6 gate |
-| Broker/operator reads content | Optional payload encryption | Phase 7, unsupported until then |
-| Authorized endpoint compromise | Least privilege, isolation, key rotation | Residual risk |
+## Controls
 
-No production manifest is claimed secure before negative authorization tests. Local
-ports must bind loopback; container-internal listeners may bind all interfaces only
-on the isolated compose network. Never put real credentials in local example traffic.
+| Threat | Current control / evidence |
+| --- | --- |
+| Duplicate/replayed command | namespaced immutable identity/hash + inbox/outbox semantics; exercised by local/live acceptance |
+| Stale executor | lease fencing at SQL commit and takeover behavior |
+| Conflicting projection | owner/context/version monotonicity checks |
+| Malformed/large input | bounded strict JSON/schema validation |
+| Secret/prompt leakage | identifier-oriented logging and secret-file boundaries |
+| Forged owner/tenant | verified principal mapping; Kubernetes gate passed foreign-owner/cross-tenant denial |
+| Broker/operator payload exposure | optional Vault-backed payload protection; real TLS Vault gate passed |
+| Credential misuse | least privilege, Dapr scopes/tokens, role-specific secrets and deployment isolation |
+| Compromised authorized endpoint | residual risk; rotation/isolation/operator responsibility |
 
-## Future envelope encryption
+## Local versus distributed
 
-Use a vetted library: fresh 256-bit CEK per message, AES-256-GCM, fresh 96-bit nonce,
-and a vetted KMS/Vault wrapping operation per authorized worker group. Do not invent
-a cipher, deterministic nonce scheme or a global shared payload key. Freeze the
-canonical AAD serialization with test vectors before implementation. Authenticate
-version, tenant, message/operation, source/target, correlation/causation, task/context,
-sequence, creation/expiry and content metadata. Do not authenticate mutable hop data.
+Local examples bind loopback and are not production trust boundaries. SQLite is
+single-host. Production manifests use digest-pinned images, non-root/read-only
+containers, dropped capabilities, Dapr mTLS and secret references.
 
-Group AEAD proves possession of group key material, not an individual sender. Sender
-authentication requires a transport identity binding or signatures. A broker cannot
-hide route, timing and approximate sizes; ciphertext does not stop traffic analysis.
-Encryption also does not prevent replay. Retain dedup and old decrypt keys through
-the maximum supported replay window. Loss of an old key can make retained data
-unrecoverable; revocation may intentionally trade availability for containment.
+## Payload encryption contract
 
-Key-policy failure is permanent; temporary KMS outage is retryable. Neither may
-fall back to plaintext. Protect task DBs, backups, artifact URLs and DLQs too:
-transport encryption does not encrypt those automatically. Authorized plaintext
-endpoints and their model/tool providers remain inside the confidentiality boundary.
+Optional transport protection uses vetted authenticated encryption and Vault Transit
+key wrapping with routing metadata authenticated as AAD. Queued/replayed ciphertext
+requires compatible read-key windows during rotation.
 
-## Safe execution and release gate
+Transport protection does not imply encryption of SQL/Workflow history; storage and
+backup encryption remain infrastructure responsibilities.
 
-The reference effect is local SQL. Future tool execution must not treat model output
-as authority, expose arbitrary shell execution, or pass credentials in task text.
-`AUTH_REQUIRED` uses scoped delegated references, not shared passwords. Do not
-fetch arbitrary artifact URLs in the codec. SSRF and artifact authorization are
-bridge/runtime controls when URL fetching is introduced.
+## Evidence boundary
 
-## Production gate: broker TLS/auth, isolated subjects/accounts, token checks, query
-principal mapping, secret store, restricted DLQ access, negative cross-tenant tests,
-log audit, backup protection and bounded resource/retention settings. Optional
-crypto additionally requires tamper, wrong-recipient, replay and rotation tests.
+The JetStream Kubernetes gate verified authenticated A2A/MCP access, negative
+owner/tenant paths and workload security configuration. This is acceptance evidence,
+not a signed security certification. `productionCertified` remains false.
