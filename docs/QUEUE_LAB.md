@@ -45,8 +45,9 @@ Load the generated local owner token from the profile directory:
 
 Use **Load file** in the browser, or paste the token manually.
 
-The JWT is kept only in browser `sessionStorage`. All task, operations and replay
-requests continue through the normal bearer-authenticated A2A-MQ HTTP surfaces.
+The JWT is kept only in browser `sessionStorage`. Task, operations, replay and the
+local pause/resume control continue through bearer-authenticated A2A-MQ HTTP
+surfaces; Queue Lab does not persist the token server-side.
 
 ## What you can test
 
@@ -69,19 +70,27 @@ watching task/backlog values change.
 Under **local-lite**, Queue Lab exposes **Pause simulated agent**.
 
 This does not stop A2A-MQ, Dapr, JetStream or durable admission. New tasks still
-enter through the real A2A API and are published normally, but local `start` actions
-remain pending instead of being executed.
+enter through the real A2A API, are durably admitted in SQLite and are published to
+JetStream. While paused, the local command delivery is held before `ledger.accept`,
+so the task remains `SUBMITTED` and no `start` action is created until delivery is
+accepted.
 
 A useful manual scenario is:
 
 1. click **Pause simulated agent**;
 2. enqueue one task or choose **Burst / queue view**;
-3. watch Active tasks / Pending actions and task states;
+3. watch **Queued / submitted**, Active tasks and task states;
 4. inspect or cancel queued tasks;
 5. click **Resume simulated agent**;
 6. watch the same durable tasks drain and complete.
 
 Cancellation remains available while execution is paused.
+
+The pause is intended for short manual experiments. The callback waits for resume
+within its normal timeout; if the pause outlives that timeout, A2A-MQ returns the
+normal retry result and Dapr/JetStream redelivery policy applies. An indefinitely
+paused consumer can therefore eventually exercise the configured DLQ path rather
+than creating an artificial infinite hold.
 
 This control exists only in local-lite. The Workflow profile already has a real Dapr
 Workflow runtime, so Queue Lab does not fake a Workflow-worker pause switch.
@@ -134,6 +143,7 @@ does not implement Workflow-only semantics.
 The dashboard reads `/operations/status` and displays:
 
 - active tasks;
+- queued/submitted tasks visible in the current task page;
 - total task records;
 - pending actions;
 - pending publications;
@@ -142,8 +152,8 @@ The dashboard reads `/operations/status` and displays:
 ### Dead letters
 
 The DLQ panel lists real archived dead letters through
-`/operations/deadletters`. Replay uses the authenticated replay endpoint and a
-fresh replay request ID.
+`/operations/deadletters`. Each record can be inspected through the authenticated
+record endpoint or replayed with a fresh replay request ID.
 
 ### Raw JSON-RPC
 
@@ -168,7 +178,9 @@ required.
 For timers/input/approval, prepare the Workflow profile instead:
 
 ```bash
-python scripts/bootstrap_local_tools.py   --output .local-validation/workflow-tools   --workflow
+python scripts/bootstrap_local_tools.py \
+  --output .local-validation/workflow-tools \
+  --workflow
 export PATH="$PWD/.local-validation/workflow-tools/bin:$PATH"
 
 python -m pip install -e '.[local,local-workflow]'
