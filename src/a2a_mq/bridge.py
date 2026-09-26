@@ -88,8 +88,10 @@ def create_bridge(api, verifier, *, public_url: str, profile: str = "workflow",
                                     detail=error.code) from None
             if error.code == "TASK_NOT_FOUND":
                 raise errors.TaskNotFoundError() from None
-            if error.code in {"TASK_NOT_CANCELABLE", "TASK_TERMINAL"}:
+            if error.code == "TASK_NOT_CANCELABLE":
                 raise errors.TaskNotCancelableError() from None
+            if error.code == "TASK_TERMINAL":
+                raise errors.UnsupportedOperationError() from None
             if error.code == "PUSH_NOTIFICATIONS_UNSUPPORTED":
                 raise errors.PushNotificationNotSupportedError() from None
             if error.code == "CONTENT_TYPE_UNSUPPORTED":
