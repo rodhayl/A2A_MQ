@@ -21,7 +21,7 @@ from .bridge import create_bridge
 from .configuration import https_issuer, read_file, verifier
 from .deadletters import DeadLetters, ReplayService
 from .dlq_callback import create_dlq_callback
-from .domain import Envelope, PermanentError, TERMINAL, load_json, require, state_of, token
+from .domain import Envelope, PermanentError, RetryableError, TERMINAL, load_json, require, state_of, token
 from .maintenance import Operations
 from .operations_http import create_operations
 from .recovery import AdmissionRepair
@@ -263,6 +263,7 @@ def create_app(settings: LocalLiteSettings):
                         max_records=settings.max_records)
     api = LocalLiteTaskAPI(ledger, database, wait_timeout=settings.callback_timeout)
     agent_pause = Event()
+    agent_shutdown = Event()
     actions = LocalLiteActions(ledger)
     identity = verifier(settings)
 
@@ -273,7 +274,11 @@ def create_app(settings: LocalLiteSettings):
         # attempts; the subscriber's existing callback timeout remains the upper
         # bound and converts an excessively long pause into the normal RETRY path.
         while agent_pause.is_set():
+            if agent_shutdown.is_set():
+                raise RetryableError("SERVICE_SHUTTING_DOWN")
             await asyncio.sleep(min(0.1, settings.callback_timeout / 4))
+        if agent_shutdown.is_set():
+            raise RetryableError("SERVICE_SHUTTING_DOWN")
         await database.call(ledger.accept, envelope)
 
     running = {"value": False}
@@ -357,6 +362,7 @@ def create_app(settings: LocalLiteSettings):
     @asynccontextmanager
     async def lifespan(app):
         stop = asyncio.Event()
+        agent_shutdown.clear()
         async with AsyncExitStack() as stack:
             stack.push_async_callback(_close_local_resources, database, bus)
             if mcp_server is not None:
@@ -381,6 +387,7 @@ def create_app(settings: LocalLiteSettings):
                 yield
             finally:
                 running["value"] = False
+                agent_shutdown.set()
                 stop.set()
                 for job in jobs:
                     if not job.done():
