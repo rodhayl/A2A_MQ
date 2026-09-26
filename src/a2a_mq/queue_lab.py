@@ -148,7 +148,7 @@ LAB_HTML = """<!doctype html>
         </label>
       </details>
 
-      <div id="workflow-note" class="notice"></div>
+      <div id="workflow-note" class="notice" hidden></div>
 
       <div class="actions">
         <button id="send">Enqueue</button>
@@ -405,7 +405,6 @@ label { color: var(--muted); display: grid; gap: 6px; }
 .connection-info { margin-top: 10px; color: var(--muted); font-size: 12px; }
 .route { color: var(--accent2); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
 .notice {
-  display: none;
   margin-top: 12px;
   border: 1px solid rgba(255,204,102,.35);
   background: rgba(255,204,102,.07);
@@ -413,6 +412,8 @@ label { color: var(--muted); display: grid; gap: 6px; }
   border-radius: 10px;
   padding: 10px 12px;
 }
+.notice[hidden] { display: none; }
+.workflow-field.disabled-feature { opacity: .48; }
 .actions { margin-top: 14px; flex-wrap: wrap; }
 details { margin-top: 12px; }
 summary { cursor: pointer; color: var(--muted); margin-bottom: 9px; }
@@ -640,11 +641,11 @@ LAB_JS = r"""
       node.querySelectorAll("input,select").forEach(function (input) {
         input.disabled = !workflow;
       });
-      node.style.opacity = workflow ? "1" : ".48";
+      node.classList.toggle("disabled-feature", !workflow);
     });
     const note = $("#workflow-note");
+    note.hidden = workflow;
     if (!workflow) {
-      note.style.display = "block";
       note.textContent =
         "Local-lite executes immediate echo/upper tasks only. Input, approval and delay controls are real Workflow features; start a2amq-local-workflow to enable them.";
     }
