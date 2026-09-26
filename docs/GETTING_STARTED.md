@@ -104,7 +104,7 @@ a2amq-local run .local-validation/local-lite
 Expected startup output:
 
 ```json
-{"processes": {"app": 1018277, "daprd": 1018316, "nats": 1018286}, "profile": "local-lite", "status": "starting", "url": "http://127.0.0.1:18000"}
+{"labUrl": "http://127.0.0.1:18000/lab/", "processes": {"app": 1018277, "daprd": 1018316, "nats": 1018286}, "profile": "local-lite", "status": "starting", "url": "http://127.0.0.1:18000"}
 ```
 
 At steady state, exactly three processes run:
@@ -140,6 +140,28 @@ You can also fetch the official A2A Agent Card:
 ```bash
 curl -s http://127.0.0.1:18000/.well-known/agent-card.json
 ```
+
+---
+
+### Graphical/manual testing with Queue Lab
+
+Open:
+
+```text
+http://127.0.0.1:18000/lab/
+```
+
+Load `.local-validation/local-lite/client.jwt` using the **Load file** button. Queue Lab
+then lets you enqueue custom or preset tasks, inspect queue/backlog values, follow or
+subscribe to task state, cancel tasks, inspect/replay dead letters and use a raw
+JSON-RPC console.
+
+For an actual **producer online / simulated agent offline** test, click **Pause simulated
+agent**, enqueue one task or a burst, inspect the pending queue, then click **Resume
+simulated agent** and watch the same durable tasks drain and complete.
+
+No external LLM or agent process is required. See [QUEUE_LAB.md](QUEUE_LAB.md) for
+the full manual-testing guide and the optional Workflow controls.
 
 ---
 
