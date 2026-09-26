@@ -5,7 +5,7 @@ from threading import Event
 import httpx
 from starlette.applications import Starlette
 
-from a2a_mq.domain import Envelope
+from a2a_mq.domain import Envelope, canonical
 from a2a_mq.identity import Principal
 from a2a_mq.local_lite import LocalLiteSettings, create_app as create_lite
 from a2a_mq.local_workflow import LocalWorkflowSettings, create_app as create_workflow
@@ -291,8 +291,8 @@ async def test_queue_lab_demo_deadletter_requires_replay_scope(tmp_path):
                 raise PermanentError("UNAUTHENTICATED")
             return Principal("owner", "demo", frozenset(scopes))
 
-    async def demo(task_id):
-        called.append(task_id)
+    async def demo(principal, task_id):
+        called.append((principal.subject, task_id))
 
     app = create_queue_lab(
         settings,
@@ -316,7 +316,7 @@ async def test_queue_lab_demo_deadletter_requires_replay_scope(tmp_path):
 
     assert accepted.status_code == 200
     assert accepted.json() == {"queued": True, "taskId": "task-1"}
-    assert called == ["task-1"]
+    assert called == [("owner", "task-1")]
 
 
 async def test_local_lite_demo_deadletter_uses_persisted_command_and_real_bus_boundary(
@@ -329,12 +329,13 @@ async def test_local_lite_demo_deadletter_uses_persisted_command_and_real_bus_bo
         issuer = "https://local-a2amq.invalid"
 
         def verify(self, encoded):
-            assert encoded == "replay-token"
-            return Principal(
-                "owner",
-                "demo",
-                frozenset({"a2a:send", "a2a:read", "a2a:cancel", "a2a:replay"}),
-            )
+            identities = {
+                "replay-token": ("owner", {"a2a:send", "a2a:read", "a2a:cancel", "a2a:replay"}),
+                "other-token": ("other", {"a2a:read", "a2a:replay"}),
+            }
+            assert encoded in identities
+            subject, scopes = identities[encoded]
+            return Principal(subject, "demo", frozenset(scopes))
 
     verifier = Verifier()
     monkeypatch.setattr("a2a_mq.local_lite.verifier", lambda settings, audience=None: verifier)
@@ -350,7 +351,7 @@ async def test_local_lite_demo_deadletter_uses_persisted_command_and_real_bus_bo
         },
         "configuration": {"returnImmediately": True},
     })
-    expected = ledger.command(task["id"]).wire.encode()
+    expected = canonical(cloud_event(ledger.command(task["id"]))).encode()
     seen = []
 
     async def quarantine(raw, tenant, consumer, reason, truncated=False):
@@ -362,10 +363,15 @@ async def test_local_lite_demo_deadletter_uses_persisted_command_and_real_bus_bo
         async with httpx.AsyncClient(
             transport=httpx.ASGITransport(app=app), base_url="http://local"
         ) as client:
+            hidden = await client.post(
+                "/lab/control/deadletter/" + task["id"],
+                headers={"Authorization": "Bearer other-token"},
+            )
             response = await client.post(
                 "/lab/control/deadletter/" + task["id"],
                 headers={"Authorization": "Bearer replay-token"},
             )
+        assert hidden.status_code in {403, 404}
         assert response.status_code == 200
         assert response.json() == {"queued": True, "taskId": task["id"]}
         assert seen == [(expected, "demo", "local", "QUEUE_LAB_DEMO", False)]
