@@ -1371,8 +1371,6 @@ LAB_JS = r"""
   }
 
   async function connect() {
-    state.sessionEpoch += 1;
-    state.authenticated = false;
     let value;
     try {
       value = validateToken(token());
@@ -1380,6 +1378,8 @@ LAB_JS = r"""
       log(error.message, "error");
       return;
     }
+    state.sessionEpoch += 1;
+    state.authenticated = false;
     try {
       const card = await fetchJSON("/.well-known/agent-card.json", {}, false);
       await rpc("ListTasks", {pageSize: 1});
@@ -1421,6 +1421,7 @@ LAB_JS = r"""
     state.sessionEpoch += 1;
     state.authenticated = false;
     $("#token").value = "";
+    $("#token-file").value = "";
     state.tasks = [];
     state.selected = null;
     renderTasks();
@@ -1442,6 +1443,7 @@ LAB_JS = r"""
       return;
     }
     $("#token").value = (await file.text()).trim();
+    event.target.value = "";
     connect();
   });
   $("#preset").addEventListener("change", applyPreset);
