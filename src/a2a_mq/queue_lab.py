@@ -509,6 +509,7 @@ LAB_JS = r"""
   const $ = function (selector) { return document.querySelector(selector); };
   const state = {
     token: sessionStorage.getItem("a2amq.queueLab.token") || "",
+    authenticated: false,
     config: null,
     tasks: [],
     selected: null,
@@ -573,8 +574,13 @@ LAB_JS = r"""
       catch (_) { value = {raw: text}; }
     }
     if (!response.ok) {
+      if (authenticated !== false && response.status === 401) {
+        state.authenticated = false;
+      }
       const detail = value.error || value.detail || value;
-      throw new Error(response.status + " " + JSON.stringify(detail));
+      const suffix = response.status === 401 && authenticated !== false ?
+        " — reload the current client.jwt and reconnect" : "";
+      throw new Error(response.status + " " + JSON.stringify(detail) + suffix);
     }
     return value;
   }
@@ -653,7 +659,7 @@ LAB_JS = r"""
   }
 
   async function refreshAgentControl() {
-    if (!state.config || !state.config.features.agentPause || !token()) return;
+    if (!state.config || !state.config.features.agentPause || !state.authenticated) return;
     try {
       const value = await fetchJSON("/lab/control/agent");
       const button = $("#toggle-agent");
@@ -708,7 +714,7 @@ LAB_JS = r"""
   }
 
   async function refreshMetrics() {
-    if (!token()) return;
+    if (!state.authenticated) return;
     try {
       const value = await fetchJSON("/operations/status");
       $("#m-active").textContent = value.activeTasks ?? "–";
@@ -723,7 +729,7 @@ LAB_JS = r"""
   }
 
   async function refreshDLQ() {
-    if (!token()) return;
+    if (!state.authenticated) return;
     try {
       const value = await fetchJSON("/operations/deadletters?limit=50");
       const items = Array.isArray(value) ? value :
@@ -795,7 +801,7 @@ LAB_JS = r"""
   }
 
   async function listTasks() {
-    if (!token()) return;
+    if (!state.authenticated) return;
     try {
       const result = await rpc("ListTasks", {pageSize: 100, includeArtifacts: true});
       const value = result && result.tasks ? result : (result && result.result ? result.result : {});
@@ -903,7 +909,7 @@ LAB_JS = r"""
 
   async function refreshAll() {
     await refreshHealth();
-    if (token()) {
+    if (state.authenticated) {
       await Promise.all([refreshMetrics(), listTasks(), refreshDLQ(), refreshAgentControl()]);
       if (state.selected) await selectTask(state.selected.id);
     }
@@ -1295,10 +1301,13 @@ LAB_JS = r"""
     try {
       const card = await fetchJSON("/.well-known/agent-card.json", {}, false);
       await rpc("ListTasks", {pageSize: 1});
+      state.authenticated = true;
       sessionStorage.setItem("a2amq.queueLab.token", value);
       log("Authenticated connection ready", "ok", {name: card.name, version: card.version});
       await refreshAll();
     } catch (error) {
+      state.authenticated = false;
+      sessionStorage.removeItem("a2amq.queueLab.token");
       log("Connection/authentication failed: " + error.message, "error");
     }
   }
@@ -1310,7 +1319,7 @@ LAB_JS = r"""
       state.autoRefreshing = true;
       try {
         await refreshHealth();
-        if ($("#auto-refresh").checked && token()) {
+        if ($("#auto-refresh").checked && state.authenticated) {
           await Promise.all([refreshMetrics(), listTasks()]);
         }
       } finally {
@@ -1323,6 +1332,7 @@ LAB_JS = r"""
   $("#connect").addEventListener("click", connect);
   $("#clear-token").addEventListener("click", function () {
     sessionStorage.removeItem("a2amq.queueLab.token");
+    state.authenticated = false;
     $("#token").value = "";
     state.tasks = [];
     state.selected = null;
