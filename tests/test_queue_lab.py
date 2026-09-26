@@ -217,6 +217,7 @@ async def test_local_lite_pause_retries_real_dapr_delivery_until_resumed(tmp_pat
         assert accepted.json() == {"status": "SUCCESS"}
 
     assert any(a.task_id == task["id"] for a in ledger.pending(("start",)))
+    await app.state.a2amq_api.database.aclose()
 
 
 async def test_local_lite_pause_resumes_same_inflight_delivery_without_redelivery(tmp_path, monkeypatch):
@@ -270,3 +271,4 @@ async def test_local_lite_pause_resumes_same_inflight_delivery_without_redeliver
 
     assert accepted.json() == {"status": "SUCCESS"}
     assert any(a.task_id == task["id"] for a in ledger.pending(("start",)))
+    await app.state.a2amq_api.database.aclose()
