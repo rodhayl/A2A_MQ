@@ -1391,6 +1391,9 @@ LAB_JS = r"""
   $("#token").value = state.token;
   $("#connect").addEventListener("click", connect);
   $("#clear-token").addEventListener("click", function () {
+    stopStream();
+    state.followTimers.forEach(function (handle) { clearTimeout(handle); });
+    state.followTimers.clear();
     sessionStorage.removeItem("a2amq.queueLab.token");
     state.authenticated = false;
     $("#token").value = "";
@@ -1402,7 +1405,9 @@ LAB_JS = r"""
       .forEach(function (id) { $(id).textContent = "–"; });
     $("#dlq-list").textContent = "No data loaded.";
     $("#connection-info").textContent = "";
-    log("JWT and authenticated task data cleared from this tab.");
+    $("#raw-response").textContent = "Ready.";
+    rawPreset();
+    $("#activity-log").textContent = "";
   });
   $("#token-file").addEventListener("change", async function (event) {
     const file = event.target.files && event.target.files[0];
