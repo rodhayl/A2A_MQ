@@ -1,8 +1,10 @@
 import json
+from threading import Event
 
 import httpx
 from starlette.applications import Starlette
 
+from a2a_mq.identity import Principal
 from a2a_mq.local_lite import LocalLiteSettings, create_app as create_lite
 from a2a_mq.local_workflow import LocalWorkflowSettings
 from a2a_mq.queue_lab import create_queue_lab
@@ -79,6 +81,7 @@ async def test_queue_lab_workflow_config_enables_real_workflow_controls(tmp_path
         "delay": True,
         "streaming": True,
         "dlqReplay": True,
+        "agentPause": False,
     }
 
 
@@ -103,3 +106,32 @@ async def test_local_lite_mounts_queue_lab_without_auth_bypass(tmp_path, monkeyp
     assert lab.status_code == 200
     assert config.status_code == 200
     assert operations.status_code == 401
+
+
+async def test_queue_lab_agent_pause_control_requires_real_bearer_authorization(tmp_path):
+    settings = _lite_settings(tmp_path)
+    paused = Event()
+
+    class Verifier:
+        def verify(self, encoded):
+            assert encoded == "lab-token"
+            return Principal("owner", "demo", frozenset({"a2a:operate"}))
+
+    app = create_queue_lab(
+        settings, profile="local-lite", verifier=Verifier(), agent_pause=paused
+    )
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://local"
+    ) as client:
+        assert (await client.get("/control/agent")).status_code == 401
+        headers = {"Authorization": "Bearer lab-token"}
+        initial = await client.get("/control/agent", headers=headers)
+        changed = await client.post(
+            "/control/agent", headers=headers, json={"paused": True}
+        )
+        final = await client.get("/control/agent", headers=headers)
+
+    assert initial.json() == {"paused": False}
+    assert changed.json() == {"paused": True}
+    assert final.json() == {"paused": True}
+    assert paused.is_set()
