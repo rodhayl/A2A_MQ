@@ -1663,10 +1663,11 @@ def create_queue_lab(settings, *, profile: str, verifier=None, agent_pause=None,
 
         if demo_deadletter is not None:
             async def deadletter_control(request):
-                current_principal().authorize("replay", settings.tenant)
+                principal = current_principal()
+                principal.authorize("replay", settings.tenant)
                 task_id = request.path_params["task_id"]
                 require(isinstance(task_id, str) and 0 < len(task_id) <= 256, "INVALID_TASK_ID")
-                await demo_deadletter(task_id)
+                await demo_deadletter(principal, task_id)
                 return JSONResponse(
                     {"queued": True, "taskId": task_id},
                     headers=SECURITY_HEADERS,
