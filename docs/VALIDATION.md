@@ -3,13 +3,21 @@
 This file indexes current evidence. Historical phase/audit/resource records are under
 [archive/validation](archive/validation/) and remain bound to their recorded SHAs.
 
-## Source provenance
+## Evidence provenance
+
+Formal FULL_PASS evidence is bound to:
 
 - source SHA: `45c459c632977143b8681c055847775e88d7ad97`
 - tree: `23fdbcdf30adedf984c631b8a060442cc97b426a`
 - package: `0.1.0`
 
-Documentation-only commits after this SHA do not alter the tested source.
+The tagged `v0.1.0-rc1` checkpoint is separately backed by the focused local
+user-smoke recorded in STATUS.md.
+
+The working branch now includes **post-RC1 Queue Lab source changes**. Therefore the
+current branch HEAD must not be described as FULL_PASS or RC1-smoke-tested merely by
+inheritance. Queue Lab requires its own focused tests/browser smoke before the next
+release-candidate tag.
 
 ## Formal acceptance — FULL_PASS
 
