@@ -9,9 +9,11 @@ from __future__ import annotations
 
 from starlette.applications import Starlette
 from starlette.responses import HTMLResponse, JSONResponse, Response
-from starlette.routing import Route
+from starlette.routing import Mount, Route
 
 from .domain import require
+from .http_boundary import BoundedJSON
+from .identity import BearerIdentity, current_principal
 
 
 LAB_HTML = """<!doctype html>
@@ -33,6 +35,7 @@ LAB_HTML = """<!doctype html>
       <span id="profile-badge" class="badge">loading…</span>
       <span id="health-live" class="status neutral">live</span>
       <span id="health-ready" class="status neutral">ready</span>
+      <button id="toggle-agent" class="ghost" hidden>Pause simulated agent</button>
     </div>
   </header>
 
@@ -614,6 +617,14 @@ LAB_JS = r"""
       " · command=" + state.config.commandRoute +
       " · event=" + state.config.eventRoute;
 
+    const pauseButton = $("#toggle-agent");
+    if (state.config.features.agentPause) {
+      pauseButton.hidden = false;
+      refreshAgentControl();
+    } else {
+      pauseButton.hidden = true;
+    }
+
     const workflow = !!state.config.features.workflow;
     document.querySelectorAll(".workflow-field").forEach(function (node) {
       node.querySelectorAll("input,select").forEach(function (input) {
@@ -626,6 +637,39 @@ LAB_JS = r"""
       note.style.display = "block";
       note.textContent =
         "Local-lite executes immediate echo/upper tasks only. Input, approval and delay controls are real Workflow features; start a2amq-local-workflow to enable them.";
+    }
+  }
+
+  async function refreshAgentControl() {
+    if (!state.config || !state.config.features.agentPause || !token()) return;
+    try {
+      const value = await fetchJSON("/lab/control/agent");
+      const button = $("#toggle-agent");
+      button.dataset.paused = value.paused ? "true" : "false";
+      button.textContent = value.paused ? "Resume simulated agent" : "Pause simulated agent";
+      button.className = value.paused ? "secondary" : "ghost";
+    } catch (error) {
+      log("Agent control refresh failed: " + error.message, "error");
+    }
+  }
+
+  async function toggleAgent() {
+    const button = $("#toggle-agent");
+    const paused = button.dataset.paused !== "true";
+    try {
+      const value = await fetchJSON("/lab/control/agent", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({paused: paused})
+      });
+      button.dataset.paused = value.paused ? "true" : "false";
+      button.textContent = value.paused ? "Resume simulated agent" : "Pause simulated agent";
+      button.className = value.paused ? "secondary" : "ghost";
+      log(value.paused ? "Simulated agent paused; new tasks will remain queued." :
+        "Simulated agent resumed; queued tasks can drain.", "ok");
+      await refreshAll();
+    } catch (error) {
+      log("Agent control failed: " + error.message, "error");
     }
   }
 
@@ -822,7 +866,7 @@ LAB_JS = r"""
   async function refreshAll() {
     await refreshHealth();
     if (token()) {
-      await Promise.all([refreshMetrics(), listTasks(), refreshDLQ()]);
+      await Promise.all([refreshMetrics(), listTasks(), refreshDLQ(), refreshAgentControl()]);
       if (state.selected) await selectTask(state.selected.id);
     }
   }
@@ -1150,6 +1194,7 @@ LAB_JS = r"""
   $("#raw-preset").addEventListener("change", rawPreset);
   $("#run-raw").addEventListener("click", runRaw);
   $("#clear-log").addEventListener("click", function () { $("#activity-log").innerHTML = ""; });
+  $("#toggle-agent").addEventListener("click", toggleAgent);
 
   rawPreset();
   applyPreset();
@@ -1179,7 +1224,7 @@ SECURITY_HEADERS = {
 }
 
 
-def create_queue_lab(settings, *, profile: str) -> Starlette:
+def create_queue_lab(settings, *, profile: str, verifier=None, agent_pause=None) -> Starlette:
     """Return the loopback-only manual Queue Lab web application."""
     require(profile in {"local-lite", "local-workflow"}, "INVALID_RUNTIME_PROFILE")
     config = {
@@ -1196,6 +1241,7 @@ def create_queue_lab(settings, *, profile: str) -> Starlette:
             "delay": profile == "local-workflow",
             "streaming": True,
             "dlqReplay": True,
+            "agentPause": profile == "local-lite" and agent_pause is not None,
         },
     }
 
@@ -1211,9 +1257,31 @@ def create_queue_lab(settings, *, profile: str) -> Starlette:
     async def lab_config(request):
         return JSONResponse(config, headers=SECURITY_HEADERS)
 
-    return Starlette(routes=[
+    routes = [
         Route("/", index, methods=["GET"]),
         Route("/app.css", css, methods=["GET"]),
         Route("/app.js", js, methods=["GET"]),
         Route("/config", lab_config, methods=["GET"]),
-    ])
+    ]
+
+    if agent_pause is not None:
+        require(verifier is not None, "INVALID_IDENTITY_CONFIG")
+
+        async def agent_control(request):
+            current_principal().authorize("operate", settings.tenant)
+            if request.method == "POST":
+                value = await request.json()
+                require(isinstance(value, dict) and set(value) == {"paused"}
+                        and type(value["paused"]) is bool, "INVALID_OPERATION")
+                if value["paused"]:
+                    agent_pause.set()
+                else:
+                    agent_pause.clear()
+            return JSONResponse({"paused": agent_pause.is_set()}, headers=SECURITY_HEADERS)
+
+        protected = BearerIdentity(BoundedJSON(Starlette(routes=[
+            Route("/agent", agent_control, methods=["GET", "POST"]),
+        ])), verifier)
+        routes.append(Mount("/control", protected))
+
+    return Starlette(routes=routes)
