@@ -207,6 +207,7 @@ LAB_HTML = """<!doctype html>
         <button id="task-approve" class="ghost" disabled>Approve</button>
         <button id="task-reject" class="ghost danger" disabled>Reject</button>
         <button id="task-cancel" class="ghost danger" disabled>Cancel</button>
+        <button id="task-demo-dlq" class="ghost" hidden disabled>Demo DLQ</button>
       </div>
       <pre id="task-json" class="json-view">Select a task.</pre>
     </section>
@@ -672,6 +673,8 @@ LAB_JS = r"""
       pauseButton.hidden = true;
     }
 
+    $("#task-demo-dlq").hidden = !state.config.features.demoDeadLetter;
+
     const workflow = !!state.config.features.workflow;
     document.querySelectorAll(".workflow-field").forEach(function (node) {
       node.querySelectorAll("input,select").forEach(function (input) {
@@ -935,7 +938,7 @@ LAB_JS = r"""
   function renderSelected() {
     const task = state.selected;
     const buttons = ["#continuation-text", "#task-follow", "#task-subscribe", "#task-continue",
-      "#task-approve", "#task-reject", "#task-cancel"];
+      "#task-approve", "#task-reject", "#task-cancel", "#task-demo-dlq"];
     buttons.forEach(function (id) { $(id).disabled = !task; });
     if (!task) {
       $("#selected-state").textContent = "none";
@@ -951,6 +954,7 @@ LAB_JS = r"""
     $("#task-reject").disabled = st !== "AUTH_REQUIRED";
     $("#task-subscribe").disabled = terminal.has(st);
     $("#task-cancel").disabled = terminal.has(st);
+    $("#task-demo-dlq").disabled = !state.config.features.demoDeadLetter;
   }
 
   async function refreshAll() {
@@ -1279,6 +1283,21 @@ LAB_JS = r"""
     }
   }
 
+  async function demoDeadLetterSelected() {
+    if (!state.selected || !requireConnected()) return;
+    try {
+      const value = await fetchJSON(
+        "/lab/control/deadletter/" + encodeURIComponent(state.selected.id),
+        {method: "POST"}
+      );
+      log("Demo dead letter published through Dapr", "ok", value);
+      setTimeout(refreshDLQ, 500);
+      setTimeout(refreshDLQ, 1500);
+    } catch (error) {
+      log("Demo DLQ injection failed: " + error.message, "error");
+    }
+  }
+
   async function cancelSelected() {
     if (!state.selected || !requireConnected()) return;
     try {
@@ -1476,6 +1495,7 @@ LAB_JS = r"""
   $("#task-approve").addEventListener("click", function () { approveSelected(true); });
   $("#task-reject").addEventListener("click", function () { approveSelected(false); });
   $("#task-cancel").addEventListener("click", cancelSelected);
+  $("#task-demo-dlq").addEventListener("click", demoDeadLetterSelected);
   $("#refresh-dlq").addEventListener("click", refreshDLQ);
   $("#raw-preset").addEventListener("change", rawPreset);
   $("#run-raw").addEventListener("click", runRaw);
@@ -1510,7 +1530,8 @@ SECURITY_HEADERS = {
 }
 
 
-def create_queue_lab(settings, *, profile: str, verifier=None, agent_pause=None) -> Starlette:
+def create_queue_lab(settings, *, profile: str, verifier=None, agent_pause=None,
+                     demo_deadletter=None) -> Starlette:
     """Return the loopback-only manual Queue Lab web application."""
     require(profile in {"local-lite", "local-workflow"}, "INVALID_RUNTIME_PROFILE")
     config = {
@@ -1528,6 +1549,7 @@ def create_queue_lab(settings, *, profile: str, verifier=None, agent_pause=None)
             "streaming": True,
             "dlqReplay": True,
             "agentPause": profile == "local-lite" and agent_pause is not None,
+            "demoDeadLetter": demo_deadletter is not None,
         },
     }
 
@@ -1550,31 +1572,51 @@ def create_queue_lab(settings, *, profile: str, verifier=None, agent_pause=None)
         Route("/config", lab_config, methods=["GET"]),
     ]
 
-    if agent_pause is not None:
+    if agent_pause is not None or demo_deadletter is not None:
         require(verifier is not None, "INVALID_IDENTITY_CONFIG")
+        control_routes = []
 
-        async def agent_control(request):
-            current_principal().authorize("operate", settings.tenant)
-            if request.method == "POST":
-                value = await request.json()
-                require(isinstance(value, dict) and set(value) == {"paused"}
-                        and type(value["paused"]) is bool, "INVALID_OPERATION")
-                if value["paused"]:
-                    agent_pause.set()
-                else:
-                    agent_pause.clear()
-            return JSONResponse({"paused": agent_pause.is_set()}, headers=SECURITY_HEADERS)
+        if agent_pause is not None:
+            async def agent_control(request):
+                current_principal().authorize("operate", settings.tenant)
+                if request.method == "POST":
+                    value = await request.json()
+                    require(isinstance(value, dict) and set(value) == {"paused"}
+                            and type(value["paused"]) is bool, "INVALID_OPERATION")
+                    if value["paused"]:
+                        agent_pause.set()
+                    else:
+                        agent_pause.clear()
+                return JSONResponse({"paused": agent_pause.is_set()}, headers=SECURITY_HEADERS)
+
+            control_routes.append(Route("/agent", agent_control, methods=["GET", "POST"]))
+
+        if demo_deadletter is not None:
+            async def deadletter_control(request):
+                current_principal().authorize("replay", settings.tenant)
+                task_id = request.path_params["task_id"]
+                require(isinstance(task_id, str) and 0 < len(task_id) <= 256, "INVALID_TASK_ID")
+                await demo_deadletter(task_id)
+                return JSONResponse(
+                    {"queued": True, "taskId": task_id},
+                    headers=SECURITY_HEADERS,
+                )
+
+            control_routes.append(
+                Route("/deadletter/{task_id}", deadletter_control, methods=["POST"])
+            )
 
         async def control_failure(request, error):
             code = error.code
             status = 503 if isinstance(error, RetryableError) else {
                 "UNAUTHENTICATED": 401,
                 "FORBIDDEN": 403,
+                "TASK_NOT_FOUND": 404,
             }.get(code, 422)
             return JSONResponse({"error": code}, status_code=status, headers=SECURITY_HEADERS)
 
         control_app = Starlette(
-            routes=[Route("/agent", agent_control, methods=["GET", "POST"])],
+            routes=control_routes,
             exception_handlers={PermanentError: control_failure, RetryableError: control_failure},
         )
         protected = BearerIdentity(BoundedJSON(control_app), verifier)
