@@ -1020,8 +1020,9 @@ LAB_JS = r"""
     await tick();
   }
 
-  async function subscribeTask(id) {
+  async function subscribeTask(id, allowFallback) {
     if (!token()) return;
+    const fallback = allowFallback !== false;
     log("Opening A2A SubscribeToTask stream for " + id);
     const request = {
       jsonrpc: "2.0",
@@ -1041,6 +1042,12 @@ LAB_JS = r"""
       const type = response.headers.get("content-type") || "";
       if (!response.ok || !response.body || type.indexOf("text/event-stream") === -1) {
         const body = await response.text();
+        if (!fallback) {
+          $("#raw-response").textContent = body || ("HTTP " + response.status);
+          log("Raw SubscribeToTask returned a non-stream response.", "error",
+              {status: response.status});
+          return;
+        }
         log("Streaming subscription unavailable; falling back to follow. " + body, "error");
         followTask(id);
         return;
@@ -1070,6 +1077,11 @@ LAB_JS = r"""
       await selectTask(id);
       await listTasks();
     } catch (error) {
+      if (!fallback) {
+        $("#raw-response").textContent = error.message;
+        log("Raw SubscribeToTask failed: " + error.message, "error");
+        return;
+      }
       log("Subscribe failed; falling back to follow: " + error.message, "error");
       followTask(id);
     }
@@ -1173,7 +1185,7 @@ LAB_JS = r"""
         if (!id || id === "TASK_ID") throw new Error("Select a real task or provide params.id.");
         $("#raw-response").textContent =
           "Streaming subscription opened. Events are shown in Activity.";
-        await subscribeTask(id);
+        await subscribeTask(id, false);
         return;
       }
       const value = await fetchJSON("/rpc", {
