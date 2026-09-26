@@ -45,7 +45,8 @@ Implemented surfaces include:
 
 - real A2A `SendMessage`, `SendStreamingMessage`, `GetTask`, `ListTasks`, `CancelTask` calls;
 - task follow plus official `SubscribeToTask` SSE, with UI polling fallback only for recoverable non-auth streaming failures;
-- operational backlog and DLQ/replay panels;
+- operational backlog plus DLQ inspect/replay, including a local authenticated **Demo DLQ**
+  injection that publishes the selected task's persisted command through the real Dapr quarantine path;
 - Workflow-only input/approval/delay controls when running the Workflow profile;
 - raw JSON-RPC console;
 - local-lite **Pause simulated agent** control so producers can enqueue durable work
