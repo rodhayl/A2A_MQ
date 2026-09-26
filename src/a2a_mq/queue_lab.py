@@ -511,6 +511,7 @@ LAB_JS = r"""
   const state = {
     token: sessionStorage.getItem("a2amq.queueLab.token") || "",
     authenticated: false,
+    sessionEpoch: 0,
     config: null,
     tasks: [],
     selected: null,
@@ -578,6 +579,7 @@ LAB_JS = r"""
     if (!response.ok) {
       if (authenticated !== false && response.status === 401) {
         state.authenticated = false;
+        state.sessionEpoch += 1;
       }
       const detail = value.error || value.detail || value;
       const suffix = response.status === 401 && authenticated !== false ?
@@ -724,8 +726,10 @@ LAB_JS = r"""
 
   async function refreshMetrics() {
     if (!state.authenticated) return;
+    const epoch = state.sessionEpoch;
     try {
       const value = await fetchJSON("/operations/status");
+      if (!state.authenticated || epoch !== state.sessionEpoch) return;
       $("#m-active").textContent = value.activeTasks ?? "–";
       $("#m-records").textContent = value.taskRecords ?? "–";
       $("#m-actions").textContent = value.pendingActions ?? "–";
@@ -739,8 +743,10 @@ LAB_JS = r"""
 
   async function refreshDLQ() {
     if (!state.authenticated) return;
+    const epoch = state.sessionEpoch;
     try {
       const value = await fetchJSON("/operations/deadletters?limit=50");
+      if (!state.authenticated || epoch !== state.sessionEpoch) return;
       const items = Array.isArray(value) ? value :
         (value.records || value.items || value.deadletters || []);
       $("#m-dlq").textContent = items.length;
@@ -811,8 +817,10 @@ LAB_JS = r"""
 
   async function listTasks() {
     if (!state.authenticated) return;
+    const epoch = state.sessionEpoch;
     try {
       const result = await rpc("ListTasks", {pageSize: 100, includeArtifacts: true});
+      if (!state.authenticated || epoch !== state.sessionEpoch) return;
       const value = result && result.tasks ? result : (result && result.result ? result.result : {});
       state.tasks = Array.isArray(value.tasks) ? value.tasks : [];
       renderTasks();
@@ -888,8 +896,11 @@ LAB_JS = r"""
   }
 
   async function selectTask(id) {
+    const epoch = state.sessionEpoch;
     try {
-      state.selected = await getTask(id);
+      const selected = await getTask(id);
+      if (!state.authenticated || epoch !== state.sessionEpoch) return;
+      state.selected = selected;
       renderSelected();
     } catch (error) {
       log("GetTask failed: " + error.message, "error");
@@ -1026,10 +1037,13 @@ LAB_JS = r"""
 
   async function followTask(id) {
     stopFollow(id);
+    const epoch = state.sessionEpoch;
     let previous = "";
     const tick = async function () {
+      if (!state.authenticated || epoch !== state.sessionEpoch) return;
       try {
         const task = await getTask(id);
+        if (!state.authenticated || epoch !== state.sessionEpoch) return;
         const wire = JSON.stringify(task);
         if (wire !== previous) {
           previous = wire;
@@ -1361,6 +1375,7 @@ LAB_JS = r"""
     try {
       const card = await fetchJSON("/.well-known/agent-card.json", {}, false);
       await rpc("ListTasks", {pageSize: 1});
+      state.sessionEpoch += 1;
       state.authenticated = true;
       sessionStorage.setItem("a2amq.queueLab.token", value);
       log("Authenticated connection ready", "ok", {name: card.name, version: card.version});
@@ -1395,6 +1410,7 @@ LAB_JS = r"""
     state.followTimers.forEach(function (handle) { clearTimeout(handle); });
     state.followTimers.clear();
     sessionStorage.removeItem("a2amq.queueLab.token");
+    state.sessionEpoch += 1;
     state.authenticated = false;
     $("#token").value = "";
     state.tasks = [];
