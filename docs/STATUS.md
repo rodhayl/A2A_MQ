@@ -43,13 +43,14 @@ The working branch now adds a local browser-based manual test console under
 
 Implemented surfaces include:
 
-- real A2A `SendMessage`, `GetTask`, `ListTasks`, `CancelTask` calls;
-- task follow and official `SubscribeToTask` attempt with polling fallback;
+- real A2A `SendMessage`, `SendStreamingMessage`, `GetTask`, `ListTasks`, `CancelTask` calls;
+- task follow plus official `SubscribeToTask` SSE, with UI polling fallback only for recoverable non-auth streaming failures;
 - operational backlog and DLQ/replay panels;
 - Workflow-only input/approval/delay controls when running the Workflow profile;
 - raw JSON-RPC console;
 - local-lite **Pause simulated agent** control so producers can enqueue durable work
-  while command delivery is held before local acceptance, then resume and drain it;
+  while command delivery is held before local acceptance, then resume the same in-flight delivery;
+- fixed local routing boundary surfaced explicitly (`agent/<source>`); alternate local agent identity is selected at profile preparation rather than faked in the UI;
 - no CDN/frontend dependency and no server-side JWT bypass.
 
 This is **post-RC1 development**, not part of the already-tagged RC1 evidence. Before
