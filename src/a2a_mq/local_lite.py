@@ -310,6 +310,16 @@ def create_app(settings: LocalLiteSettings):
     )
     replay = ReplayService(archive, database, bus,
                            allowed_routes=frozenset({settings.command_route, settings.event_route}))
+
+    async def demo_deadletter(task_id: str):
+        envelope = await database.call(ledger.command, task_id)
+        await bus.quarantine(
+            envelope.wire.encode(),
+            settings.tenant,
+            settings.consumer,
+            "QUEUE_LAB_DEMO",
+        )
+
     ops_app = create_operations(api, identity, operations, archive, replay, database,
                                 timeout=settings.callback_timeout)
     bridge = create_bridge(api, identity, public_url=settings.public_url, profile="local-lite",
@@ -349,8 +359,13 @@ def create_app(settings: LocalLiteSettings):
         Route("/health/live", live),
         Route("/health/ready", ready),
         Mount("/operations", ops_app),
-        Mount("/lab", create_queue_lab(settings, profile="local-lite",
-                                        verifier=identity, agent_pause=agent_pause)),
+        Mount("/lab", create_queue_lab(
+            settings,
+            profile="local-lite",
+            verifier=identity,
+            agent_pause=agent_pause,
+            demo_deadletter=demo_deadletter,
+        )),
     ]
     if mcp_app is not None:
         routes.extend([
