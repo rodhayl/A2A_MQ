@@ -2,13 +2,37 @@
 
 ## Release identity
 
-- Package version: **0.1.0**; no release/tag has been made.
+- Package version: **0.1.0**; release candidate checkpoint `v0.1.0-rc1`.
 - Working branch: `implementation/production-hardening-20260916`.
 - Protected `main`: `66c17153d7ec75b9ad85808ef141b9dba43a9d91`.
 - Last source-bearing release-cleanliness commit:
   `45c459c632977143b8681c055847775e88d7ad97`
   (tree `23fdbcdf30adedf984c631b8a060442cc97b426a`).
 - Later commits are documentation/evidence-only unless explicitly stated otherwise.
+
+## Release candidate 1 (v0.1.0-rc1)
+
+- **Release candidate tag**: `v0.1.0-rc1` (the annotated git tag marks this test checkpoint).
+- **Targeted commit**: Canonical commit SHA is bound by annotated tag `v0.1.0-rc1`.
+- **Package version**: `0.1.0` (unchanged pre-release contract).
+- **Date**: 2026-09-26.
+- **Smoke result**: `PASS`.
+- **What was actually tested**:
+  - Canonical user onboarding path documented in [GETTING_STARTED.md](GETTING_STARTED.md).
+  - Pinned native tool bootstrapping and version verification (`check_local_native_versions.py`: `PASS_NATIVE_VERSION`).
+  - Disposable profile preparation (`a2amq-local prepare`) and startup of the 3-process Local-lite stack (`a2amq-local run`).
+  - Health checks: `/health/live` (200 alive), `/health/ready` (200 ready), and Agent Card discovery (`/.well-known/agent-card.json`).
+  - End-to-end task execution: task submission via official A2A JSON-RPC `SendMessage`, task ID acquisition, asynchronous completion over JetStream, query via `GetTask` and REST `GET /tasks/{id}`, and operational backlog verification via `/operations/status`.
+  - Clean shutdown: SIGTERM shutdown of ASGI server and child processes (`daprd`, `nats-server`), with zero orphan processes and all ports released.
+  - Targeted regressions: 38 passed (`tests/test_local_launcher_regressions.py`, `tests/test_local_runtime.py`).
+  - Static checks: `python tools/check.py` (syntax, schema copies, and markdown links passed); `python -m pip check` (no broken requirements).
+  - CLI help validation: `a2amq-local --help`, `a2amq-local prepare --help`, `a2amq-local run --help`, `a2amq-local-workflow --help`, `python -m a2a_mq --help`.
+- **What was deliberately NOT rerun**:
+  - Full acceptance suite (`a2a_mq.acceptance --mode full`).
+  - Kubernetes cluster redeployment or live node testing.
+  - Multi-node distributed stacks, PostgreSQL, Vault, or RabbitMQ live infrastructure gates.
+  - 23-minute soak or load/performance campaigns.
+  - Dapr Workflow 5-process resource recertification.
 
 ## Product shape
 

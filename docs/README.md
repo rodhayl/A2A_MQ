@@ -5,6 +5,7 @@ records.
 
 ## Start here
 
+- [GETTING_STARTED.md](GETTING_STARTED.md) — quickstart guide to running Local-lite.
 - [STATUS.md](STATUS.md) — current v0.1.0 pre-release state.
 - [VALIDATION.md](VALIDATION.md) — current SHA-bound evidence.
 - [ARCHITECTURE.md](ARCHITECTURE.md) — deployment tiers and boundaries.
