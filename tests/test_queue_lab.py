@@ -86,6 +86,7 @@ async def test_queue_lab_workflow_config_enables_real_workflow_controls(tmp_path
         "streaming": True,
         "dlqReplay": True,
         "agentPause": False,
+        "demoDeadLetter": False,
     }
 
 
@@ -109,6 +110,7 @@ async def test_local_lite_mounts_queue_lab_without_auth_bypass(tmp_path, monkeyp
 
     assert lab.status_code == 200
     assert config.status_code == 200
+    assert config.json()["features"]["demoDeadLetter"] is True
     assert operations.status_code == 401
 
 
@@ -272,3 +274,100 @@ async def test_local_lite_pause_resumes_same_inflight_delivery_without_redeliver
     assert accepted.json() == {"status": "SUCCESS"}
     assert any(a.task_id == task["id"] for a in ledger.pending(("start",)))
     await app.state.a2amq_api.database.aclose()
+
+
+async def test_queue_lab_demo_deadletter_requires_replay_scope(tmp_path):
+    settings = _lite_settings(tmp_path)
+    called = []
+
+    class Verifier:
+        def verify(self, encoded):
+            scopes = {
+                "replay-token": {"a2a:replay"},
+                "operate-token": {"a2a:operate"},
+            }.get(encoded)
+            if scopes is None:
+                from a2a_mq.domain import PermanentError
+                raise PermanentError("UNAUTHENTICATED")
+            return Principal("owner", "demo", frozenset(scopes))
+
+    async def demo(task_id):
+        called.append(task_id)
+
+    app = create_queue_lab(
+        settings,
+        profile="local-lite",
+        verifier=Verifier(),
+        demo_deadletter=demo,
+    )
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://local"
+    ) as client:
+        assert (await client.post("/control/deadletter/task-1")).status_code == 401
+        forbidden = await client.post(
+            "/control/deadletter/task-1",
+            headers={"Authorization": "Bearer operate-token"},
+        )
+        assert forbidden.status_code == 403
+        accepted = await client.post(
+            "/control/deadletter/task-1",
+            headers={"Authorization": "Bearer replay-token"},
+        )
+
+    assert accepted.status_code == 200
+    assert accepted.json() == {"queued": True, "taskId": "task-1"}
+    assert called == ["task-1"]
+
+
+async def test_local_lite_demo_deadletter_uses_persisted_command_and_real_bus_boundary(
+    tmp_path, monkeypatch
+):
+    settings = _lite_settings(tmp_path)
+
+    class Verifier:
+        audience = "http://127.0.0.1:18000"
+        issuer = "https://local-a2amq.invalid"
+
+        def verify(self, encoded):
+            assert encoded == "replay-token"
+            return Principal(
+                "owner",
+                "demo",
+                frozenset({"a2a:send", "a2a:read", "a2a:cancel", "a2a:replay"}),
+            )
+
+    verifier = Verifier()
+    monkeypatch.setattr("a2a_mq.local_lite.verifier", lambda settings, audience=None: verifier)
+    monkeypatch.setattr("a2a_mq.local_lite.create_bridge", lambda *a, **k: Starlette())
+    app = create_lite(settings)
+    ledger = app.state.a2amq_ledger
+    owner = Principal("owner", "demo", frozenset({"a2a:send", "a2a:read", "a2a:cancel"}))
+    task = ledger.submit(owner, {
+        "message": {
+            "messageId": "dlq-demo",
+            "role": "ROLE_USER",
+            "parts": [{"text": "hello"}],
+        },
+        "configuration": {"returnImmediately": True},
+    })
+    expected = ledger.command(task["id"]).wire.encode()
+    seen = []
+
+    async def quarantine(raw, tenant, consumer, reason, truncated=False):
+        seen.append((raw, tenant, consumer, reason, truncated))
+
+    app.state.a2amq_bus.quarantine = quarantine
+
+    try:
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://local"
+        ) as client:
+            response = await client.post(
+                "/lab/control/deadletter/" + task["id"],
+                headers={"Authorization": "Bearer replay-token"},
+            )
+        assert response.status_code == 200
+        assert response.json() == {"queued": True, "taskId": task["id"]}
+        assert seen == [(expected, "demo", "local", "QUEUE_LAB_DEMO", False)]
+    finally:
+        await app.state.a2amq_api.database.aclose()
