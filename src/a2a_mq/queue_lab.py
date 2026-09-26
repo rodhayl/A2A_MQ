@@ -11,7 +11,7 @@ from starlette.applications import Starlette
 from starlette.responses import HTMLResponse, JSONResponse, Response
 from starlette.routing import Mount, Route
 
-from .domain import require
+from .domain import PermanentError, RetryableError, require
 from .http_boundary import BoundedJSON
 from .identity import BearerIdentity, current_principal
 
@@ -57,7 +57,7 @@ LAB_HTML = """<!doctype html>
         </label>
         <button id="connect">Connect</button>
       </div>
-      <p class="hint">The token stays in this browser tab only (sessionStorage). It is never sent to Queue Lab itself.</p>
+      <p class="hint">The token stays in this browser tab (sessionStorage) and is sent only as a Bearer credential to authenticated A2A-MQ endpoints and local Lab controls. Queue Lab never writes it to server-side storage.</p>
       <div id="connection-info" class="connection-info"></div>
     </section>
 
@@ -510,6 +510,7 @@ LAB_JS = r"""
     tasks: [],
     selected: null,
     autoTimer: null,
+    autoRefreshing: false,
     followTimers: new Map()
   };
   const terminal = new Set(["COMPLETED", "FAILED", "CANCELED", "REJECTED"]);
@@ -1122,6 +1123,14 @@ LAB_JS = r"""
   async function runRaw() {
     try {
       const payload = JSON.parse($("#raw-request").value);
+      if (payload.method === "SubscribeToTask") {
+        const id = payload.params && payload.params.id;
+        if (!id || id === "TASK_ID") throw new Error("Select a real task or provide params.id.");
+        $("#raw-response").textContent =
+          "Streaming subscription opened. Events are shown in Activity.";
+        await subscribeTask(id);
+        return;
+      }
       const value = await fetchJSON("/rpc", {
         method: "POST",
         headers: {"Content-Type": "application/json"},
@@ -1144,20 +1153,26 @@ LAB_JS = r"""
     sessionStorage.setItem("a2amq.queueLab.token", value);
     try {
       const card = await fetchJSON("/.well-known/agent-card.json", {}, false);
-      log("Agent Card loaded", "ok", {name: card.name, version: card.version});
+      await rpc("ListTasks", {pageSize: 1});
+      log("Authenticated connection ready", "ok", {name: card.name, version: card.version});
       await refreshAll();
     } catch (error) {
-      log("Connection failed: " + error.message, "error");
+      log("Connection/authentication failed: " + error.message, "error");
     }
   }
 
   function scheduleAutoRefresh() {
     if (state.autoTimer) clearInterval(state.autoTimer);
-    state.autoTimer = setInterval(function () {
-      refreshHealth();
-      if ($("#auto-refresh").checked && token()) {
-        refreshMetrics();
-        listTasks();
+    state.autoTimer = setInterval(async function () {
+      if (state.autoRefreshing) return;
+      state.autoRefreshing = true;
+      try {
+        await refreshHealth();
+        if ($("#auto-refresh").checked && token()) {
+          await Promise.all([refreshMetrics(), listTasks()]);
+        }
+      } finally {
+        state.autoRefreshing = false;
       }
     }, 1200);
   }
@@ -1279,9 +1294,19 @@ def create_queue_lab(settings, *, profile: str, verifier=None, agent_pause=None)
                     agent_pause.clear()
             return JSONResponse({"paused": agent_pause.is_set()}, headers=SECURITY_HEADERS)
 
-        protected = BearerIdentity(BoundedJSON(Starlette(routes=[
-            Route("/agent", agent_control, methods=["GET", "POST"]),
-        ])), verifier)
+        async def control_failure(request, error):
+            code = error.code
+            status = 503 if isinstance(error, RetryableError) else {
+                "UNAUTHENTICATED": 401,
+                "FORBIDDEN": 403,
+            }.get(code, 422)
+            return JSONResponse({"error": code}, status_code=status, headers=SECURITY_HEADERS)
+
+        control_app = Starlette(
+            routes=[Route("/agent", agent_control, methods=["GET", "POST"])],
+            exception_handlers={PermanentError: control_failure, RetryableError: control_failure},
+        )
+        protected = BearerIdentity(BoundedJSON(control_app), verifier)
         routes.append(Mount("/control", protected))
 
     return Starlette(routes=routes)
