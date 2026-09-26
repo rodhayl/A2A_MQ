@@ -161,7 +161,11 @@ def create_bridge(api, verifier, *, public_url: str, profile: str = "workflow",
 
         async def on_cancel_task(self, params, context):
             with mapped_errors():
-                return task_proto(await api.cancel(principal(params), params.id))
+                caller = principal(params)
+                task = await api.get(caller, params.id)
+                if state_of(task) in TERMINAL:
+                    raise errors.TaskNotCancelableError()
+                return task_proto(await api.cancel(caller, params.id))
 
         async def on_message_send_stream(self, params, context):
             with mapped_errors():
