@@ -530,6 +530,7 @@ LAB_JS = r"""
   const interrupted = new Set(["INPUT_REQUIRED", "AUTH_REQUIRED"]);
   const workflowPresets = new Set(["input", "auth", "delay"]);
   const MAX_ACTIVITY_ITEMS = 500;
+  const MAX_ACTIVITY_CHARS = 8192;
   const MAX_SSE_BUFFER = 1048576;
 
   function uid(prefix) {
@@ -546,8 +547,17 @@ LAB_JS = r"""
   function log(message, kind, data) {
     const item = document.createElement("div");
     item.className = "log-item " + (kind || "");
-    item.textContent = "[" + now() + "] " + message +
-      (data === undefined ? "" : "  " + JSON.stringify(data));
+    let suffix = "";
+    if (data !== undefined) {
+      let encoded;
+      try { encoded = JSON.stringify(data); }
+      catch (_) { encoded = String(data); }
+      if (encoded.length > MAX_ACTIVITY_CHARS) {
+        encoded = encoded.slice(0, MAX_ACTIVITY_CHARS) + "…[truncated]";
+      }
+      suffix = "  " + encoded;
+    }
+    item.textContent = "[" + now() + "] " + message + suffix;
     const root = $("#activity-log");
     root.prepend(item);
     while (root.childElementCount > MAX_ACTIVITY_ITEMS) {
@@ -1146,12 +1156,14 @@ LAB_JS = r"""
     const decoder = new TextDecoder();
     let buffer = "";
     let dataLines = [];
+    let eventChars = 0;
     let count = 0;
 
     function flushEvent() {
       if (!dataLines.length) return;
       const raw = dataLines.join("\n");
       dataLines = [];
+      eventChars = 0;
       try {
         const value = JSON.parse(raw);
         count += 1;
@@ -1167,7 +1179,12 @@ LAB_JS = r"""
         return;
       }
       if (value.startsWith("data:")) {
-        dataLines.push(value.slice(5).replace(/^ /, ""));
+        const data = value.slice(5).replace(/^ /, "");
+        eventChars += data.length + 1;
+        if (eventChars > MAX_SSE_BUFFER) {
+          throw new Error("SSE event exceeds the 1 MiB Queue Lab display limit.");
+        }
+        dataLines.push(data);
       }
     }
 
