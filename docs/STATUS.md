@@ -5,10 +5,12 @@
 - Package version: **0.1.0**; release candidate checkpoint `v0.1.0-rc1`.
 - Working branch: `implementation/production-hardening-20260916`.
 - Protected `main`: `66c17153d7ec75b9ad85808ef141b9dba43a9d91`.
-- Last source-bearing release-cleanliness commit:
+- Formal FULL_PASS source remains:
   `45c459c632977143b8681c055847775e88d7ad97`
   (tree `23fdbcdf30adedf984c631b8a060442cc97b426a`).
-- Later commits are documentation/evidence-only unless explicitly stated otherwise.
+- `v0.1.0-rc1` points to the previously smoke-tested user-facing checkpoint.
+- The working branch now contains **post-RC1 Queue Lab source changes**. Those changes
+  are intentionally not relabeled as covered by the earlier FULL_PASS/RC1 smoke.
 
 ## Release candidate 1 (v0.1.0-rc1)
 
@@ -33,6 +35,30 @@
   - Multi-node distributed stacks, PostgreSQL, Vault, or RabbitMQ live infrastructure gates.
   - 23-minute soak or load/performance campaigns.
   - Dapr Workflow 5-process resource recertification.
+
+## Post-RC1 Queue Lab
+
+The working branch now adds a local browser-based manual test console under
+`/lab/` for both local-lite and local Workflow.
+
+Implemented surfaces include:
+
+- real A2A `SendMessage`, `GetTask`, `ListTasks`, `CancelTask` calls;
+- task follow and official `SubscribeToTask` attempt with polling fallback;
+- operational backlog and DLQ/replay panels;
+- Workflow-only input/approval/delay controls when running the Workflow profile;
+- raw JSON-RPC console;
+- local-lite **Pause simulated agent** control so producers can enqueue durable work
+  while the model-free executor is intentionally held, then resume and drain it;
+- no CDN/frontend dependency and no server-side JWT bypass.
+
+This is **post-RC1 development**, not part of the already-tagged RC1 evidence. Before
+creating `v0.1.0-rc2`, run the focused Queue Lab tests plus one real local-lite
+browser smoke (pause → enqueue burst → inspect pending work → resume → completion).
+
+Windows note: Queue Lab itself is browser/Python platform-neutral, but the repository's
+pinned native-tool bootstrap remains Linux-only; Windows runtime provisioning is not
+yet a repository-certified path.
 
 ## Product shape
 
