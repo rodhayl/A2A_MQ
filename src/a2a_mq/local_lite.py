@@ -21,7 +21,7 @@ from .bridge import create_bridge
 from .configuration import https_issuer, read_file, verifier
 from .deadletters import DeadLetters, ReplayService
 from .dlq_callback import create_dlq_callback
-from .domain import Envelope, PermanentError, RetryableError, TERMINAL, load_json, require, state_of, token
+from .domain import Envelope, PermanentError, TERMINAL, load_json, require, state_of, token
 from .maintenance import Operations
 from .operations_http import create_operations
 from .recovery import AdmissionRepair
@@ -267,8 +267,13 @@ def create_app(settings: LocalLiteSettings):
     identity = verifier(settings)
 
     async def accept(envelope: Envelope):
-        if agent_pause.is_set():
-            raise RetryableError("LOCAL_AGENT_PAUSED")
+        # Queue Lab can emulate an unavailable local agent without acknowledging
+        # the broker delivery. Keep the current delivery open while paused so a
+        # short manual pause does not burn through Dapr/JetStream redelivery
+        # attempts; the subscriber's existing callback timeout remains the upper
+        # bound and converts an excessively long pause into the normal RETRY path.
+        while agent_pause.is_set():
+            await asyncio.sleep(min(0.1, settings.callback_timeout / 4))
         await database.call(ledger.accept, envelope)
 
     running = {"value": False}
