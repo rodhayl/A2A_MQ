@@ -49,12 +49,12 @@ Implemented surfaces include:
 - Workflow-only input/approval/delay controls when running the Workflow profile;
 - raw JSON-RPC console;
 - local-lite **Pause simulated agent** control so producers can enqueue durable work
-  while the model-free executor is intentionally held, then resume and drain it;
+  while command delivery is held before local acceptance, then resume and drain it;
 - no CDN/frontend dependency and no server-side JWT bypass.
 
 This is **post-RC1 development**, not part of the already-tagged RC1 evidence. Before
 creating `v0.1.0-rc2`, run the focused Queue Lab tests plus one real local-lite
-browser smoke (pause → enqueue burst → inspect pending work → resume → completion).
+browser smoke (pause → enqueue burst → verify `SUBMITTED` queue depth → resume → completion).
 
 Windows note: Queue Lab itself is browser/Python platform-neutral, but the repository's
 pinned native-tool bootstrap remains Linux-only; Windows runtime provisioning is not
