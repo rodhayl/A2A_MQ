@@ -21,7 +21,7 @@ from .bridge import create_bridge
 from .configuration import https_issuer, read_file, verifier
 from .deadletters import DeadLetters, ReplayService
 from .dlq_callback import create_dlq_callback
-from .domain import Envelope, PermanentError, TERMINAL, load_json, require, state_of, token
+from .domain import Envelope, PermanentError, RetryableError, TERMINAL, load_json, require, state_of, token
 from .maintenance import Operations
 from .operations_http import create_operations
 from .recovery import AdmissionRepair
@@ -185,8 +185,8 @@ class LocalLiteTaskAPI(TaskAPI):
 class LocalLiteActions:
     """Immediate durable executor; deliberately not a second Workflow engine."""
 
-    def __init__(self, ledger: TaskLedger, *, pause_event: Event | None = None):
-        self.ledger, self.pause_event = ledger, pause_event
+    def __init__(self, ledger: TaskLedger):
+        self.ledger = ledger
 
     def _state(self, task_id: str) -> str:
         with self.ledger.store._connection() as db:
@@ -229,8 +229,6 @@ class LocalLiteActions:
     def dispatch(self, action: Action) -> None:
         require(isinstance(action, Action), "INVALID_CONTROL")
         if action.kind == "start":
-            if self.pause_event is not None and self.pause_event.is_set():
-                return
             self._complete_start(action)
             return
         if action.kind == "cancel":
@@ -265,10 +263,12 @@ def create_app(settings: LocalLiteSettings):
                         max_records=settings.max_records)
     api = LocalLiteTaskAPI(ledger, database, wait_timeout=settings.callback_timeout)
     agent_pause = Event()
-    actions = LocalLiteActions(ledger, pause_event=agent_pause)
+    actions = LocalLiteActions(ledger)
     identity = verifier(settings)
 
     async def accept(envelope: Envelope):
+        if agent_pause.is_set():
+            raise RetryableError("LOCAL_AGENT_PAUSED")
         await database.call(ledger.accept, envelope)
 
     running = {"value": False}
