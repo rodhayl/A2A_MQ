@@ -61,6 +61,28 @@ Create tasks with:
 The **Burst / queue view** preset is useful for creating several tasks quickly and
 watching task/backlog values change.
 
+### Pause the simulated local agent
+
+Under **local-lite**, Queue Lab exposes **Pause simulated agent**.
+
+This does not stop A2A-MQ, Dapr, JetStream or durable admission. New tasks still
+enter through the real A2A API and are published normally, but local `start` actions
+remain pending instead of being executed.
+
+A useful manual scenario is:
+
+1. click **Pause simulated agent**;
+2. enqueue one task or choose **Burst / queue view**;
+3. watch Active tasks / Pending actions and task states;
+4. inspect or cancel queued tasks;
+5. click **Resume simulated agent**;
+6. watch the same durable tasks drain and complete.
+
+Cancellation remains available while execution is paused.
+
+This control exists only in local-lite. The Workflow profile already has a real Dapr
+Workflow runtime, so Queue Lab does not fake a Workflow-worker pause switch.
+
 ### Queue / consumer view
 
 The task table uses the real A2A `ListTasks` API and can filter by state:
