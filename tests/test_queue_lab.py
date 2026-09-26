@@ -1,3 +1,4 @@
+import asyncio
 import json
 from threading import Event
 
@@ -215,4 +216,57 @@ async def test_local_lite_pause_retries_real_dapr_delivery_until_resumed(tmp_pat
         assert accepted.status_code == 200
         assert accepted.json() == {"status": "SUCCESS"}
 
+    assert any(a.task_id == task["id"] for a in ledger.pending(("start",)))
+
+
+async def test_local_lite_pause_resumes_same_inflight_delivery_without_redelivery(tmp_path, monkeypatch):
+    settings = _lite_settings(tmp_path, callback_timeout=0.5)
+
+    class Verifier:
+        audience = "http://127.0.0.1:18000"
+        issuer = "https://local-a2amq.invalid"
+
+        def verify(self, encoded):
+            return Principal("owner", "demo", frozenset({"a2a:operate"}))
+
+    verifier = Verifier()
+    monkeypatch.setattr("a2a_mq.local_lite.verifier", lambda settings, audience=None: verifier)
+    monkeypatch.setattr("a2a_mq.local_lite.create_bridge", lambda *a, **k: Starlette())
+    app = create_lite(settings)
+    ledger = app.state.a2amq_ledger
+    owner = Principal("owner", "demo", frozenset({"a2a:send", "a2a:read", "a2a:cancel"}))
+    task = ledger.submit(owner, {
+        "message": {
+            "messageId": "inflight-pause",
+            "role": "ROLE_USER",
+            "parts": [{"text": "hello"}],
+        },
+        "configuration": {"returnImmediately": True},
+    })
+    publish = ledger.pending(("publish",))[0]
+    envelope = Envelope(publish.body)
+    ledger.delivered(publish)
+    incoming = {**cloud_event(envelope), "topic": envelope.route, "pubsubname": "bus"}
+
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://local"
+    ) as client:
+        auth = {"Authorization": "Bearer lab-token"}
+        assert (await client.post(
+            "/lab/control/agent", headers=auth, json={"paused": True}
+        )).json() == {"paused": True}
+
+        delivery = asyncio.create_task(client.post(
+            "/events", headers={"dapr-api-token": "a" * 32}, json=incoming
+        ))
+        await asyncio.sleep(0.05)
+        assert not delivery.done()
+        assert not [a for a in ledger.pending(("start",)) if a.task_id == task["id"]]
+
+        assert (await client.post(
+            "/lab/control/agent", headers=auth, json={"paused": False}
+        )).json() == {"paused": False}
+        accepted = await asyncio.wait_for(delivery, timeout=1)
+
+    assert accepted.json() == {"status": "SUCCESS"}
     assert any(a.task_id == task["id"] for a in ledger.pending(("start",)))
