@@ -1113,6 +1113,7 @@ LAB_JS = r"""
         body: JSON.stringify(request)
       });
       const type = response.headers.get("content-type") || "";
+      if (response.status === 401) state.authenticated = false;
       if (!response.ok || !response.body || type.indexOf("text/event-stream") === -1) {
         const body = await response.text();
         throw new Error("SendStreamingMessage returned HTTP " + response.status + ": " + body);
@@ -1149,6 +1150,7 @@ LAB_JS = r"""
         body: JSON.stringify(request)
       });
       const type = response.headers.get("content-type") || "";
+      if (response.status === 401) state.authenticated = false;
       if (!response.ok || !response.body || type.indexOf("text/event-stream") === -1) {
         const body = await response.text();
         if (!fallback) {
