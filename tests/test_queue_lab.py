@@ -410,3 +410,64 @@ async def test_local_workflow_mounts_queue_lab_with_workflow_and_demo_dlq(tmp_pa
         assert value["features"]["agentPause"] is False
     finally:
         await app.state.a2amq_api.database.aclose()
+
+
+async def test_local_workflow_demo_deadletter_uses_replayable_cloud_event(
+    tmp_path, monkeypatch
+):
+    app_token, dapr_token, keys = _files(tmp_path)
+    settings = LocalWorkflowSettings(
+        sqlite_path=str(tmp_path / "workflow-dlq.db"),
+        app_token_file=str(app_token),
+        dapr_token_file=str(dapr_token),
+        jwt_keys_file=str(keys),
+        issuer="https://local-a2amq.invalid",
+    )
+
+    class Verifier:
+        audience = "http://127.0.0.1:18000"
+        issuer = "https://local-a2amq.invalid"
+
+        def verify(self, encoded):
+            assert encoded == "replay-token"
+            return Principal(
+                "owner",
+                "demo",
+                frozenset({"a2a:send", "a2a:read", "a2a:cancel", "a2a:replay"}),
+            )
+
+    verifier = Verifier()
+    monkeypatch.setattr("a2a_mq.local_workflow.verifier", lambda settings, audience=None: verifier)
+    monkeypatch.setattr("a2a_mq.bridge.create_bridge", lambda *a, **k: Starlette())
+    seen = []
+
+    async def quarantine(self, raw, tenant, consumer, reason, truncated=False):
+        seen.append((raw, tenant, consumer, reason, truncated))
+
+    monkeypatch.setattr("a2a_mq.local_workflow.DaprPublisher.quarantine", quarantine)
+    app = create_workflow(settings)
+    ledger = app.state.a2amq_ledger
+    owner = Principal("owner", "demo", frozenset({"a2a:send", "a2a:read", "a2a:cancel"}))
+    task = ledger.submit(owner, {
+        "message": {
+            "messageId": "workflow-dlq-demo",
+            "role": "ROLE_USER",
+            "parts": [{"text": "hello"}],
+        },
+        "configuration": {"returnImmediately": True},
+    })
+    expected = canonical(cloud_event(ledger.command(task["id"]))).encode()
+
+    try:
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://local"
+        ) as client:
+            response = await client.post(
+                "/lab/control/deadletter/" + task["id"],
+                headers={"Authorization": "Bearer replay-token"},
+            )
+        assert response.status_code == 200
+        assert response.json() == {"queued": True, "taskId": task["id"]}
+        assert seen == [(expected, "demo", "local", "QUEUE_LAB_DEMO", False)]
+    finally:
+        await app.state.a2amq_api.database.aclose()
