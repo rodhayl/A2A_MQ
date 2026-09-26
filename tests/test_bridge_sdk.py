@@ -85,6 +85,24 @@ async def test_discovery_auth_and_rest(environment):
     assert (await client.get("/tasks", headers=headers(tenant="other"))).status_code == 403
 
 
+async def test_subscribe_rejects_terminal_task(environment):
+    client, ledger, headers, user = environment
+    task = ledger.submit(user, {
+        "message": {"messageId": "terminal-sub", "role": "ROLE_USER", "parts": [{"text": "hello"}]}
+    })
+    ledger.step(task["id"], "working-sub", "WORKING")
+    ledger.step(task["id"], "completed-sub", "COMPLETED",
+                artifacts=[{"artifactId": "out", "parts": [{"text": "done"}]}])
+    response = await client.post(
+        "/rpc",
+        headers=headers(),
+        json={"jsonrpc": "2.0", "id": 9, "method": "SubscribeToTask",
+              "params": {"id": task["id"]}},
+    )
+    assert response.status_code == 200
+    assert response.json()["error"]["code"] == -32004
+
+
 async def test_owner_and_unsupported_push(environment):
     client, ledger, headers, user = environment
     task = ledger.submit(user, {"message":{"messageId":"one","role":"ROLE_USER","parts":[{"text":"hello"}]}})
