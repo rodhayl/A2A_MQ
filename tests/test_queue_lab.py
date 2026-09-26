@@ -1,5 +1,6 @@
 import asyncio
 import json
+import re
 from threading import Event
 
 import httpx
@@ -9,7 +10,7 @@ from a2a_mq.domain import Envelope, canonical
 from a2a_mq.identity import Principal
 from a2a_mq.local_lite import LocalLiteSettings, create_app as create_lite
 from a2a_mq.local_workflow import LocalWorkflowSettings, create_app as create_workflow
-from a2a_mq.queue_lab import create_queue_lab
+from a2a_mq.queue_lab import LAB_HTML, LAB_JS, create_queue_lab
 from a2a_mq.transport import cloud_event
 
 
@@ -35,6 +36,16 @@ def _lite_settings(tmp_path, **overrides):
         issuer="https://local-a2amq.invalid",
         **overrides,
     )
+
+
+def test_queue_lab_frontend_dom_contract_and_csp_style_are_self_consistent():
+    html_ids = set(re.findall(r'id="([^"]+)"', LAB_HTML))
+    js_ids = set(re.findall(r'\$\("#([^"]+)"\)', LAB_JS))
+    assert js_ids <= html_ids
+    assert ".style" not in LAB_JS
+    assert " style=" not in LAB_HTML
+    assert 'src="http://' not in LAB_HTML and 'src="https://' not in LAB_HTML
+    assert 'href="http://' not in LAB_HTML and 'href="https://' not in LAB_HTML
 
 
 async def test_queue_lab_assets_are_local_no_store_and_profile_aware(tmp_path):
