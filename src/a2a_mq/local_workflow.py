@@ -25,6 +25,7 @@ from .local_lite import (ASGIEndpoint, PathRewrite, LocalLiteSettings, _close_lo
 from .maintenance import Operations
 from .operations_http import create_operations
 from .recovery import AdmissionRepair
+from .queue_lab import create_queue_lab
 from .runtime import AsyncSQLite, OutboxRelay
 from .storage import SQLiteStore
 from .task_api import TaskAPI
@@ -174,6 +175,7 @@ def create_app(settings: LocalWorkflowSettings):
         Route("/health/live", live),
         Route("/health/ready", ready),
         Mount("/operations", ops_app),
+        Mount("/lab", create_queue_lab(settings, profile="local-workflow")),
     ]
     if mcp_app is not None:
         routes.extend([
