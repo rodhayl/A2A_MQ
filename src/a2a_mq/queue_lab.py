@@ -1391,16 +1391,53 @@ LAB_JS = r"""
     $("#raw-request").value = JSON.stringify(request, null, 2);
   }
 
+  async function runRawStream(payload) {
+    const label = "Raw " + String(payload.method || "stream");
+    const controller = beginStream(label);
+    $("#raw-response").textContent = "Streaming response opened. Events are shown in Activity.";
+    try {
+      const response = await fetch("/rpc", {
+        method: "POST",
+        headers: authHeaders({
+          "Content-Type": "application/json",
+          "Accept": "text/event-stream"
+        }),
+        body: JSON.stringify(payload),
+        signal: controller.signal
+      });
+      const type = response.headers.get("content-type") || "";
+      if (response.status === 401) {
+        clearAuthenticatedData("Authentication expired during raw streaming request.");
+      }
+      if (!response.ok || !response.body || type.indexOf("text/event-stream") === -1) {
+        const body = await response.text();
+        $("#raw-response").textContent = body || ("HTTP " + response.status);
+        log(label + " returned a non-stream response.", "error", {status: response.status});
+        return;
+      }
+      const count = await consumeSSE(response, label + " event");
+      $("#raw-response").textContent =
+        "Stream closed after " + count + " event(s). See Activity for event payloads.";
+      log(label + " stream closed", "ok", {events: count});
+    } catch (error) {
+      if (error.name === "AbortError") {
+        $("#raw-response").textContent = "Stream stopped.";
+        log(label + " stopped.");
+      } else {
+        $("#raw-response").textContent = error.message;
+        log(label + " failed: " + error.message, "error");
+      }
+    } finally {
+      endStream(controller);
+    }
+  }
+
   async function runRaw() {
     if (!requireConnected()) return;
     try {
       const payload = JSON.parse($("#raw-request").value);
-      if (payload.method === "SubscribeToTask") {
-        const id = payload.params && payload.params.id;
-        if (!id || id === "TASK_ID") throw new Error("Select a real task or provide params.id.");
-        $("#raw-response").textContent =
-          "Streaming subscription opened. Events are shown in Activity.";
-        await subscribeTask(id, false);
+      if (payload.method === "SubscribeToTask" || payload.method === "SendStreamingMessage") {
+        await runRawStream(payload);
         return;
       }
       const value = await fetchJSON("/rpc", {
