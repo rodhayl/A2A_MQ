@@ -128,6 +128,42 @@ async def test_official_send_streaming_message_sse(environment):
     assert b"TASK_STATE_COMPLETED" in body
 
 
+async def test_official_subscribe_to_nonterminal_task_sse(environment):
+    client, ledger, headers, user = environment
+    task = ledger.submit(user, {
+        "message": {
+            "messageId": "subscribe-live",
+            "role": "ROLE_USER",
+            "parts": [{"text": "hello"}],
+        }
+    })
+
+    async def complete():
+        await asyncio.sleep(0.02)
+        ledger.step(task["id"], "subscribe-working", "WORKING")
+        await asyncio.sleep(0.02)
+        ledger.step(
+            task["id"],
+            "subscribe-completed",
+            "COMPLETED",
+            artifacts=[{"artifactId": "out", "parts": [{"text": "done"}]}],
+        )
+
+    finisher = asyncio.create_task(complete())
+    async with client.stream(
+        "POST",
+        "/rpc",
+        headers={**headers(), "Accept": "text/event-stream"},
+        json={"jsonrpc": "2.0", "id": 8, "method": "SubscribeToTask",
+              "params": {"id": task["id"]}},
+    ) as response:
+        body = await response.aread()
+        assert response.status_code == 200
+        assert response.headers["content-type"].startswith("text/event-stream")
+    await finisher
+    assert b"TASK_STATE_COMPLETED" in body
+
+
 async def test_subscribe_rejects_terminal_task(environment):
     client, ledger, headers, user = environment
     task = ledger.submit(user, {
