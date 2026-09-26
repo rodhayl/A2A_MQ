@@ -230,6 +230,8 @@ LAB_HTML = """<!doctype html>
           <h2>Raw JSON-RPC console</h2>
         </div>
         <select id="raw-preset">
+          <option value="send">SendMessage</option>
+          <option value="sendstream">SendStreamingMessage</option>
           <option value="list">ListTasks</option>
           <option value="get">GetTask</option>
           <option value="cancel">CancelTask</option>
@@ -1378,7 +1380,21 @@ LAB_JS = r"""
     const selected = $("#raw-preset").value;
     const id = state.selected ? state.selected.id : "TASK_ID";
     let request;
-    if (selected === "get") {
+    if (selected === "send" || selected === "sendstream") {
+      request = {
+        jsonrpc: "2.0",
+        id: "lab",
+        method: selected === "send" ? "SendMessage" : "SendStreamingMessage",
+        params: {
+          message: {
+            messageId: "raw-message-1",
+            role: "ROLE_USER",
+            parts: [{text: "Hello from the raw Queue Lab console"}]
+          },
+          configuration: {returnImmediately: true}
+        }
+      };
+    } else if (selected === "get") {
       request = {jsonrpc: "2.0", id: "lab", method: "GetTask", params: {id: id}};
     } else if (selected === "cancel") {
       request = {jsonrpc: "2.0", id: "lab", method: "CancelTask", params: {id: id}};
