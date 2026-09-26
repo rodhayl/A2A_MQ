@@ -9,6 +9,7 @@ release-cleanliness SHA is `45c459c632977143b8681c055847775e88d7ad97`.
 ## Navigation
 
 - **Try it now** → [Getting Started Guide](docs/GETTING_STARTED.md) (run Local-lite in minutes)
+- **Graphical testing** → [Queue Lab](docs/QUEUE_LAB.md) (enqueue, inspect, subscribe, cancel, DLQ/replay; no external agent required)
 - **Architecture** → [Architecture & Boundaries](docs/ARCHITECTURE.md)
 - **Local runtime** → [Lightweight Local Runtimes](docs/LOCAL_RUNTIME.md)
 - **Distributed stack** → [Implemented Stack](docs/IMPLEMENTED_STACK.md)
