@@ -1,5 +1,20 @@
 # Lightweight local runtimes
 
+## Queue Lab
+
+Both local profiles serve the local-only manual test console at
+`http://127.0.0.1:18000/lab/`; the launcher also prints this as `labUrl`.
+
+Queue Lab uses the existing A2A/operations surfaces rather than a second backend. Local-lite
+can hold command delivery before `ledger.accept` with **Pause simulated agent**, allowing
+durably admitted `SUBMITTED` tasks to be inspected/canceled before resuming delivery.
+The normal callback timeout and Dapr/JetStream retry/DLQ policy remain authoritative.
+
+The local profile has one command route derived from its configured `--source`; Queue Lab
+does not manufacture arbitrary agent/skill routes outside that Dapr component scope.
+It exposes official `SendStreamingMessage` and `SubscribeToTask` SSE flows in addition to
+ordinary Send/Get/List/Cancel operations. See [QUEUE_LAB.md](QUEUE_LAB.md).
+
 ## Default: Local MQ Lite
 
 The default local product is intentionally small. Its steady-state process budget is:
