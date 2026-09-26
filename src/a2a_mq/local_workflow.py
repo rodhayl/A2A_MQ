@@ -19,7 +19,7 @@ from starlette.routing import Mount, Route
 from .configuration import read_file, verifier
 from .deadletters import DeadLetters, ReplayService
 from .dlq_callback import create_dlq_callback
-from .domain import Envelope, RetryableError, require
+from .domain import Envelope, RetryableError, canonical, require
 from .local_lite import (ASGIEndpoint, PathRewrite, LocalLiteSettings, _close_local_resources,
                          _integer, _no_lifespan)
 from .maintenance import Operations
@@ -30,7 +30,7 @@ from .runtime import AsyncSQLite, OutboxRelay
 from .storage import SQLiteStore
 from .task_api import TaskAPI
 from .tasks import TaskLedger
-from .transport import DaprPublisher, _AppTokenMiddleware, subscriber
+from .transport import DaprPublisher, _AppTokenMiddleware, cloud_event, subscriber
 from .workflows import ActionRelay, DaprActions
 
 
@@ -136,7 +136,7 @@ def create_app(settings: LocalWorkflowSettings):
     async def demo_deadletter(task_id: str):
         envelope = await database.call(ledger.command, task_id)
         await bus.quarantine(
-            envelope.wire.encode(),
+            canonical(cloud_event(envelope)).encode(),
             settings.tenant,
             settings.consumer,
             "QUEUE_LAB_DEMO",
