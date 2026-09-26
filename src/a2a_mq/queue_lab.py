@@ -199,6 +199,8 @@ LAB_HTML = """<!doctype html>
         <span id="selected-state" class="badge muted">none</span>
       </div>
       <div class="task-buttons">
+        <input id="continuation-text" class="continuation-input" value="continue"
+               placeholder="Continuation input" disabled>
         <button id="task-follow" class="secondary" disabled>Follow</button>
         <button id="task-subscribe" class="secondary" disabled>Subscribe (SSE)</button>
         <button id="task-continue" class="ghost" disabled>Continue input</button>
@@ -425,6 +427,7 @@ th, td { text-align: left; padding: 10px 8px; border-bottom: 1px solid #202b3d; 
 th { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .08em; }
 td code { color: #b8c9df; }
 .task-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+.continuation-input { width: min(320px, 100%); }
 .task-actions button { padding: 6px 8px; font-size: 11px; }
 .state-pill {
   display: inline-flex;
@@ -920,6 +923,7 @@ LAB_JS = r"""
     const st = stateName(task);
     $("#selected-state").textContent = st;
     $("#task-json").textContent = JSON.stringify(task, null, 2);
+    $("#continuation-text").disabled = st !== "INPUT_REQUIRED";
     $("#task-continue").disabled = st !== "INPUT_REQUIRED";
     $("#task-approve").disabled = st !== "AUTH_REQUIRED";
     $("#task-reject").disabled = st !== "AUTH_REQUIRED";
@@ -1270,8 +1274,11 @@ LAB_JS = r"""
 
   async function continueSelected() {
     if (!state.selected || !requireConnected()) return;
-    const text = prompt("Continuation input", "continue");
-    if (text === null) return;
+    const text = $("#continuation-text").value;
+    if (new TextEncoder().encode(text).length > 16384) {
+      log("Continuation text exceeds the 16 KiB input limit.", "error");
+      return;
+    }
     const task = state.selected;
     const params = {
       message: {
