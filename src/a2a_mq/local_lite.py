@@ -263,22 +263,21 @@ def create_app(settings: LocalLiteSettings):
                         max_records=settings.max_records)
     api = LocalLiteTaskAPI(ledger, database, wait_timeout=settings.callback_timeout)
     agent_pause = Event()
-    agent_shutdown = Event()
     actions = LocalLiteActions(ledger)
     identity = verifier(settings)
 
     async def accept(envelope: Envelope):
         # Queue Lab can emulate an unavailable local agent without acknowledging
-        # the broker delivery. Keep the current delivery open while paused so a
-        # short manual pause does not burn through Dapr/JetStream redelivery
-        # attempts; the subscriber's existing callback timeout remains the upper
-        # bound and converts an excessively long pause into the normal RETRY path.
-        while agent_pause.is_set():
-            if agent_shutdown.is_set():
-                raise RetryableError("SERVICE_SHUTTING_DOWN")
-            await asyncio.sleep(min(0.1, settings.callback_timeout / 4))
-        if agent_shutdown.is_set():
-            raise RetryableError("SERVICE_SHUTTING_DOWN")
+        # the broker delivery. Hold a short in-flight delivery so pause/resume can
+        # be observed without immediately consuming a redelivery attempt, but never
+        # let a manual pause pin an ASGI request for the full 30 s default callback
+        # timeout (which would also delay graceful process shutdown).
+        hold = min(5.0, settings.callback_timeout * 0.8)
+        deadline = asyncio.get_running_loop().time() + hold
+        while agent_pause.is_set() and asyncio.get_running_loop().time() < deadline:
+            await asyncio.sleep(min(0.1, max(0.005, hold / 10)))
+        if agent_pause.is_set():
+            raise RetryableError("LOCAL_AGENT_PAUSED")
         await database.call(ledger.accept, envelope)
 
     running = {"value": False}
@@ -379,7 +378,6 @@ def create_app(settings: LocalLiteSettings):
     async def lifespan(app):
         stop = asyncio.Event()
         agent_pause.clear()
-        agent_shutdown.clear()
         async with AsyncExitStack() as stack:
             stack.push_async_callback(_close_local_resources, database, bus)
             if mcp_server is not None:
@@ -404,7 +402,6 @@ def create_app(settings: LocalLiteSettings):
                 yield
             finally:
                 running["value"] = False
-                agent_shutdown.set()
                 agent_pause.clear()
                 stop.set()
                 for job in jobs:
