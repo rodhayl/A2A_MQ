@@ -5,6 +5,9 @@ A2A-MQ process. It does **not** start a second queue, mock broker or alternate t
 API. Every task still flows through the real A2A bridge, Dapr Pub/Sub, JetStream,
 SQLite ledger/outbox and the selected local executor/Workflow profile.
 
+> **Status:** Queue Lab is post-`v0.1.0-rc1` work on the production-hardening branch.
+> Its focused tests and one real browser smoke should pass before tagging `v0.1.0-rc2`.
+
 ## Start it
 
 Queue Lab is automatically available whenever either local profile is running:
