@@ -161,6 +161,7 @@ def run(root: Path) -> int:
             "profile": "local-workflow",
             "processes": {"app": os.getpid(), **{name: proc.pid for name, proc in children.items()}},
             "url": profile["publicUrl"],
+            "labUrl": profile["publicUrl"].rstrip("/") + "/lab/",
         }, sort_keys=True), flush=True)
 
         config = uvicorn.Config(
