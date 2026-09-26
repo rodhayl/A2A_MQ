@@ -230,9 +230,9 @@ LAB_HTML = """<!doctype html>
           <h2>Raw JSON-RPC console</h2>
         </div>
         <select id="raw-preset">
+          <option value="list">ListTasks</option>
           <option value="send">SendMessage</option>
           <option value="sendstream">SendStreamingMessage</option>
-          <option value="list">ListTasks</option>
           <option value="get">GetTask</option>
           <option value="cancel">CancelTask</option>
           <option value="subscribe">SubscribeToTask</option>
