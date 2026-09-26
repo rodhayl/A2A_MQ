@@ -63,6 +63,7 @@ LAB_HTML = """<!doctype html>
 
     <section class="metric-grid">
       <article class="metric"><span>Active tasks</span><strong id="m-active">–</strong></article>
+      <article class="metric"><span>Queued / submitted</span><strong id="m-submitted">–</strong></article>
       <article class="metric"><span>Task records</span><strong id="m-records">–</strong></article>
       <article class="metric"><span>Pending actions</span><strong id="m-actions">–</strong></article>
       <article class="metric"><span>Pending publications</span><strong id="m-publications">–</strong></article>
@@ -355,7 +356,7 @@ p { color: var(--muted); }
 .metric-grid {
   grid-column: span 12;
   display: grid;
-  grid-template-columns: repeat(6, 1fr);
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
   gap: 10px;
 }
 .metric { padding: 14px; box-shadow: none; }
@@ -666,8 +667,9 @@ LAB_JS = r"""
       button.dataset.paused = value.paused ? "true" : "false";
       button.textContent = value.paused ? "Resume simulated agent" : "Pause simulated agent";
       button.className = value.paused ? "secondary" : "ghost";
-      log(value.paused ? "Simulated agent paused; new tasks will remain queued." :
-        "Simulated agent resumed; queued tasks can drain.", "ok");
+      log(value.paused ?
+        "Simulated agent unavailable; short manual pauses hold delivery. Normal timeout/redelivery/DLQ policy still applies." :
+        "Simulated agent resumed; queued/submitted tasks can drain.", "ok");
       await refreshAll();
     } catch (error) {
       log("Agent control failed: " + error.message, "error");
@@ -798,6 +800,10 @@ LAB_JS = r"""
     const body = $("#tasks-body");
     body.innerHTML = "";
     const filter = $("#state-filter").value;
+    const submitted = state.tasks.filter(function (task) {
+      return stateName(task) === "SUBMITTED";
+    }).length;
+    $("#m-submitted").textContent = String(submitted);
     const tasks = state.tasks.filter(function (task) {
       return !filter || stateName(task) === filter;
     });
@@ -1225,7 +1231,7 @@ LAB_JS = r"""
     state.selected = null;
     renderTasks();
     renderSelected();
-    ["#m-active", "#m-records", "#m-actions", "#m-publications", "#m-oldest", "#m-dlq"]
+    ["#m-active", "#m-submitted", "#m-records", "#m-actions", "#m-publications", "#m-oldest", "#m-dlq"]
       .forEach(function (id) { $(id).textContent = "–"; });
     $("#dlq-list").textContent = "No data loaded.";
     $("#connection-info").textContent = "";
