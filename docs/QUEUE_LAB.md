@@ -47,7 +47,9 @@ Use **Load file** in the browser, or paste the token manually.
 
 The JWT is kept only in browser `sessionStorage`. Task, operations, replay and the
 local pause/resume control continue through bearer-authenticated A2A-MQ HTTP
-surfaces; Queue Lab does not persist the token server-side.
+surfaces; Queue Lab does not persist the token server-side. Local client JWTs are
+short-lived and refreshed on disk by the launcher, so a long-open tab may ask you
+to reload the current `client.jwt` and reconnect.
 
 ## What you can test
 
@@ -60,7 +62,8 @@ Create tasks with:
 - custom message ID;
 - optional context ID;
 - immediate return or wait-for-state behavior;
-- batches of up to 25 tasks.
+- batches of up to 25 tasks;
+- `SendStreamingMessage` over the official A2A SSE binding.
 
 The **Burst / queue view** preset is useful for creating several tasks quickly and
 watching task/backlog values change.
@@ -95,6 +98,26 @@ than creating an artificial infinite hold.
 This control exists only in local-lite. The Workflow profile already has a real Dapr
 Workflow runtime, so Queue Lab does not fake a Workflow-worker pause switch.
 
+### Routing target
+
+The running local profile has one real subscribed command route:
+
+`a2a.v1.<tenant>.command.agent.<source>`
+
+Queue Lab shows that configured agent in the header/route label. It deliberately
+does not invent arbitrary agent/skill routes that the Dapr component is not scoped
+to consume.
+
+Choose a different simulated agent identity when preparing a fresh profile:
+
+```bash
+a2amq-local prepare .local-validation/reviewer --source reviewer
+```
+
+That produces a real `...command.agent.reviewer` route. Skill-target routing and
+multiple independent consumers belong to a multi-service composition rather than
+this single local-lite process.
+
 ### Queue / consumer view
 
 The task table uses the real A2A `ListTasks` API and can filter by state:
@@ -111,13 +134,18 @@ The task table uses the real A2A `ListTasks` API and can filter by state:
 Selecting a task uses the real `GetTask` API and shows the complete current task
 document, artifacts and history.
 
-### Follow and subscribe
+### Streaming, follow and subscribe
+
+**Enqueue + A2A stream** sends the task using the official
+`SendStreamingMessage` JSON-RPC method and consumes its SSE responses.
 
 **Follow** polls the normal `GetTask` surface and records each state change.
 
-**Subscribe (SSE)** attempts the official A2A `SubscribeToTask` stream. If the
-client/browser path cannot keep the official event stream open, Queue Lab falls back
-to Follow rather than inventing a private streaming protocol.
+**Subscribe (SSE)** uses the official A2A `SubscribeToTask` stream for an existing
+non-terminal task. Terminal tasks are not subscribable and the UI disables that
+action. If an ordinary UI subscription cannot keep the event stream open, Queue Lab
+falls back to Follow rather than inventing a private streaming protocol. The raw
+JSON-RPC console does **not** hide streaming errors behind that fallback.
 
 ### Cancellation
 
