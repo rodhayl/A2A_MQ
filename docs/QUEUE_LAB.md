@@ -89,11 +89,13 @@ A useful manual scenario is:
 
 Cancellation remains available while execution is paused.
 
-The pause is intended for short manual experiments. The callback waits for resume
-within its normal timeout; if the pause outlives that timeout, A2A-MQ returns the
-normal retry result and Dapr/JetStream redelivery policy applies. An indefinitely
-paused consumer can therefore eventually exercise the configured DLQ path rather
-than creating an artificial infinite hold.
+The pause is intended for short manual experiments. Each in-flight delivery is held
+for at most 5 seconds (and always for less than the configured callback timeout).
+If the agent is still paused after that bounded hold, A2A-MQ returns the normal
+retry result and Dapr/JetStream redelivery policy applies. This keeps pause/resume
+observable without making graceful shutdown wait on a full 30-second callback.
+An indefinitely paused consumer can therefore eventually exercise the configured
+DLQ path rather than creating an artificial infinite hold.
 
 This control exists only in local-lite. The Workflow profile already has a real Dapr
 Workflow runtime, so Queue Lab does not fake a Workflow-worker pause switch.
@@ -185,8 +187,9 @@ record endpoint or replayed with a fresh replay request ID.
 
 For a deterministic manual DLQ test, select any real task and click **Demo DLQ**.
 The control requires `a2a:replay`; the generated local owner token already has that
-scope. Queue Lab does not insert a row directly. The server loads that task's
-persisted command envelope and publishes it through the real
+scope and the normal read/owner check. Queue Lab does not insert a row directly.
+The server loads that task's persisted command envelope, reconstructs its canonical
+CloudEvent, and publishes that CloudEvent through the real
 `DaprPublisher.quarantine()` path to the configured DLQ topic. The normal Dapr
 subscription then archives it, after which **Inspect** and **Replay** exercise the
 ordinary operations/replay path. Replaying the duplicate command remains subject to
