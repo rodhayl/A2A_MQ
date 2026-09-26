@@ -729,22 +729,41 @@ LAB_JS = r"""
       items.forEach(function (item) {
         const row = document.createElement("div");
         row.className = "stack-item";
+        const id = item.recordId || item.entryId || item.id;
         const label = document.createElement("div");
         label.innerHTML = "<strong></strong><br><span class=\"hint\"></span>";
-        label.querySelector("strong").textContent = item.recordId || item.entryId || item.id || "DLQ item";
+        label.querySelector("strong").textContent = id || "DLQ item";
         label.querySelector(".hint").textContent = item.reason || item.status || "archived";
-        const button = document.createElement("button");
-        button.className = "ghost";
-        button.textContent = "Replay";
-        button.addEventListener("click", function () {
-          replayDLQ(item.recordId || item.entryId || item.id);
-        });
-        row.append(label, button);
+        const buttons = document.createElement("div");
+        buttons.className = "task-actions";
+        const inspect = document.createElement("button");
+        inspect.className = "ghost";
+        inspect.textContent = "Inspect";
+        inspect.disabled = !id;
+        inspect.addEventListener("click", function () { inspectDLQ(id); });
+        const replay = document.createElement("button");
+        replay.className = "ghost";
+        replay.textContent = "Replay";
+        replay.disabled = !id;
+        replay.addEventListener("click", function () { replayDLQ(id); });
+        buttons.append(inspect, replay);
+        row.append(label, buttons);
         root.appendChild(row);
       });
     } catch (error) {
       $("#m-dlq").textContent = "!";
       log("DLQ refresh failed: " + error.message, "error");
+    }
+  }
+
+  async function inspectDLQ(id) {
+    if (!id) return;
+    try {
+      const value = await fetchJSON("/operations/deadletters/" + encodeURIComponent(id));
+      $("#raw-response").textContent = JSON.stringify(value, null, 2);
+      log("DLQ record loaded into Raw response", "ok", {id: id});
+    } catch (error) {
+      log("DLQ inspect failed: " + error.message, "error");
     }
   }
 
@@ -884,13 +903,21 @@ LAB_JS = r"""
     if (!extra || Array.isArray(extra) || typeof extra !== "object") {
       throw new Error("Advanced metadata must be a JSON object.");
     }
+    if ("a2amq" in extra && (!extra.a2amq || Array.isArray(extra.a2amq)
+        || typeof extra.a2amq !== "object")) {
+      throw new Error("metadata.a2amq must be a JSON object.");
+    }
     const a2amq = Object.assign({}, extra.a2amq || {}, {
       transform: $("#transform").value
     });
     if (state.config.features.workflow) {
+      const delay = Number($("#delay").value || 0);
+      if (!Number.isFinite(delay) || delay < 0 || delay > 86400) {
+        throw new Error("Delay must be a finite number between 0 and 86400 seconds.");
+      }
       a2amq.inputRequired = $("#input-required").checked;
       a2amq.authRequired = $("#auth-required").checked;
-      a2amq.delaySeconds = Number($("#delay").value || 0);
+      a2amq.delaySeconds = delay;
     }
     return Object.assign({}, extra, {a2amq: a2amq});
   }
@@ -916,7 +943,17 @@ LAB_JS = r"""
   }
 
   async function enqueue(follow) {
-    const count = Math.max(1, Math.min(25, Number($("#batch").value || 1)));
+    const rawCount = Number($("#batch").value || 1);
+    if (!Number.isFinite(rawCount) || rawCount < 1) {
+      log("Batch count must be a positive integer.", "error");
+      return;
+    }
+    const count = Math.max(1, Math.min(25, Math.trunc(rawCount)));
+    if ($("#toggle-agent").dataset.paused === "true"
+        && $("#return-immediately").value !== "true") {
+      log("Use Return immediately = Yes while the simulated agent is paused.", "error");
+      return;
+    }
     $("#send").disabled = true;
     $("#send-and-follow").disabled = true;
     try {
@@ -1152,10 +1189,10 @@ LAB_JS = r"""
       log("No JWT loaded.", "error");
       return;
     }
-    sessionStorage.setItem("a2amq.queueLab.token", value);
     try {
       const card = await fetchJSON("/.well-known/agent-card.json", {}, false);
       await rpc("ListTasks", {pageSize: 1});
+      sessionStorage.setItem("a2amq.queueLab.token", value);
       log("Authenticated connection ready", "ok", {name: card.name, version: card.version});
       await refreshAll();
     } catch (error) {
@@ -1184,7 +1221,15 @@ LAB_JS = r"""
   $("#clear-token").addEventListener("click", function () {
     sessionStorage.removeItem("a2amq.queueLab.token");
     $("#token").value = "";
-    log("JWT cleared from this tab.");
+    state.tasks = [];
+    state.selected = null;
+    renderTasks();
+    renderSelected();
+    ["#m-active", "#m-records", "#m-actions", "#m-publications", "#m-oldest", "#m-dlq"]
+      .forEach(function (id) { $(id).textContent = "–"; });
+    $("#dlq-list").textContent = "No data loaded.";
+    $("#connection-info").textContent = "";
+    log("JWT and authenticated task data cleared from this tab.");
   });
   $("#token-file").addEventListener("change", async function (event) {
     const file = event.target.files && event.target.files[0];
