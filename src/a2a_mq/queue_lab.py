@@ -550,7 +550,7 @@ LAB_JS = r"""
 
   function authHeaders(extra) {
     const headers = Object.assign({
-      "Authorization": "Bearer " + token(),
+      "Authorization": "Bearer " + validateToken(token()),
       "A2A-Version": "1.0"
     }, extra || {});
     return headers;
