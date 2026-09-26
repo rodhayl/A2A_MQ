@@ -557,6 +557,29 @@ LAB_JS = r"""
     return value;
   }
 
+  function clearAuthenticatedData(reason) {
+    state.authenticated = false;
+    state.sessionEpoch += 1;
+    if (state.streamController) {
+      state.streamController.abort();
+      state.streamController = null;
+    }
+    state.followTimers.forEach(function (handle) { clearTimeout(handle); });
+    state.followTimers.clear();
+    state.tasks = [];
+    state.selected = null;
+    sessionStorage.removeItem("a2amq.queueLab.token");
+    renderTasks();
+    renderSelected();
+    ["#m-active", "#m-submitted", "#m-records", "#m-actions", "#m-publications", "#m-oldest", "#m-dlq"]
+      .forEach(function (id) { $(id).textContent = "–"; });
+    $("#dlq-list").textContent = "No data loaded.";
+    $("#raw-response").textContent = "Ready.";
+    $("#activity-log").textContent = "";
+    $("#stop-stream").disabled = true;
+    if (reason) log(reason, "error");
+  }
+
   function authHeaders(extra) {
     const headers = Object.assign({
       "Authorization": "Bearer " + validateToken(token()),
@@ -581,8 +604,7 @@ LAB_JS = r"""
     }
     if (!response.ok) {
       if (authenticated !== false && response.status === 401) {
-        state.authenticated = false;
-        state.sessionEpoch += 1;
+        clearAuthenticatedData("Authentication expired; load the current client.jwt and reconnect.");
       }
       const detail = value.error || value.detail || value;
       const suffix = response.status === 401 && authenticated !== false ?
@@ -1171,8 +1193,7 @@ LAB_JS = r"""
       });
       const type = response.headers.get("content-type") || "";
       if (response.status === 401) {
-        state.authenticated = false;
-        state.sessionEpoch += 1;
+        clearAuthenticatedData("Authentication expired during SendStreamingMessage.");
       }
       if (!response.ok || !response.body || type.indexOf("text/event-stream") === -1) {
         const body = await response.text();
@@ -1215,8 +1236,7 @@ LAB_JS = r"""
       });
       const type = response.headers.get("content-type") || "";
       if (response.status === 401) {
-        state.authenticated = false;
-        state.sessionEpoch += 1;
+        clearAuthenticatedData("Authentication expired during SubscribeToTask.");
       }
       if (!response.ok || !response.body || type.indexOf("text/event-stream") === -1) {
         const body = await response.text();
@@ -1421,25 +1441,11 @@ LAB_JS = r"""
   $("#token").value = state.token;
   $("#connect").addEventListener("click", connect);
   $("#clear-token").addEventListener("click", function () {
-    stopStream();
-    state.followTimers.forEach(function (handle) { clearTimeout(handle); });
-    state.followTimers.clear();
-    sessionStorage.removeItem("a2amq.queueLab.token");
-    state.sessionEpoch += 1;
-    state.authenticated = false;
+    clearAuthenticatedData();
     $("#token").value = "";
     $("#token-file").value = "";
-    state.tasks = [];
-    state.selected = null;
-    renderTasks();
-    renderSelected();
-    ["#m-active", "#m-submitted", "#m-records", "#m-actions", "#m-publications", "#m-oldest", "#m-dlq"]
-      .forEach(function (id) { $(id).textContent = "–"; });
-    $("#dlq-list").textContent = "No data loaded.";
     $("#connection-info").textContent = "";
-    $("#raw-response").textContent = "Ready.";
     rawPreset();
-    $("#activity-log").textContent = "";
   });
   $("#token-file").addEventListener("change", async function (event) {
     const file = event.target.files && event.target.files[0];
