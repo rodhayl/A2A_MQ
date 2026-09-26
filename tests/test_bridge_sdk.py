@@ -86,6 +86,41 @@ async def test_discovery_auth_and_rest(environment):
     assert (await client.get("/tasks", headers=headers(tenant="other"))).status_code == 403
 
 
+async def test_terminal_task_message_returns_unsupported_operation(environment):
+    client, ledger, headers, user = environment
+    task = ledger.submit(user, {
+        "message": {
+            "messageId": "terminal-parent",
+            "role": "ROLE_USER",
+            "parts": [{"text": "hello"}],
+        }
+    })
+    ledger.step(task["id"], "terminal-working", "WORKING")
+    ledger.step(
+        task["id"],
+        "terminal-completed",
+        "COMPLETED",
+        artifacts=[{"artifactId": "out", "parts": [{"text": "done"}]}],
+    )
+    continuation = {
+        "message": {
+            "messageId": "terminal-continuation",
+            "role": "ROLE_USER",
+            "taskId": task["id"],
+            "contextId": task["contextId"],
+            "parts": [{"text": "again"}],
+        },
+        "configuration": {"returnImmediately": True},
+    }
+    response = await client.post(
+        "/rpc",
+        headers=headers(),
+        json={"jsonrpc": "2.0", "id": 6, "method": "SendMessage", "params": continuation},
+    )
+    assert response.status_code == 200
+    assert response.json()["error"]["code"] == -32004
+
+
 async def test_official_send_streaming_message_sse(environment):
     client, ledger, headers, user = environment
 
