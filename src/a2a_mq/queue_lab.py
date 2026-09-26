@@ -540,6 +540,14 @@ LAB_JS = r"""
     return ($("#token").value || "").trim();
   }
 
+  function validateToken(value) {
+    if (!value) throw new Error("Load a client JWT first.");
+    if (value.length > 16384 || !/^[A-Za-z0-9._-]+$/.test(value)) {
+      throw new Error("JWT has an invalid shape or exceeds the 16 KiB server limit.");
+    }
+    return value;
+  }
+
   function authHeaders(extra) {
     const headers = Object.assign({
       "Authorization": "Bearer " + token(),
@@ -933,10 +941,14 @@ LAB_JS = r"""
     const messageId = base ?
       (index === 0 ? base : base + "-" + (index + 1)) :
       uid("msg");
+    const text = $("#message").value;
+    if (new TextEncoder().encode(text).length > 16384) {
+      throw new Error("Message text exceeds the 16 KiB local workflow input limit.");
+    }
     const message = {
       messageId: messageId,
       role: "ROLE_USER",
-      parts: [{text: $("#message").value}]
+      parts: [{text: text}]
     };
     const contextId = ($("#context-id").value || "").trim();
     if (contextId) message.contextId = contextId;
@@ -1202,9 +1214,11 @@ LAB_JS = r"""
   }
 
   async function connect() {
-    const value = token();
-    if (!value) {
-      log("No JWT loaded.", "error");
+    let value;
+    try {
+      value = validateToken(token());
+    } catch (error) {
+      log(error.message, "error");
       return;
     }
     try {
@@ -1252,6 +1266,11 @@ LAB_JS = r"""
   $("#token-file").addEventListener("change", async function (event) {
     const file = event.target.files && event.target.files[0];
     if (!file) return;
+    if (file.size > 32768) {
+      log("Selected JWT file is unexpectedly large.", "error");
+      event.target.value = "";
+      return;
+    }
     $("#token").value = (await file.text()).trim();
     connect();
   });
