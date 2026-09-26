@@ -4,6 +4,7 @@ from threading import Event
 import httpx
 from starlette.applications import Starlette
 
+from a2a_mq.domain import Envelope
 from a2a_mq.identity import Principal
 from a2a_mq.local_lite import LocalLiteSettings, create_app as create_lite
 from a2a_mq.local_workflow import LocalWorkflowSettings
@@ -23,7 +24,7 @@ def _files(tmp_path):
     return app_token, dapr_token, keys
 
 
-def _lite_settings(tmp_path):
+def _lite_settings(tmp_path, **overrides):
     app_token, dapr_token, keys = _files(tmp_path)
     return LocalLiteSettings(
         sqlite_path=str(tmp_path / "local.db"),
@@ -31,6 +32,7 @@ def _lite_settings(tmp_path):
         dapr_token_file=str(dapr_token),
         jwt_keys_file=str(keys),
         issuer="https://local-a2amq.invalid",
+        **overrides,
     )
 
 
@@ -139,7 +141,7 @@ async def test_queue_lab_agent_pause_control_requires_real_bearer_authorization(
 
 
 async def test_local_lite_pause_retries_real_dapr_delivery_until_resumed(tmp_path, monkeypatch):
-    settings = _lite_settings(tmp_path)
+    settings = _lite_settings(tmp_path, callback_timeout=0.05)
 
     class Verifier:
         audience = "http://127.0.0.1:18000"
@@ -169,7 +171,7 @@ async def test_local_lite_pause_retries_real_dapr_delivery_until_resumed(tmp_pat
         "configuration": {"returnImmediately": True},
     })
     publish = ledger.pending(("publish",))[0]
-    envelope = __import__("a2a_mq.domain", fromlist=["Envelope"]).Envelope(publish.body)
+    envelope = Envelope(publish.body)
     ledger.delivered(publish)
     incoming = {
         **cloud_event(envelope),
