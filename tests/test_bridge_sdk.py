@@ -86,6 +86,26 @@ async def test_discovery_auth_and_rest(environment):
     assert (await client.get("/tasks", headers=headers(tenant="other"))).status_code == 403
 
 
+async def test_public_cancel_rejects_already_terminal_task(environment):
+    client, ledger, headers, user = environment
+    task = ledger.submit(user, {
+        "message": {
+            "messageId": "cancel-terminal",
+            "role": "ROLE_USER",
+            "parts": [{"text": "hello"}],
+        }
+    })
+    ledger.step(task["id"], "already-canceled", "CANCELED")
+    response = await client.post(
+        "/rpc",
+        headers=headers(),
+        json={"jsonrpc": "2.0", "id": 5, "method": "CancelTask",
+              "params": {"id": task["id"]}},
+    )
+    assert response.status_code == 200
+    assert response.json()["error"]["code"] == -32002
+
+
 async def test_terminal_task_message_returns_unsupported_operation(environment):
     client, ledger, headers, user = environment
     task = ledger.submit(user, {
