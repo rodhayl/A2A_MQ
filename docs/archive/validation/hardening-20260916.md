@@ -37,7 +37,7 @@ python scripts/assert_junit_complete.py /tmp/a2amq-tooling-review.junit.xml
 ```
 
 For a complete declared local review and separate blocking full verdict, use
-[TEST_MVP.md](../../TEST_MVP.md). Retain exact SHA and fresh outputs. There is no
+[TEST_MVP.md](../planning/TEST_MVP.md). Retain exact SHA and fresh outputs. There is no
 assertion that fresh execution must reproduce a historic timing or test count after
 future changes.
 
@@ -52,4 +52,4 @@ own disposable Git fixtures.
 GitHub Actions was triggered by pushes. Run `35153620064` at `c4449c9` failed before
 step evidence was available. The revised workflow is a configured gate with static
 tests, not a verified hosted pass. No Docker or real external infrastructure pass
-is asserted. See [STATUS.md](../STATUS.md) for recovery and integration blockers.
+is asserted. See [STATUS.md](../../STATUS.md) for recovery and integration blockers.

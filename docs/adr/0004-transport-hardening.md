@@ -37,6 +37,6 @@ full tenant authorization model or production workload identity.
 Regression tests cover response closure, header waits, callback admission/body/handler
 budgets, slot release, readiness, shutdown cleanup, credential ambiguity, metadata
 consistency and external cancellation. Read the exact executed scopes in
-[the hardening record](../validation/hardening-20260916.md). Delivery remains
+[the hardening record](../archive/validation/hardening-20260916.md). Delivery remains
 at-least-once; volatile demonstration processing remains volatile; external effects
 need their own idempotency contract.

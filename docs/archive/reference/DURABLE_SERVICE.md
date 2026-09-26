@@ -113,5 +113,5 @@ SQLite is a single-host reference backend. The SQL effect is a narrow echo fixtu
 not exactly-once execution of external tools. PostgreSQL, live Dapr/JetStream,
 RabbitMQ parity, long-running Workflow operations, the public A2A bridge, production
 identity/TLS and coordinated retention still require separate implementation or
-acceptance gates. See [executed evidence](validation/durable-service-20260917.md)
-and [current status](STATUS.md).
+acceptance gates. See [executed evidence](../validation/durable-service-20260917.md)
+and [current status](../../STATUS.md).

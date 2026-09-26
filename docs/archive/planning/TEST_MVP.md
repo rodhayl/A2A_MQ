@@ -79,7 +79,7 @@ The timeout is per validation subprocess. It is not process-tree containment or
 proof that hostile tests cannot escape. Run only in a disposable review environment.
 
 For a narrower developer reproduction of the new phase-3 implementation, see
-[the exact selected-suite command](docs/validation/durable-service-20260917.md).
+[the exact selected-suite command](../validation/durable-service-20260917.md).
 Its 184-test pass is not a substitute for this entire local review procedure.
 
 ## Other gates remain explicit

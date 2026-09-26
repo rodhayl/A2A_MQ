@@ -1,3 +1,0 @@
-# Minimal first-gate environment for scripts/local_resource_probe.py.
-# Keep this intentionally smaller than requirements/local-validation.txt.
-jsonschema[format-nongpl]==4.26.0
