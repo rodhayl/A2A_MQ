@@ -157,8 +157,9 @@ subscribe to task state, cancel tasks, inspect/replay dead letters and use a raw
 JSON-RPC console.
 
 For an actual **producer online / simulated agent offline** test, click **Pause simulated
-agent**, enqueue one task or a burst, inspect the pending queue, then click **Resume
-simulated agent** and watch the same durable tasks drain and complete.
+agent**, enqueue one task or a burst, watch the tasks remain `SUBMITTED` in **Queued /
+submitted**, then click **Resume simulated agent** and watch the same durable tasks
+drain and complete.
 
 No external LLM or agent process is required. See [QUEUE_LAB.md](QUEUE_LAB.md) for
 the full manual-testing guide and the optional Workflow controls.
