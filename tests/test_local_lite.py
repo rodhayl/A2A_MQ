@@ -38,6 +38,34 @@ def test_local_lite_executes_existing_ledger_without_workflow(tmp_path):
         assert db.execute("SELECT COUNT(*) FROM a2amq_runtime_end WHERE task_id=?", (task["id"],)).fetchone()[0] == 1
 
 
+
+def test_local_lite_queue_lab_pause_keeps_start_pending_until_resumed(tmp_path):
+    from threading import Event
+
+    store = SQLiteStore(tmp_path / "local.db", tenant="demo", consumer="local")
+    ledger = TaskLedger(store, source="local-worker")
+    task = ledger.submit(principal(), request(transform="upper"))
+    publish = ledger.pending(("publish",))[0]
+    command = Envelope(publish.body)
+    ledger.delivered(publish)
+    assert ledger.accept(command) is True
+    start = next(a for a in ledger.pending(("start",)) if a.task_id == task["id"])
+
+    paused = Event()
+    paused.set()
+    actions = LocalLiteActions(ledger, pause_event=paused)
+    actions.dispatch(start)
+
+    assert state_of(ledger.get(principal(), task["id"])) == "SUBMITTED"
+    assert any(a.action_id == start.action_id for a in ledger.pending(("start",)))
+
+    paused.clear()
+    actions.dispatch(start)
+    completed = ledger.get(principal(), task["id"])
+    assert state_of(completed) == "COMPLETED"
+    assert completed["artifacts"][0]["parts"][0]["text"] == "HELLO"
+    assert not any(a.action_id == start.action_id for a in ledger.pending(("start",)))
+
 def test_local_lite_cancel_before_start_is_terminal_and_idempotent(tmp_path):
     store = SQLiteStore(tmp_path / "local.db", tenant="demo", consumer="local")
     ledger = TaskLedger(store, source="local-worker")
