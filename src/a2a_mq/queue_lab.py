@@ -673,7 +673,14 @@ LAB_JS = r"""
     }
   }
 
+  function requireConnected() {
+    if (state.authenticated) return true;
+    log("Connect with a valid current client.jwt first.", "error");
+    return false;
+  }
+
   async function toggleAgent() {
+    if (!requireConnected()) return;
     const button = $("#toggle-agent");
     const paused = button.dataset.paused !== "true";
     try {
@@ -974,6 +981,7 @@ LAB_JS = r"""
   }
 
   async function enqueue(follow) {
+    if (!requireConnected()) return;
     const rawCount = Number($("#batch").value || 1);
     if (!Number.isFinite(rawCount) || rawCount < 1) {
       log("Batch count must be a positive integer.", "error");
@@ -1118,6 +1126,7 @@ LAB_JS = r"""
   }
 
   async function sendStreaming() {
+    if (!requireConnected()) return;
     if ($("#toggle-agent").dataset.paused === "true") {
       log("Resume the simulated agent before SendStreamingMessage, or the stream may wait for normal delivery timeout.", "error");
       return;
@@ -1163,7 +1172,7 @@ LAB_JS = r"""
   }
 
   async function subscribeTask(id, allowFallback) {
-    if (!token()) return;
+    if (!requireConnected()) return;
     const fallback = allowFallback !== false;
     log("Opening A2A SubscribeToTask stream for " + id);
     const request = {
@@ -1227,7 +1236,7 @@ LAB_JS = r"""
   }
 
   async function cancelSelected() {
-    if (!state.selected) return;
+    if (!state.selected || !requireConnected()) return;
     try {
       const task = taskFromResult(await rpc("CancelTask", {id: state.selected.id}));
       log("Cancel accepted", "ok", {id: task.id, state: stateName(task)});
@@ -1240,7 +1249,7 @@ LAB_JS = r"""
   }
 
   async function continueSelected() {
-    if (!state.selected) return;
+    if (!state.selected || !requireConnected()) return;
     const text = prompt("Continuation input", "continue");
     if (text === null) return;
     const task = state.selected;
@@ -1264,7 +1273,7 @@ LAB_JS = r"""
   }
 
   async function approveSelected(approved) {
-    if (!state.selected) return;
+    if (!state.selected || !requireConnected()) return;
     try {
       const value = await fetchJSON(
         "/operations/tasks/" + encodeURIComponent(state.selected.id) + "/approve",
@@ -1317,6 +1326,7 @@ LAB_JS = r"""
   }
 
   async function runRaw() {
+    if (!requireConnected()) return;
     try {
       const payload = JSON.parse($("#raw-request").value);
       if (payload.method === "SubscribeToTask") {
