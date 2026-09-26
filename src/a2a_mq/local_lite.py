@@ -362,6 +362,7 @@ def create_app(settings: LocalLiteSettings):
     @asynccontextmanager
     async def lifespan(app):
         stop = asyncio.Event()
+        agent_pause.clear()
         agent_shutdown.clear()
         async with AsyncExitStack() as stack:
             stack.push_async_callback(_close_local_resources, database, bus)
@@ -388,6 +389,7 @@ def create_app(settings: LocalLiteSettings):
             finally:
                 running["value"] = False
                 agent_shutdown.set()
+                agent_pause.clear()
                 stop.set()
                 for job in jobs:
                     if not job.done():
