@@ -912,7 +912,7 @@ LAB_JS = r"""
 
   function renderSelected() {
     const task = state.selected;
-    const buttons = ["#task-follow", "#task-subscribe", "#task-continue",
+    const buttons = ["#continuation-text", "#task-follow", "#task-subscribe", "#task-continue",
       "#task-approve", "#task-reject", "#task-cancel"];
     buttons.forEach(function (id) { $(id).disabled = !task; });
     if (!task) {
