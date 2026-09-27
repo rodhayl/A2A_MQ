@@ -15,19 +15,23 @@ import subprocess
 import sys
 import time
 
+from .domain import PermanentError
 from .local_runtime import (
     APP_ID,
     DAPR_INTERNAL_GRPC_PORT,
     CLIENT_TOKEN_REFRESH_SECONDS,
     SUPERVISOR_INTERVAL_SECONDS,
+    _format_cli_error,
     _load_profile,
     _native_binary,
+    _print_doctor,
     _runtime_environments,
     _server_exit_code,
     _refresh_client_tokens,
     _require_ports_free,
     _terminate,
     _wait_port,
+    doctor as doctor_local,
     prepare as prepare_local,
 )
 
@@ -41,6 +45,13 @@ SCHEDULER_HEALTH_PORT = 58081
 SCHEDULER_METRICS_PORT = 58091
 SCHEDULER_ETCD_CLIENT_PORT = 52379
 SCHEDULER_ETCD_PEER_PORT = 52380
+WORKFLOW_PORTS = (
+    18000, 3500, 50001, DAPR_INTERNAL_GRPC_PORT, 4222,
+    PLACEMENT_PORT, SCHEDULER_PORT, PLACEMENT_RAFT_PORT,
+    PLACEMENT_HEALTH_PORT, PLACEMENT_METRICS_PORT,
+    SCHEDULER_HEALTH_PORT, SCHEDULER_METRICS_PORT,
+    SCHEDULER_ETCD_CLIENT_PORT, SCHEDULER_ETCD_PEER_PORT,
+)
 
 
 def prepare(root: Path, *, tenant: str = "demo", source: str = "local-worker",
@@ -48,6 +59,16 @@ def prepare(root: Path, *, tenant: str = "demo", source: str = "local-worker",
     """Prepare an isolated Workflow profile without rewriting any generated file."""
     return prepare_local(root, tenant=tenant, source=source, public_url=public_url,
                          mcp=mcp, mode="local-workflow")
+
+
+def doctor(root: Path | None = None) -> dict:
+    """Run the shared non-mutating preflight for the five-process Workflow profile."""
+    return doctor_local(
+        root,
+        mode="local-workflow",
+        native_names=("daprd", "nats-server", "placement", "scheduler"),
+        ports=WORKFLOW_PORTS,
+    )
 
 
 def _placement_command(binary: str) -> list[str]:
@@ -95,13 +116,7 @@ def _scheduler_command(binary: str, root: Path) -> list[str]:
 def run(root: Path) -> int:
     root = root.absolute()
     profile = _load_profile(root, "local-workflow")
-    _require_ports_free((
-        18000, 3500, 50001, DAPR_INTERNAL_GRPC_PORT, 4222,
-        PLACEMENT_PORT, SCHEDULER_PORT, PLACEMENT_RAFT_PORT,
-        PLACEMENT_HEALTH_PORT, PLACEMENT_METRICS_PORT,
-        SCHEDULER_HEALTH_PORT, SCHEDULER_METRICS_PORT,
-        SCHEDULER_ETCD_CLIENT_PORT, SCHEDULER_ETCD_PEER_PORT,
-    ))
+    _require_ports_free(WORKFLOW_PORTS)
     binaries = {name: _native_binary(name) for name in ("nats-server", "daprd", "placement", "scheduler")}
     missing = [name for name, value in binaries.items() if not value]
     if missing:
@@ -218,12 +233,25 @@ def main() -> None:
     prep.add_argument("--mcp", action="store_true")
     launch = commands.add_parser("run")
     launch.add_argument("root", type=Path)
+    diagnose = commands.add_parser("doctor", help="non-mutating Workflow prerequisite/profile preflight")
+    diagnose.add_argument("root", type=Path, nargs="?")
     args = parser.parse_args()
-    if args.command == "prepare":
-        print(json.dumps(prepare(args.root, tenant=args.tenant, source=args.source,
-                                 public_url=args.public_url, mcp=args.mcp), sort_keys=True))
-        return
-    raise SystemExit(run(args.root))
+    try:
+        if args.command == "prepare":
+            print(json.dumps(prepare(args.root, tenant=args.tenant, source=args.source,
+                                     public_url=args.public_url, mcp=args.mcp), sort_keys=True))
+            return
+        if args.command == "doctor":
+            report = doctor(args.root)
+            _print_doctor(report)
+            raise SystemExit(0 if report["status"] == "ready" else 2)
+        raise SystemExit(run(args.root))
+    except (PermanentError, RuntimeError, subprocess.SubprocessError) as exc:
+        message = _format_cli_error(exc)
+        if message is None:
+            raise
+        print(message, file=sys.stderr)
+        raise SystemExit(2) from None
 
 
 if __name__ == "__main__":
