@@ -7,7 +7,10 @@ import tomllib
 
 root = Path(__file__).resolve().parents[1]
 assert (root / "spec/envelope.schema.json").read_bytes() == (root / "src/a2a_mq/schema.json").read_bytes()
-for path in list((root / "src").rglob("*.py")) + list((root / "tests").rglob("*.py")):
+assert (root / "spec/binding.json").read_bytes() == (root / "src/a2a_mq/binding.json").read_bytes()
+for path in (list((root / "src").rglob("*.py")) + list((root / "tests").rglob("*.py"))
+            + list((root / "deploy").rglob("*.py")) + list((root / "scripts").rglob("*.py"))
+            + list((root / "tools").rglob("*.py"))):
     ast.parse(path.read_text(), filename=str(path))
 for path in (root / "spec").rglob("*.json"):
     json.loads(path.read_text())
@@ -16,4 +19,4 @@ for path in [root / "README.md", *list((root / "docs").rglob("*.md"))]:
     for target in re.findall(r"\]\(([^)#]+)(?:#[^)]*)?\)", path.read_text()):
         if "://" not in target:
             assert (path.parent / target).exists(), (path, target)
-print("Repository syntax, JSON, schema-copy and local-link checks passed")
+print("Repository syntax, JSON, schema/binding copies and local-link checks passed")

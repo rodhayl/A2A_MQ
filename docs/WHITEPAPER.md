@@ -30,15 +30,17 @@ reusing Dapr? RQ4: what data stays visible even with future payload encryption?
 
 ## 2. Prior components and scope
 
-The primary-source comparison is in `FOUNDATION_RESEARCH.md`. Dapr/JetStream is a
-project-specific foundation choice, not a universal winner. Existing A2A runtimes,
+The original primary-source comparison is archived at
+`archive/planning/FOUNDATION_RESEARCH.md`. Dapr/JetStream is a project-specific
+foundation choice, not a universal winner. Existing A2A runtimes,
 Dapr Agents, workflow engines and gateways overlap substantially with this idea.
 Claims about what no other project implements must be rechecked before marketing.
 
 A2A 1.0 data objects are reused; the custom `task.snapshot` transport event carries
-a complete canonical Task. Ordinary clients will need the phase-5 standard bridge.
-Cancellation, durable human approval, discovery and encrypted content are designed
-but must not be advertised as implemented by the initial slice.
+a complete canonical Task. The standard A2A bridge, cancellation, durable
+input/auth continuation, discovery and optional Vault-backed payload protection are
+implemented in the current distributed profile. Local-lite intentionally exposes a
+narrower feature set.
 
 ## 3. Consistency model
 
@@ -58,7 +60,8 @@ states and rejects terminal rewrites. Delta/chunk streaming is a separate extens
 
 Topic scopes and broker identities enforce who receives traffic. Symmetric content
 encryption is an optional additional boundary, not a replacement for authorization.
-A future per-message content key is wrapped for the receiving group. Shared-key
+The optional protection profile uses per-message content encryption with Vault-backed
+key wrapping for the receiving group. Shared-key
 recipients can still forge group-authenticated content, so AEAD alone does not
 prove the individual publisher. Workload signatures or authenticated ingress may
 be needed across trust domains. Metadata, DB state and endpoint compromise remain
@@ -69,20 +72,23 @@ visible risks; see `SECURITY.md`.
 Use a deterministic, model-free echo effect before adding inference. Test all state
 pairs, malformed input, duplicate identities, tenant collisions, lease takeover,
 stale fencing tokens, transaction crash points, outbox publish/mark crashes,
-snapshot permutations and bounded queries. Separately run real Dapr/JetStream
-experiments for offline publish, competing consumers, fan-out and DLQ, plus a real
-PostgreSQL suite. A mock passing does not establish broker behavior.
+snapshot permutations and bounded queries. The RC2 release gate focused on the real
+local user-facing path, while the earlier SHA-bound full acceptance separately ran
+real JetStream/RabbitMQ live probes, verified-TLS PostgreSQL and Vault Transit gates.
+A mock passing still does not establish broker or external-infrastructure behavior.
 
 Measure publish-to-delivery and result lag separately from inference. Report
 hardware, dependency versions, concurrency, payload size and retained backlog.
-Earlier 50/200 ms numbers are hypotheses, not achieved SLOs. No throughput or
-production readiness claim is made without the corresponding experiment.
+Earlier 50/200 ms numbers are hypotheses, not achieved SLOs. No throughput, SLA or production-certification claim is made without the
+corresponding experiment and explicit evidence boundary.
 
 ## 6. Limitations and conclusion
 
-The initial SQL effect fixture is intentionally stronger and narrower than arbitrary
-agent side effects. SQLite only demonstrates local durability; PostgreSQL and live
-broker tests are release gates. Full snapshots trade bandwidth for simpler recovery.
-The standard A2A bridge and optional encryption remain later phases. With these
-limits explicit, the highest-value work is in contracts and evidence rather than
-rebuilding brokers, workflow runtimes or cryptography.
+The deterministic SQL fixture remains stronger and narrower than arbitrary external
+agent side effects. SQLite is the local durability profile; verified PostgreSQL and
+live broker tests cover the distributed acceptance boundary. Full snapshots trade
+bandwidth for simpler recovery. The current implementation now includes the standard
+A2A bridge, Workflow tier and optional Vault-backed protection, while explicit
+certification booleans remain false. The highest-value work remains contracts,
+evidence and deployment discipline rather than rebuilding brokers, workflow runtimes
+or cryptography.

@@ -1,60 +1,131 @@
-# Local deployment and live gates
+# Disposable Compose deployment fixture
 
-Development only. No production identity, TLS, KMS or HA claim. All published host
-ports bind loopback. Container listeners bind internally for sidecar access. Use
-only synthetic tasks. The Compose project is named `a2a-mq-local`.
+The `deploy/` tree is a **development/live-gate fixture**, not the recommended
+v0.1.0-rc2 local runtime and not production infrastructure.
+
+For a normal first run use:
+
+- [../docs/GETTING_STARTED.md](../docs/GETTING_STARTED.md)
+- `a2amq-local`
+- the repository-pinned Dapr 1.18.3 / NATS Server 2.15.0 native bootstrap.
+
+This Compose fixture remains useful for multi-role broker behavior and historical
+acceptance scenarios.
+
+## Security boundary
+
+All published host ports bind loopback. Use only synthetic data.
+
+The fixture does not establish production:
+
+- identity;
+- TLS;
+- secret management;
+- KMS;
+- HA;
+- supply-chain pinning.
+
+Generated Compose/manifests are ignored by Git; `deploy/generate.py` is the reviewed
+source.
+
+## Current fixture versions
+
+The current generator intentionally renders:
+
+- Dapr container image `daprio/daprd:1.18.2`;
+- NATS image `nats:2.14.6-alpine`;
+- NATS-box `natsio/nats-box:0.19.0`;
+- Python application image built from the repository Dockerfile.
+
+These are the versions encoded by this separate disposable fixture. They are **not**
+the RC2 native Local-lite provenance versions.
+
+Do not update these values merely to match Local-lite documentation without rerunning
+the fixture's relevant live acceptance.
 
 ## Start
 
-```sh
+```bash
 python -m pip install -e '.[dev]'
 make up
+
 python -m a2a_mq --text 'hello agents' --save /tmp/a2a-command.json
-# On an ambiguous timeout, retry the same file; do not generate another ID:
+```
+
+On an ambiguous timeout, retry the same immutable command rather than generating a
+new identity:
+
+```bash
 python -m a2a_mq --retry-file /tmp/a2a-command.json
 ```
 
-`make up` runs the stdlib generator, then Docker Compose. Generated manifests are
-ignored by Git; their reviewed source is `generate.py`. Images: Dapr 1.18.2,
-NATS 2.14.6-alpine and NATS-box 0.19.0. Python uses the 3.13-slim image family;
-image digests/transitive dependencies are not yet locked for a production supply chain.
+The Compose project name is `a2a-mq-local`.
 
-The initializer creates a file-backed limits-retention stream **before sidecars**.
-It does not rewrite an existing stream; intentional retention/config changes need
-an operator migration or disposable-volume reset. Retention is one day / 256 MiB /
-100,000 messages; full storage rejects new publishes instead of silently evicting
-old accepted work. Expiry still limits guarantees.
+## Topology
 
-Worker A/B share one logical app ID, consumer pair and a single-host SQLite volume.
-Observer A/B have distinct consumer pairs and volumes. Components include local
-publish/subscribe scopes. These are not a substitute for broker credentials or
-production authorization. The phase-2 checkpoint is deliberately a volatile demo;
-phase 3 installs transactional processing behind the same endpoints.
+The fixture creates:
+
+- one file-backed JetStream server;
+- a producer role;
+- two worker containers sharing the logical worker identity/state;
+- two independent observer roles;
+- a Dapr sidecar per application role.
+
+The stream is created before sidecars and uses bounded limits retention. An existing
+stream is not silently rewritten; configuration changes require an intentional
+migration or disposable-volume reset.
+
+Worker replicas share one logical consumer. Observer A/B use distinct durable
+consumer identities so they each receive task events independently.
 
 ## Inspect
 
-Producer Dapr: `http://127.0.0.1:3500`; app health: `:18000/health/ready`.
-Observer metadata: `:18001/internal/observations` and `:18002/internal/observations`.
-Worker health: ports 18011/18012. NATS monitor: port 8222. No payload logs are needed.
+Useful loopback endpoints include:
 
-## Real infrastructure gate
+- producer Dapr: `http://127.0.0.1:3500`;
+- application health: `:18000/health/ready`;
+- observer metadata: `:18001/internal/observations` and
+  `:18002/internal/observations`;
+- worker health: `:18011` and `:18012`;
+- NATS monitoring: `:8222`.
 
-```sh
+Avoid logging payloads/secrets to inspect the fixture.
+
+## Live gate
+
+```bash
 A2A_LIVE=1 python -m pytest -m live -v
 ```
 
-This test **deletes this fixture's named volumes**, publishes before workers exist,
-starts two worker replicas and checks both observers receive the expected events.
-Use a disposable machine/project only. Phase 3 extends it with durable effect counts.
-A transport mock cannot establish these broker properties. This environment had no
-Docker/runtime binaries, so this live gate was not executed here.
+The live test is destructive to this fixture's named volumes. Use a disposable
+machine/project.
 
-Dapr retries callbacks 20 times at 1-second intervals before its configured dead
-letter route. Permanent application errors are explicitly quarantined first.
-Broker ack wait is 60 seconds and maxDeliver 20; exhausted broker deliveries require
-operator inspection/advisories, not an assumption of automatic DLQ movement.
-The protected reference transaction is short; phase-3 leases must be shorter than
-the normal callback retry window. Long inference belongs in phase-4 workflows.
+It validates retained delivery and the intended worker/observer consumer shape. A
+transport mock cannot establish those broker properties.
 
-`make down` preserves volumes. `docker compose -f deploy/compose.yaml down -v`
-destroys them. Database server and upstream SDK gates are separate from this fixture.
+Dapr callback retry and JetStream delivery limits remain explicit in the generated
+resources. Permanent application errors use the quarantine path; exhausted/poison
+delivery requires operator inspection rather than assuming invisible successful
+processing.
+
+## Stop
+
+```bash
+make down
+```
+
+This preserves volumes.
+
+To destroy the fixture and its named volumes:
+
+```bash
+docker compose -f deploy/compose.yaml down -v
+```
+
+## Production
+
+Do not deploy this fixture as production.
+
+Production application resources are rendered by `deploy/production/generate.py`
+and require administrator-owned secrets/infrastructure plus an immutable image
+digest. See [../docs/IMPLEMENTED_STACK.md](../docs/IMPLEMENTED_STACK.md).

@@ -16,6 +16,11 @@ from jsonschema import Draft202012Validator, FormatChecker
 
 MAX_BYTES = 262144
 TOKEN = re.compile(r"^[a-z0-9][a-z0-9-]{0,62}$")
+MODEL_CREDENTIAL = re.compile(
+    r"^(?:OPENAI|ANTHROPIC|AZURE_OPENAI|GEMINI|GOOGLE|MISTRAL|COHERE|GROQ|"
+    r"DEEPSEEK|TOGETHER|OPENROUTER|HUGGING_FACE|HF_|XAI|CEREBRAS|REPLICATE).*(?:KEY|TOKEN|CREDENTIAL)",
+    re.I,
+)
 STATES = frozenset("SUBMITTED WORKING COMPLETED FAILED CANCELED INPUT_REQUIRED REJECTED AUTH_REQUIRED".split())
 TERMINAL = frozenset("COMPLETED FAILED CANCELED REJECTED".split())
 TRANSITIONS = {
@@ -55,7 +60,9 @@ def token(value: str) -> str:
 
 def canonical(value: Any) -> str:
     try:
-        return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"), allow_nan=False)
+        text = json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"), allow_nan=False)
+        text.encode("utf-8", errors="strict")
+        return text
     except (TypeError, ValueError, RecursionError):
         raise PermanentError("INVALID_JSON") from None
 
@@ -71,11 +78,14 @@ def _pairs(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
 def _depth(value: Any, level: int = 0) -> None:
     require(level <= 32, "JSON_TOO_DEEP")
     if isinstance(value, dict):
-        for child in value.values():
+        for key, child in value.items():
+            key.encode("utf-8", errors="strict")
             _depth(child, level + 1)
     elif isinstance(value, list):
         for child in value:
             _depth(child, level + 1)
+    elif isinstance(value, str):
+        value.encode("utf-8", errors="strict")
     elif isinstance(value, float):
         require(math.isfinite(value), "INVALID_JSON")
 
@@ -87,7 +97,9 @@ def load_json(raw: bytes | str, limit: int = MAX_BYTES) -> Any:
         value = json.loads(data.decode("utf-8"), object_pairs_hook=_pairs)
         _depth(value)
         return value
-    except (UnicodeError, json.JSONDecodeError, RecursionError):
+    except PermanentError:
+        raise
+    except (UnicodeError, ValueError, RecursionError):
         raise PermanentError("INVALID_JSON") from None
 
 
@@ -107,8 +119,10 @@ def now_text() -> str:
 def state_of(task: dict[str, Any]) -> str:
     status = task.get("status")
     require(isinstance(status, dict))
+    assert isinstance(status, dict)
     value = status.get("state")
     require(isinstance(value, str) and value.startswith("TASK_STATE_"))
+    assert isinstance(value, str)
     state = value.removeprefix("TASK_STATE_")
     require(state in STATES)
     return state

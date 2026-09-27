@@ -49,7 +49,10 @@ async def test_network_and_readiness():
         assert not await bus.ready()
 
 
-@pytest.mark.parametrize("url", ["file:///tmp/x", "http://user:pass@host", "http://host/path", "http://host/?key=x", "http://host/#x"])
+@pytest.mark.parametrize("url", ["file:///tmp/x", "http://user:pass@host", "http://host/path",
+                                 "http://host/?key=x", "http://host/#x", "http://host?", "http://host#",
+                                 "http://host\n", "http://host\t", "http://:3500",
+                                 "http://host:70000", "http://host:bad"])
 def test_bad_sidecar_url(url):
     with pytest.raises(PermanentError):
         DaprPublisher(url)
@@ -112,8 +115,9 @@ async def test_token_limit_subscriptions_and_health():
         async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://app") as client:
             assert (await client.post("/events", json=incoming(e))).status_code == 401
             assert (await client.get("/health/live")).status_code == 200
-            client.headers["dapr-api-token"] = "token"
             assert (await client.get("/health/ready")).status_code == 200
+            assert (await client.get("/dapr/subscribe")).status_code == 401
+            client.headers["dapr-api-token"] = "token"
             subscription = (await client.get("/dapr/subscribe")).json()[0]
             assert subscription["deadLetterTopic"] == "a2a.v1.demo.dlq"
             response = await client.post("/events", content=b"x" * (BODY_LIMIT + 1), headers={"content-type": "application/json"})

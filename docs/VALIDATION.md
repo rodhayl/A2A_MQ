@@ -1,28 +1,128 @@
-# Validation record
+# Validation record — current v0.1.0-rc2
 
-Environment observed: Python 3.13.5; local SQLite; no Docker, Dapr runtime,
-NATS server or PostgreSQL server installed. Direct GitHub clone and package
-metadata download attempts failed in the execution container. The GitHub connector
-works and is used for repository writes.
+This file is the index for current release-candidate evidence. Historical phase,
+audit, resource and acceptance records remain SHA-bound under `archive/validation/`
+and `validation/`.
 
-Phase results are appended after execution. Absence of a runtime is not a passing
-integration gate. HTTP mocks, real SQLite transactions and schema tests must be
-reported under their own names. Full clean dependency resolution, lint/type tools,
-upstream SDK, Dapr/JetStream and PostgreSQL require separate evidence when available.
+## RC2 focused Linux validation
 
-## Phase 0
+Release candidate:
 
-15 baseline/schema tests passed. Offline editable install and repository checks
-passed. See [phase 0 evidence](validation/phase0.md). No live infrastructure pass
-is claimed.
+- tag: `v0.1.0-rc2`;
+- tested/tagged commit: `4b1fc34065e37b68258f1944fbcb1e9a15f5fe6d`;
+- annotated tag object: `26faf43fcc41221d42e1e6f4829ea4e5c99e56b4`;
+- package: `0.1.0`;
+- validation date: 2026-09-27;
+- environment: Ubuntu 24.04.5 LTS, x86_64, Python 3.12.3, Chromium 153.0.8010.47.
 
-## Phase 1
+Focused automated gates:
 
-121 tests passed; 2 upstream SDK tests skipped because the optional SDK is absent.
-Repository checks passed. See [phase 1 evidence](validation/phase1.md).
+| Gate | Result |
+| --- | --- |
+| `python -m pip check` | PASS — no broken requirements |
+| `python3 tools/check.py` | PASS |
+| `tests/test_queue_lab.py` | 11 passed |
+| bridge selector: subscribe/stream/cancel | 13 passed, 7 deselected |
+| local-lite selector: queue_lab/pause | 1 passed, 9 deselected |
+| unexpected skips | 0 |
 
-## Phase 2
+Native provenance:
 
-156 tests passed; 3 skipped (2 upstream SDK, 1 real Docker broker fixture).
-Generation/repository checks and real loopback HTTP/CLI tests passed. Broker
-integration is not claimed. See [phase 2 evidence](validation/phase2.md).
+| Binary | Version | Archive SHA-256 |
+| --- | --- | --- |
+| `daprd` | 1.18.3 allcomponents | `f5d1683b672d83bd88b8e79624d695779b72f856f7eb365ae1ea06354f2cb96c` |
+| `nats-server` | 2.15.0 | `5d2c51caca950333aba84911df7d377f826f3a59ec36061c6539105084f65c92` |
+| `placement` | 1.18.3 | `1a697e769d9bb4b7eab883ee7d8776a243e2f2580bae6a001e8ff7fca12604ad` |
+| `scheduler` | 1.18.3 | `aa55eae2a8c38ef70e6d3f418a9d88e6b106d7fa56f8f4950c10e79ba7577e6f` |
+
+`scripts/check_local_native_versions.py` returned `PASS_NATIVE_VERSION` for the
+Local-lite tools and again for the Workflow tools. The checker binds the executable
+to the exact retained pinned release archive; it is not only a version-string check.
+
+Real browser/runtime smoke:
+
+- Local-lite health/readiness/authenticated metrics passed;
+- Echo and Uppercase completed through real Dapr Pub/Sub + JetStream;
+- pause/queue/cancel/resume preserved `SUBMITTED` work and drained correctly;
+- official A2A `SendStreamingMessage` and `SubscribeToTask` SSE passed;
+- terminal subscription was refused cleanly;
+- Demo DLQ -> archive -> Inspect -> Replay passed without corrupting or duplicating
+  the committed task result;
+- raw JSON-RPC List/Get, deliberate invalid method and raw streaming passed;
+- Clear, invalid JWT 401 and valid-token reconnect passed;
+- zero JavaScript console errors;
+- local Workflow input continuation, approve/reject and a 2-second delay passed;
+- both profiles shut down with zero leftover runtime processes/ports.
+
+Full RC2 record:
+[validation/queue-lab-rc2-20260927.md](validation/queue-lab-rc2-20260927.md).
+
+## Test-only adjustments between the initial handoff and RC2
+
+RC2 validation started from `5406a9f95892a9832597e4924afe50a09add3831` and
+created two test-only commits before the tag. The complete diff from that SHA to
+`4b1fc340...` is two timeout-value changes in `tests/test_queue_lab.py`.
+
+No production source file changed, no assertion was removed, and no skip/xfail or
+global-warning suppression was introduced.
+
+## Earlier formal acceptance — FULL_PASS
+
+Formal FULL_PASS evidence remains bound to:
+
+- source SHA: `45c459c632977143b8681c055847775e88d7ad97`;
+- tree: `23fdbcdf30adedf984c631b8a060442cc97b426a`;
+- package: `0.1.0`.
+
+| Gate | Result |
+| --- | --- |
+| Local broker-independent | 1,150 passed; 0 failures/errors/skips |
+| Official SDK/MCP | 26 passed |
+| Verified-TLS PostgreSQL 16 | 4 passed |
+| TLS Vault Transit | 1 passed |
+| Repository check | PASS |
+| Dependency check | PASS |
+| Ruff | PASS |
+| Mypy (`src/a2a_mq`) | PASS |
+| Isolated wheel/package smoke | PASS |
+| JetStream live probe | 12/12 |
+| RabbitMQ live probe | 12/12 |
+
+Related retained records:
+
+- [validation/production-certification-20260925.md](validation/production-certification-20260925.md)
+- [validation/release-cleanliness-report-20260925.md](validation/release-cleanliness-report-20260925.md)
+- [validation/evidence/20260925/](validation/evidence/20260925/)
+
+## Earlier Kubernetes production-deployment acceptance
+
+A digest-pinned image built from source `6458195b171020ece1911e68bc6d14998d216164`
+achieved **PRODUCTION_DEPLOYMENT_PASS (19/19)** with JetStream on live three-node
+Kubernetes v1.31.0 + Dapr 1.18.3.
+
+The deployment verdict is tied to that image digest. RabbitMQ Kubernetes parity has
+not been separately executed.
+
+## Historical local economics
+
+Resource, resilience and soak results remain useful but SHA/environment-bound. The
+latest archived local certification is
+[archive/validation/local-certification-20260924.md](archive/validation/local-certification-20260924.md).
+
+Do not copy historical RSS/CPU/soak numbers onto a later source without rerunning the
+corresponding gate.
+
+## Hosted CI
+
+Hosted GitHub Actions for the RC2 commit/tag currently fail before runner assignment:
+`runner_id=0`, empty runner name and zero executed steps. They therefore provide
+neither a test failure nor a test pass.
+
+## Certification semantics
+
+`FULL_PASS`, `PASS_NATIVE_VERSION` and `PRODUCTION_DEPLOYMENT_PASS` are
+repository-defined acceptance verdicts, not third-party certification. They do not
+change:
+
+- `productionCertified = false`
+- `upstreamBindingCertified = false`

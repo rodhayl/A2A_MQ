@@ -1,28 +1,45 @@
 [build-system]
 requires = ["setuptools==82.0.1"]
 build-backend = "setuptools.build_meta"
-
 [project]
 name = "a2a-mq"
 version = "0.1.0"
 description = "Experimental durable A2A task transport over Dapr Pub/Sub"
 requires-python = ">=3.12"
 dependencies = ["jsonschema[format-nongpl]==4.26.0", "httpx==0.28.1", "fastapi==0.128.2", "uvicorn==0.48.0"]
-
 [project.optional-dependencies]
-dev = ["pytest==9.0.2", "pytest-asyncio==1.3.0", "pytest-cov==7.0.0", "ruff==0.11.13", "mypy==1.15.0", "PyYAML==6.0.3"]
-upstream = ["a2a-sdk==1.1.2"]
-postgres = ["psycopg[binary]==3.2.9"]
+dev = ["pytest==9.0.2", "pytest-asyncio==1.3.0", "pytest-cov==7.0.0", "ruff==0.11.13", "mypy==1.15.0", "PyYAML==6.0.3", "cryptography==46.0.4", "PyJWT==2.13.0", "opentelemetry-sdk==1.42.1"]
+upstream = ["a2a-sdk[http-server]==1.1.2", "dapr==1.18.3", "dapr-ext-workflow==1.18.3", "mcp==2.2.0"]
+bridge = ["a2a-sdk[http-server]==1.1.2"]
+workflow = ["dapr==1.18.3", "dapr-ext-workflow==1.18.3"]
+postgres = ["psycopg[binary]==3.2.9", "psycopg-pool==3.2.6"]
+security = ["cryptography==46.0.4", "PyJWT==2.13.0"]
+mcp = ["mcp==2.2.0"]
+observability = ["opentelemetry-sdk==1.42.1", "opentelemetry-exporter-otlp-proto-http==1.42.1"]
+deployment = ["nats-py==2.11.0"]
+local = ["a2a-sdk[http-server]==1.1.2", "cryptography==46.0.4", "PyJWT==2.13.0", "nats-py==2.11.0"]
+local-workflow = ["dapr==1.18.3", "dapr-ext-workflow==1.18.3"]
+
+[project.scripts]
+a2amq-local = "a2a_mq.local_runtime:main"
+a2amq-local-workflow = "a2a_mq.local_workflow_runtime:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
 [tool.setuptools.package-data]
-a2a_mq = ["schema.json", "py.typed"]
+a2a_mq = ["schema.json", "binding.json", "py.typed"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["src"]
 asyncio_mode = "auto"
-markers = ["live: requires a running Dapr/JetStream stack", "postgres: requires a PostgreSQL DSN", "upstream: requires the pinned upstream SDK"]
+markers = ["live: requires a running Dapr/broker stack", "postgres: requires a PostgreSQL DSN", "upstream: requires pinned protocol SDKs", "mcp: requires the official MCP SDK", "vault: requires a real TLS Vault Transit service"]
+filterwarnings = [
+    "error",
+    "ignore:unclosed <socket.socket:ResourceWarning",
+    "ignore:unclosed event loop:ResourceWarning",
+    "ignore:<socket.socket:pytest.PytestUnraisableExceptionWarning",
+    "ignore:<function BaseEventLoop.__del__:pytest.PytestUnraisableExceptionWarning",
+]
 [tool.ruff]
 line-length = 110
 target-version = "py312"

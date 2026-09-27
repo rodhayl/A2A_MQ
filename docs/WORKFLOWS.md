@@ -1,88 +1,84 @@
-# Workflows and failure boundaries
+# Workflows and failure boundaries — v0.1.0-rc2
 
-## Normal reference task (phases 2-3)
+## Durable task path
 
-```mermaid
-sequenceDiagram
-  participant O as Orchestrator
-  participant B as Dapr / JetStream
-  participant W as Worker replica
-  participant S as SQL store
-  participant R as Outbox relay
-  participant P as Observer
-  O->>B: publish immutable message.send
-  B-->>O: transport acceptance only
-  B->>W: deliver CloudEvent
-  W->>S: commit leased claim / fence
-  W->>S: atomic effect + Task + snapshots + completed inbox
-  W-->>B: SUCCESS
-  R->>S: read pending events
-  R->>B: publish same event ID
-  R->>S: mark sent after publish succeeds
-  B->>P: snapshot (possibly duplicate/out of order)
-  P->>P: atomic dedup + monotonic projection
-```
+A command is durably admitted, delivered at least once, and completed through
+transactional task/outbox state. Publishing an event and recording its local publish
+marker are separate operations; duplicate publication remains possible and is
+handled with stable event identity/idempotency.
 
-## Crash after claim
+## Crash matrix
 
-```mermaid
-sequenceDiagram
-  participant B as Broker
-  participant W1 as Replica A
-  participant S as Shared SQL
-  participant W2 as Replica B
-  B->>W1: command C
-  W1->>S: commit claim token A, fence 1
-  Note over W1: crash before outcome
-  B->>W2: redeliver C
-  W2->>S: claim C
-  S-->>W2: busy until lease expires
-  W2-->>B: RETRY, not SUCCESS
-  B->>W2: redeliver after expiry
-  W2->>S: reclaim token B, fence 2
-  W2->>S: commit reference effect and outbox once
-  Note over W1,S: token A can no longer commit
-  W2-->>B: SUCCESS
-```
+| Crash point | Durable state | Recovery |
+| --- | --- | --- |
+| before claim commit | no reservation | redelivery may claim |
+| after claim commit | lease/fence only | expiry + fenced takeover |
+| during SQL effect transaction | rolled back | reclaim and retry |
+| after outcome commit, before broker ACK | terminal inbox/outbox exists | reuse committed outcome |
+| after event publish, before sent marker | event may duplicate | republish same ID; observers deduplicate |
 
-A committed claim is not an accepted durable workflow. A worker must never ACK an
-unfinished claim just because the message was seen before. Long tasks transition
-to the Dapr Workflow acceptance boundary only when phase 4 implements it.
+A stale fence cannot commit over a newer owner.
 
-## Effect and relay crash matrix
+## Local-lite
 
-| Crash point | Durable result | Recovery |
-|---|---|---|
-| Before claim commit | Nothing reserved | Redelivery can claim |
-| After claim commit | Lease only | Retry, then fenced takeover |
-| After effect SQL, before transaction commit | Effect/outcome rollback | Reclaim and execute local effect |
-| After outcome commit, before ACK | Completed inbox and outbox | Return existing outcome; no second effect |
-| After event publish, before sent marker | Event may be delivered twice | Republish same ID; observers deduplicate |
+Local-lite supports immediate deterministic task execution and durable
+restart/redelivery while combining API + local executor in one Python process.
 
-## Offline and multi-orchestrator behavior
+It deliberately rejects Workflow-only features:
 
-Provision a retained stream first. Commands published before workers exist remain
-available within retention; worker replicas share one durable/group. Observer A and
-B each have their own durable/group and projection namespace. A shared group would
-load-balance observers rather than broadcast, so configuration tests reject that.
-A late observer can rebuild from retained full snapshots; retention still limits
-history. Database backups are needed after all retained snapshots are gone.
+- input-required continuation;
+- auth-required approval;
+- non-zero delays/timers;
+- fan-out/fan-in.
 
-## Snapshot reordering
+Queue Lab's pause switch is only a local delivery-boundary test control. It does not
+implement a workflow scheduler.
 
-For task T, version 3 completed may arrive before versions 1 submitted and 2 working.
-Apply the complete version-3 Task, including artifacts. Later lower versions cannot
-replace it. Conflicting version 3 or a higher snapshot reopening T is rejected.
-This rule applies to full snapshots, not incremental artifact chunks.
+## Local Workflow
 
-## Future workflows (not implemented in phases 0-3)
+The optional local Workflow profile uses the official Dapr Workflow runtime and adds
+Placement + Scheduler.
 
-Input/auth-required pauses need a durable workflow and a continuation message with
-the same task/context. Cancellation is a request until the owner durably stops;
-completion already committed cannot be rewritten. Fan-out/fan-in stores child IDs
-and join state durably rather than relying on observer process memory. The standard
-A2A bridge converts these events to upstream responses/streams in phase 5.
+It supports:
 
-Encrypted flow in phase 7: authorize recipient, wrap a fresh content key, AEAD-encrypt,
-publish, authenticate/decrypt at the authorized endpoint, then follow the same
-inbox/outbox rules. Encryption does not change delivery or idempotency semantics.
+- input-required/auth-required pauses;
+- continuation;
+- approve/reject;
+- durable timers/delays;
+- cancellation;
+- fan-out/fan-in paths.
+
+RC2 focused Linux validation exercised input continuation, approve/reject and a
+two-second durable timer on the real five-process local Workflow topology.
+
+## Distributed Workflow
+
+The distributed profile separates API and Workflow workers and uses shared durable
+state. Worker replicas share the intended logical consumer/workflow identity.
+
+Earlier broader acceptance exercised fan-out/fan-in, cancellation and worker
+restart/replacement. The earlier JetStream Kubernetes deployment gate verified task
+completion across worker replacement.
+
+These are historical SHA/image-bound results; see [VALIDATION.md](VALIDATION.md).
+
+## Terminal state and replay
+
+A task outcome already committed as terminal is not reopened by a late cancellation
+or duplicate/replayed command. Idempotency and immutable identities protect the
+committed result.
+
+## Independent observers
+
+Distributed worker replicas compete within their logical consumer group.
+Independent observers use distinct durable identities so they receive their own copy
+rather than load-balance each other.
+
+Broker retention controls how far a late observer can rebuild directly from the
+message log; SQL backup/projection strategy covers longer history.
+
+## Encryption
+
+Optional payload protection changes confidentiality/authenticity of transported
+content. It does not change delivery semantics, fencing, idempotency or Workflow state
+rules.
