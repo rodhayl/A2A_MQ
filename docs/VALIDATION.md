@@ -7,10 +7,17 @@ and `validation/`.
 ## Usability and onboarding validation (post-RC2)
 
 The usability onboarding implementation was validated on real Linux (Ubuntu 24.04.5 LTS /
-Python 3.12.3) and merged into `main`. The validation proved the non-mutating `doctor`
-preflight, actionable CLI error handling, Local-lite runtime, smoke script, official
-API examples, and local Workflow runtime. Detailed evidence is recorded in
+Python 3.12.3) at
+`401471b05da55ba8311b9bc6e5019a24a4250b9b` and merged into `main` via
+`84097baa57da4919c1672a0392397e05c0404882`. The validation proved the
+non-mutating `doctor` preflight, actionable CLI error handling, Local-lite runtime,
+smoke script, official API examples, and local Workflow runtime.
+
+Detailed Linux evidence:
 [validation/usability-onboarding-20260927.md](validation/usability-onboarding-20260927.md).
+
+Independent repository/post-merge audit:
+[validation/usability-onboarding-post-merge-audit-20260927.md](validation/usability-onboarding-post-merge-audit-20260927.md).
 
 ## RC2 focused Linux validation
 
@@ -122,9 +129,13 @@ corresponding gate.
 
 ## Hosted CI
 
-Hosted GitHub Actions for the RC2 commit/tag currently fail before runner assignment:
-`runner_id=0`, empty runner name and zero executed steps. They therefore provide
-neither a test failure nor a test pass.
+Hosted GitHub Actions remain unavailable as executable evidence. RC2 runs and the
+post-RC2 usability branch/merge/report runs all failed before runner assignment. For
+the usability work specifically, runs `36305318006`, `36306201233` and
+`36308979807` report `runner_id=0`, empty runner names and `steps=[]`.
+
+They therefore provide neither a source-test failure nor a source-test pass. See the
+post-merge audit above for the exact boundary.
 
 ## Certification semantics
 
