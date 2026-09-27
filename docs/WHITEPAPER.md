@@ -72,9 +72,10 @@ visible risks; see `SECURITY.md`.
 Use a deterministic, model-free echo effect before adding inference. Test all state
 pairs, malformed input, duplicate identities, tenant collisions, lease takeover,
 stale fencing tokens, transaction crash points, outbox publish/mark crashes,
-snapshot permutations and bounded queries. The current validation suite separately runs real JetStream/RabbitMQ live probes,
-verified-TLS PostgreSQL and Vault Transit gates. A mock passing still does not
-establish broker or external-infrastructure behavior.
+snapshot permutations and bounded queries. The RC2 release gate focused on the real
+local user-facing path, while the earlier SHA-bound full acceptance separately ran
+real JetStream/RabbitMQ live probes, verified-TLS PostgreSQL and Vault Transit gates.
+A mock passing still does not establish broker or external-infrastructure behavior.
 
 Measure publish-to-delivery and result lag separately from inference. Report
 hardware, dependency versions, concurrency, payload size and retained backlog.

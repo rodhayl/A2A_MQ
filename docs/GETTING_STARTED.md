@@ -1,149 +1,163 @@
-# Getting started with A2A-MQ
+# Getting started — v0.1.0-rc2
 
-This guide walks through running the lightweight **Local-lite** profile of A2A-MQ,
-verifying its health, and completing your first end-to-end task interaction.
+This guide takes a new user from a fresh checkout to a working **Local-lite**
+A2A-MQ instance and the browser Queue Lab.
 
----
+The repository-tested bootstrap path is Linux amd64/arm64. The Queue Lab web UI is
+platform-neutral, but Windows native runtime provisioning is not currently
+repository-certified.
 
-## 1. What am I starting?
+## 1. What you are starting
 
-A2A-MQ supports three runtime tiers:
+Local-lite is the recommended default runtime:
 
-1. **Local-lite (recommended default)**: A single-host, container-free 3-process stack:
-   - 1 Python A2A-MQ application process (serving HTTP, JSON-RPC, and outbox relay);
-   - 1 native `daprd` sidecar process (managing JetStream pub/sub);
-   - 1 native `nats-server` process with JetStream enabled;
-   - SQLite files for durable state.
-2. **Optional local Workflow**: A 5-process local stack adding native Dapr `placement`
-   and `scheduler` when workflow-specific semantics (durable timers, input continuation,
-   approval pauses, fan-out/fan-in) are required locally.
-3. **Distributed / Production profile**: Role-separated services (API, workers,
-   observers) with external PostgreSQL, clustered JetStream or RabbitMQ, optional Vault
-   transit encryption, and Kubernetes deployments.
+1. one Python A2A-MQ process;
+2. one native Dapr sidecar (`daprd`);
+3. one native NATS Server with JetStream;
+4. SQLite application state.
 
-**Local-lite is the default.** It requires **no** PostgreSQL, Redis, Docker,
-Kubernetes, Vault, Placement, or Scheduler.
+It does **not** require Docker, Kubernetes, PostgreSQL, Redis, Vault, Dapr Placement,
+or Dapr Scheduler.
 
----
+Local-lite is intentionally narrow: immediate deterministic Echo/Uppercase work is
+supported. Durable waits, input continuation, approvals and timers belong to the
+optional Workflow profile.
 
 ## 2. Prerequisites
 
-### Python
-- Python **>= 3.12**
-- A project-local virtual environment (`.venv`)
+You need:
 
-### Native binaries
-Local-lite requires two standalone native executables:
-- **`daprd`**: Dapr 1.18.3 (the default/`allcomponents` build, required for JetStream pub/sub).
-- **`nats-server`**: NATS Server >= 2.10 (tested with v2.15.0).
+- Linux x86_64/amd64 or arm64/aarch64 for the repository-pinned native bootstrap;
+- Python **3.12 or newer**;
+- Git;
+- Internet access to GitHub release assets for the first native-tool bootstrap.
 
-If these binaries are already in your `PATH` (or under `~/.dapr/bin`), `a2amq-local`
-finds them automatically.
+The RC2 validation used Ubuntu 24.04.5 LTS, x86_64 and Python 3.12.3.
 
-If you do not have them installed, you can bootstrap the exact repository-pinned standalone
-binaries into an isolated, git-ignored directory without modifying system packages:
+## 3. Clone and install
 
 ```bash
-python scripts/bootstrap_local_tools.py --output .local-validation/tools
-export PATH="$PWD/.local-validation/tools/bin:$PATH"
-```
+git clone https://github.com/rodhayl/A2A_MQ.git
+cd A2A_MQ
 
-Verify that the binaries are available:
-
-```bash
-daprd --version
-nats-server --version
-```
-
----
-
-## 3. Installation
-
-Create and activate an isolated virtual environment, then install the package with the
-`local` extra:
-
-```bash
 python3 -m venv .venv
 . .venv/bin/activate
+
+python -m pip install -U pip
 python -m pip install -e '.[local]'
 python -m pip check
 ```
 
-The `local` extra installs the official A2A SDK, cryptographic identity libraries (`PyJWT`,
-`cryptography`), and the NATS client for initial stream setup.
+Expected dependency result:
 
----
+```text
+No broken requirements found.
+```
 
-## 4. Prepare a local profile
+## 4. Bootstrap the exact native tools
 
-Prepare an isolated, owner-private profile directory (for example under `.local-validation/local-lite`):
+For a reproducible local run, use the repository helper instead of installing system
+packages:
+
+```bash
+python scripts/bootstrap_local_tools.py --output .local-validation/tools
+```
+
+This downloads the exact pinned Linux release archives:
+
+- Dapr `daprd` **1.18.3**, all-components/default flavor;
+- NATS Server **2.15.0**.
+
+The helper verifies the expected archive size and SHA-256 before extracting the
+expected executable.
+
+Now verify that the extracted binaries are exactly the pinned archive members:
+
+```bash
+python scripts/check_local_native_versions.py \
+  --daprd .local-validation/tools/bin/daprd \
+  --nats-server .local-validation/tools/bin/nats-server \
+  --bootstrap-manifest .local-validation/tools/manifest.json \
+  --json .local-validation/native-versions.json
+```
+
+The command must print:
+
+```text
+PASS_NATIVE_VERSION
+```
+
+Add the private tools directory to your current shell:
+
+```bash
+export PATH="$PWD/.local-validation/tools/bin:$PATH"
+
+daprd --version
+nats-server --version
+```
+
+The bootstrap directory is local to the repository checkout and is not a system
+installation.
+
+## 5. Prepare a Local-lite profile
 
 ```bash
 a2amq-local prepare .local-validation/local-lite
 ```
 
-This command generates:
-- `profile.json`: Runtime configuration and port bindings;
-- `app-api-token`, `dapr-api-token`, `nats-token`: Private random loopback credentials;
-- `jwt-private.pem`, `jwt-keys.json`: Local RS256 token signing and verification keys;
-- `client.jwt`: A pre-signed owner JWT with full task scopes (`a2a:send`, `a2a:read`, `a2a:cancel`, etc.);
-- `components/`: Dapr Pub/Sub component manifests for JetStream;
-- `nats.conf`: Loopback NATS server configuration;
-- `state/`: Directory for the application SQLite database.
+The profile contains owner-private local credentials and state:
 
----
+- `profile.json` — profile mode, ports and runtime metadata;
+- `app-api-token`, `dapr-api-token`, `nats-token` — local loopback credentials;
+- `jwt-private.pem`, `jwt-keys.json` — local signing/verification material;
+- `client.jwt` — generated local owner token;
+- `components/` — Dapr Pub/Sub resources;
+- `nats.conf` — local NATS configuration;
+- `state/` — SQLite application state;
+- `nats/` — JetStream file state.
 
-## 5. Start the service
+Do not commit this profile directory. It contains secrets.
 
-Ensure the tools directory is in `PATH`, then start the runtime:
+## 6. Run Local-lite
 
 ```bash
 a2amq-local run .local-validation/local-lite
 ```
 
-Expected startup output:
+The launcher checks that its fixed loopback ports are free before starting children.
+At steady state there are exactly three product processes:
 
-```json
-{"labUrl": "http://127.0.0.1:18000/lab/", "processes": {"app": 1018277, "daprd": 1018316, "nats": 1018286}, "profile": "local-lite", "status": "starting", "url": "http://127.0.0.1:18000"}
+- application: `127.0.0.1:18000`;
+- Dapr HTTP: `127.0.0.1:3500`;
+- Dapr gRPC: `127.0.0.1:50001`;
+- Dapr internal gRPC: `127.0.0.1:50002`;
+- NATS: `127.0.0.1:4222`.
+
+The startup JSON includes a `labUrl`, normally:
+
+```text
+http://127.0.0.1:18000/lab/
 ```
 
-At steady state, exactly three processes run:
-1. Python A2A-MQ (serving port `18000`);
-2. Native `daprd` (HTTP port `3500`, gRPC `50001`, internal gRPC `50002`);
-3. Native `nats-server` (port `4222`).
+Leave this terminal running while you use the service.
 
-The launcher continuously monitors child processes and automatically refreshes client tokens
-every 30 minutes.
+## 7. Confirm health
 
----
-
-## 6. Confirm health
-
-In a separate terminal, verify that the service is running and ready:
+From another terminal:
 
 ```bash
-# Liveness
 curl -s http://127.0.0.1:18000/health/live
-
-# Readiness (verifies SQLite access and Dapr Pub/Sub reachability)
 curl -s http://127.0.0.1:18000/health/ready
+curl -s http://127.0.0.1:18000/.well-known/agent-card.json
 ```
 
-Expected output for readiness:
+Expected readiness:
 
 ```json
 {"status":"ready"}
 ```
 
-You can also fetch the official A2A Agent Card:
-
-```bash
-curl -s http://127.0.0.1:18000/.well-known/agent-card.json
-```
-
----
-
-### Graphical/manual testing with Queue Lab
+## 8. Use Queue Lab
 
 Open:
 
@@ -151,38 +165,40 @@ Open:
 http://127.0.0.1:18000/lab/
 ```
 
-Load `.local-validation/local-lite/client.jwt` using the **Load file** button. Queue Lab
-then lets you enqueue custom or preset tasks, inspect queue/backlog values, follow or
-subscribe to task state, cancel tasks, inspect/replay dead letters and use a raw
-JSON-RPC console.
+Click **Load file** and choose:
 
-For an actual **producer online / simulated agent offline** test, click **Pause simulated
-agent**, enqueue one task or a burst, watch the tasks remain `SUBMITTED` in **Queued /
-submitted**, then click **Resume simulated agent** and watch the same durable tasks
-drain and complete.
+```text
+.local-validation/local-lite/client.jwt
+```
 
-No external LLM or agent process is required. Queue Lab can also publish the selected
-task through the real local DLQ quarantine path with **Demo DLQ**, then Inspect/Replay
-it from the same page. See [QUEUE_LAB.md](QUEUE_LAB.md) for the full manual-testing
-guide and the optional Workflow controls.
+A useful first sequence is:
 
----
+1. send an **Echo** task and inspect the completed Task;
+2. send an **Uppercase** task and inspect the transformed artifact;
+3. click **Pause simulated agent**;
+4. choose **Burst / queue view**;
+5. confirm the new tasks remain `SUBMITTED` and queued/submitted increases;
+6. cancel one while paused;
+7. click **Resume simulated agent**;
+8. confirm the remaining tasks drain to completion and the canceled task stays
+   `CANCELED`;
+9. try **Enqueue + A2A stream**;
+10. inspect **Dead letters** with **Demo DLQ**, then Inspect and Replay.
 
-## 7. First useful operation: Submit and query a task
+Queue Lab uses the real local A2A bridge, Dapr Pub/Sub, JetStream, SQLite ledger and
+DLQ/replay implementation. It does not start a fake second queue.
 
-Local-lite implements deterministic immediate text transformation (echo and uppercase).
+See [QUEUE_LAB.md](QUEUE_LAB.md) for all controls.
 
-### Step 7.1: Load your client credentials
+## 9. Submit a task without the browser
 
-Read the owner JWT created during preparation:
+Load the generated owner token:
 
 ```bash
 TOKEN=$(cat .local-validation/local-lite/client.jwt)
 ```
 
-### Step 7.2: Submit a task (JSON-RPC)
-
-Submit a task using the official A2A `SendMessage` method:
+Send a task through the official JSON-RPC surface:
 
 ```bash
 curl -s -X POST http://127.0.0.1:18000/rpc \
@@ -199,155 +215,91 @@ curl -s -X POST http://127.0.0.1:18000/rpc \
         "role": "ROLE_USER",
         "parts": [{"text": "Hello A2A-MQ!"}]
       },
-      "configuration": {
-        "returnImmediately": true
-      }
+      "configuration": {"returnImmediately": true}
     }
   }'
 ```
 
-Expected response:
-
-```json
-{
-  "jsonrpc": "2.0",
-  "id": 1,
-  "result": {
-    "task": {
-      "id": "c53fc357-903d-5f31-9744-1dea467d6098",
-      "contextId": "56ac5a6a-22ec-58a8-a0ed-828902e082c6",
-      "status": {
-        "state": "TASK_STATE_SUBMITTED",
-        "timestamp": "2026-09-26T08:44:13.380917Z"
-      },
-      "history": [...]
-    }
-  }
-}
-```
-
-Copy the returned `task.id` (e.g. `c53fc357-903d-5f31-9744-1dea467d6098`).
-
-### Step 7.3: Query the completed task
-
-Local-lite asynchronously accepts the command over JetStream, executes the action,
-and records the result in SQLite. Query the task status via `GetTask`:
+Copy the returned task ID and query it:
 
 ```bash
+TASK_ID="<returned-task-id>"
+
 curl -s -X POST http://127.0.0.1:18000/rpc \
   -H "Authorization: Bearer $TOKEN" \
   -H "A2A-Version: 1.0" \
   -H "Content-Type: application/json" \
-  -d '{
-    "jsonrpc": "2.0",
-    "id": 2,
-    "method": "GetTask",
-    "params": {
-      "id": "c53fc357-903d-5f31-9744-1dea467d6098"
-    }
-  }'
+  -d "{
+    \"jsonrpc\": \"2.0\",
+    \"id\": 2,
+    \"method\": \"GetTask\",
+    \"params\": {\"id\": \"$TASK_ID\"}
+  }"
 ```
 
-Or via REST:
-
-```bash
-curl -s http://127.0.0.1:18000/tasks/c53fc357-903d-5f31-9744-1dea467d6098 \
-  -H "Authorization: Bearer $TOKEN" \
-  -H "A2A-Version: 1.0"
-```
-
-Expected completed response:
-
-```json
-{
-  "jsonrpc": "2.0",
-  "id": 2,
-  "result": {
-    "id": "c53fc357-903d-5f31-9744-1dea467d6098",
-    "contextId": "56ac5a6a-22ec-58a8-a0ed-828902e082c6",
-    "status": {
-      "state": "TASK_STATE_COMPLETED",
-      "timestamp": "2026-09-26T08:44:16.453746Z"
-    },
-    "artifacts": [
-      {
-        "artifactId": "result",
-        "parts": [
-          {
-            "text": "Hello A2A-MQ!"
-          }
-        ]
-      }
-    ],
-    "history": [...]
-  }
-}
-```
-
-### Step 7.4: Check operational backlog
-
-You can inspect the operational health and backlog metrics:
+Operational backlog is available at:
 
 ```bash
 curl -s http://127.0.0.1:18000/operations/status \
   -H "Authorization: Bearer $TOKEN"
 ```
 
-Expected response:
+## 10. Stop cleanly
 
-```json
-{
-  "activeTasks": 0,
-  "taskRecords": 1,
-  "retiredIdentities": 0,
-  "pendingPublications": 0,
-  "pendingActions": 0,
-  "oldestPublicationAgeSeconds": 0
-}
-```
+Press **Ctrl+C** in the runtime terminal, or send SIGTERM to the launcher.
 
----
-
-## 8. Stopping the service
-
-In the terminal where `a2amq-local run` is active, press **Ctrl+C** (or send `SIGTERM`).
-
-The launcher will:
-1. Signal the ASGI HTTP server to drain active requests;
-2. Send `SIGTERM` to `daprd` and `nats-server`;
-3. Wait for clean shutdown of all children and terminate cleanly with code 0.
-
-Confirm no orphan processes remain on loopback ports:
+Verify that the local runtime released its processes/ports:
 
 ```bash
-ss -tulpn | grep -E ':(18000|3500|50001|50002|4222)\b'
+ps aux | grep -E 'a2amq|daprd|nats-server' | grep -v grep || true
+ss -tulpn | grep -E ':(18000|3500|50001|50002|4222)\b' || true
 ```
 
----
+No process or listener from the stopped run should remain.
 
-## 9. Where is state stored?
-
-All local state is stored inside the directory you provided to `prepare`:
-
-- `state/a2amq.db`: SQLite database holding task ledgers, jobs, inbox idempotency, and outbox tables;
-- `nats/`: JetStream message store directory on disk;
-- `client.jwt`: The active client access token (atomically refreshed every 30 minutes);
-- `jwt-private.pem` & `jwt-keys.json`: Local RS256 key pair;
-- `components/`: Dapr component configuration files;
-- `profile.json`: Metadata for profile mode and ports.
-
-To discard a test run and return to a clean slate, stop the service and delete the directory:
+To discard all local test state after shutdown:
 
 ```bash
 rm -rf .local-validation/local-lite
 ```
 
----
+## 11. Optional local Workflow profile
 
-## 10. What next?
+Use this tier only when you need durable input/approval waits or timers.
 
-- **[Local Runtime Architecture](LOCAL_RUNTIME.md)**: Deep dive into the 3-process Local-lite budget and the optional 5-process Local Workflow tier.
-- **[Architecture & Boundaries](ARCHITECTURE.md)**: Process boundaries, storage contracts, and outbox delivery guarantees.
-- **[Operations & Recovery](OPERATIONS.md)**: Retries, DLQ inspection, replay service, and retention management.
-- **[Distributed Stack](IMPLEMENTED_STACK.md)**: Role separation, PostgreSQL, RabbitMQ, Vault transit encryption, and Kubernetes deployments.
-- **[Status & Evidence](STATUS.md)**: Current v0.1.0 pre-release verification, formal acceptance gates, and known boundaries.
+```bash
+python -m pip install -e '.[local,local-workflow]'
+python -m pip check
+
+python scripts/bootstrap_local_tools.py \
+  --output .local-validation/workflow-tools \
+  --workflow
+
+python scripts/check_local_native_versions.py \
+  --daprd .local-validation/workflow-tools/bin/daprd \
+  --nats-server .local-validation/workflow-tools/bin/nats-server \
+  --placement .local-validation/workflow-tools/bin/placement \
+  --scheduler .local-validation/workflow-tools/bin/scheduler \
+  --bootstrap-manifest .local-validation/workflow-tools/manifest.json \
+  --json .local-validation/workflow-native-versions.json
+
+export PATH="$PWD/.local-validation/workflow-tools/bin:$PATH"
+
+a2amq-local-workflow prepare .local-validation/local-workflow
+a2amq-local-workflow run .local-validation/local-workflow
+```
+
+The Workflow provenance command must also print `PASS_NATIVE_VERSION`.
+
+This runtime has five steady-state processes: the A2A-MQ app, `daprd`,
+`nats-server`, Placement and Scheduler.
+
+## 12. Where to go next
+
+- [Queue Lab](QUEUE_LAB.md) — every browser/manual test control.
+- [Architecture](ARCHITECTURE.md) — durability and runtime boundaries.
+- [Local Runtime](LOCAL_RUNTIME.md) — detailed Local-lite/Workflow implementation.
+- [Operations](OPERATIONS.md) — retries, DLQ, replay and recovery.
+- [Security](SECURITY.md) — trust boundaries and local-vs-production security.
+- [Current Status](STATUS.md) — exact RC2 state and limitations.
+- [Validation](VALIDATION.md) — SHA-bound evidence and earlier acceptance records.

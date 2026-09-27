@@ -12,4 +12,4 @@ Archive files are not current release documentation. Counts, availability statem
 resource measurements and SHA claims remain bound to the date/SHA inside each file.
 
 Use [../STATUS.md](../STATUS.md) and [../VALIDATION.md](../VALIDATION.md) for current
-v0.1.0 pre-release state.
+v0.1.0-rc2 state.

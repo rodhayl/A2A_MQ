@@ -1,4 +1,4 @@
-# Lightweight local runtimes
+# Lightweight local runtimes — v0.1.0-rc2
 
 ## Queue Lab
 
@@ -14,6 +14,17 @@ The local profile has one command route derived from its configured `--source`; 
 does not manufacture arbitrary agent/skill routes outside that Dapr component scope.
 It exposes official `SendStreamingMessage` and `SubscribeToTask` SSE flows in addition to
 ordinary Send/Get/List/Cancel operations. See [QUEUE_LAB.md](QUEUE_LAB.md).
+
+### RC2 validation status
+
+The `v0.1.0-rc2` Linux gate validated the exact pinned Local-lite native tools,
+real Chromium Queue Lab flows, pause/queue/cancel/resume behavior, official A2A
+streaming/subscription, DLQ inspect/replay, clean shutdown, and the focused optional
+Workflow input/approval/timer scenarios. See
+[validation/queue-lab-rc2-20260927.md](validation/queue-lab-rc2-20260927.md).
+
+Historical resource/resilience/soak measurements remain bound to their recorded
+SHAs; RC2 did not relabel those older measurements as newly rerun evidence.
 
 ## Default: Local MQ Lite
 

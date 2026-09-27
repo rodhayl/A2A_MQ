@@ -1,122 +1,146 @@
-# Current status — v0.1.0 pre-release
+# Current status — v0.1.0-rc2
 
 ## Release identity
 
-- Package version: **0.1.0**; release candidate checkpoint `v0.1.0-rc1`.
-- Working branch: `implementation/production-hardening-20260916`.
-- Protected `main`: `66c17153d7ec75b9ad85808ef141b9dba43a9d91`.
-- Formal FULL_PASS source remains:
-  `45c459c632977143b8681c055847775e88d7ad97`
-  (tree `23fdbcdf30adedf984c631b8a060442cc97b426a`).
-- `v0.1.0-rc1` points to the previously smoke-tested user-facing checkpoint.
-- The working branch now contains **post-RC1 Queue Lab source changes**. Those changes
-  are intentionally not relabeled as covered by the earlier FULL_PASS/RC1 smoke.
+- Package version: **0.1.0**.
+- Latest tested release candidate: **`v0.1.0-rc2`**.
+- RC2 tagged commit: `4b1fc34065e37b68258f1944fbcb1e9a15f5fe6d`.
+- Annotated tag object: `26faf43fcc41221d42e1e6f4829ea4e5c99e56b4`.
+- Date: 2026-09-27.
+- `v0.1.0-rc1` remains unchanged and points to
+  `3d2b2afd2dbbeb447dab21d1e71afb428e523e8f`.
+- RC2 was validated from the production-hardening branch on real Linux before the tag
+  was created. Documentation-only follow-up commits may be newer than the tag; the tag
+  itself is intentionally immutable.
 
-## Release candidate 1 (v0.1.0-rc1)
+## RC2 Linux validation
 
-- **Release candidate tag**: `v0.1.0-rc1` (the annotated git tag marks this test checkpoint).
-- **Targeted commit**: Canonical commit SHA is bound by annotated tag `v0.1.0-rc1`.
-- **Package version**: `0.1.0` (unchanged pre-release contract).
-- **Date**: 2026-09-26.
-- **Smoke result**: `PASS`.
-- **What was actually tested**:
-  - Canonical user onboarding path documented in [GETTING_STARTED.md](GETTING_STARTED.md).
-  - Pinned native tool bootstrapping and version verification (`check_local_native_versions.py`: `PASS_NATIVE_VERSION`).
-  - Disposable profile preparation (`a2amq-local prepare`) and startup of the 3-process Local-lite stack (`a2amq-local run`).
-  - Health checks: `/health/live` (200 alive), `/health/ready` (200 ready), and Agent Card discovery (`/.well-known/agent-card.json`).
-  - End-to-end task execution: task submission via official A2A JSON-RPC `SendMessage`, task ID acquisition, asynchronous completion over JetStream, query via `GetTask` and REST `GET /tasks/{id}`, and operational backlog verification via `/operations/status`.
-  - Clean shutdown: SIGTERM shutdown of ASGI server and child processes (`daprd`, `nats-server`), with zero orphan processes and all ports released.
-  - Targeted regressions: 38 passed (`tests/test_local_launcher_regressions.py`, `tests/test_local_runtime.py`).
-  - Static checks: `python tools/check.py` (syntax, schema copies, and markdown links passed); `python -m pip check` (no broken requirements).
-  - CLI help validation: `a2amq-local --help`, `a2amq-local prepare --help`, `a2amq-local run --help`, `a2amq-local-workflow --help`, `python -m a2a_mq --help`.
-- **What was deliberately NOT rerun**:
-  - Full acceptance suite (`a2a_mq.acceptance --mode full`).
-  - Kubernetes cluster redeployment or live node testing.
-  - Multi-node distributed stacks, PostgreSQL, Vault, or RabbitMQ live infrastructure gates.
-  - 23-minute soak or load/performance campaigns.
-  - Dapr Workflow 5-process resource recertification.
+RC2 closed the post-RC1 Queue Lab/local-runtime gap on Ubuntu 24.04.5 LTS, x86_64,
+Python 3.12.3 and Chromium 153.0.8010.47.
 
-## Post-RC1 Queue Lab
+Focused automated gates:
 
-The working branch now adds a local browser-based manual test console under
-`/lab/` for both local-lite and local Workflow.
+- `python -m pip check` — PASS (`No broken requirements found.`);
+- `python3 tools/check.py` — PASS;
+- `tests/test_queue_lab.py` — **11 passed**;
+- `tests/test_bridge_sdk.py -k "subscribe or stream or cancel"` — **13 passed**,
+  7 deselected;
+- `tests/test_local_lite.py -k "queue_lab or pause"` — **1 passed**, 9 deselected;
+- no failures, errors or unexpected skips.
 
-Implemented surfaces include:
+Native provenance gates:
 
-- real A2A `SendMessage`, `SendStreamingMessage`, `GetTask`, `ListTasks`, `CancelTask` calls;
-- task follow plus official `SubscribeToTask` SSE, with UI polling fallback only for recoverable non-auth streaming failures;
-- operational backlog plus DLQ inspect/replay, including a local authenticated **Demo DLQ**
-  injection that publishes the selected task's persisted command through the real Dapr quarantine path;
-- Workflow-only input/approval/delay controls when running the Workflow profile;
-- raw JSON-RPC console;
-- local-lite **Pause simulated agent** control so producers can enqueue durable work
-  while command delivery is held before local acceptance, then resume the same in-flight delivery;
-- fixed local routing boundary surfaced explicitly (`agent/<source>`); alternate local agent identity is selected at profile preparation rather than faked in the UI;
-- no CDN/frontend dependency and no server-side JWT bypass.
+- Local-lite: `PASS_NATIVE_VERSION`;
+- Workflow: `PASS_NATIVE_VERSION`;
+- Dapr `daprd` 1.18.3, all-components release archive;
+- NATS Server 2.15.0;
+- Workflow Placement and Scheduler 1.18.3.
 
-This is **post-RC1 development**, not part of the already-tagged RC1 evidence. Before
-creating `v0.1.0-rc2`, run the focused Queue Lab tests plus one real local-lite
-browser smoke (pause → enqueue burst → verify `SUBMITTED` queue depth → resume → completion).
+User-facing Local-lite/Queue Lab smoke passed:
 
-Windows note: Queue Lab itself is browser/Python platform-neutral, but the repository's
-pinned native-tool bootstrap remains Linux-only; Windows runtime provisioning is not
-yet a repository-certified path.
+- health/readiness and authenticated metrics;
+- Echo and Uppercase over real Dapr Pub/Sub + JetStream;
+- pause simulated agent -> enqueue burst -> tasks remain `SUBMITTED` -> cancel one ->
+  resume -> remaining tasks complete and canceled task stays canceled;
+- official `SendStreamingMessage` SSE;
+- official `SubscribeToTask` on a non-terminal task and clean rejection on a terminal task;
+- Demo DLQ -> archive -> Inspect -> Replay with terminal task result preserved;
+- raw List/Get, deliberate protocol error and raw streaming request;
+- session Clear, invalid JWT 401 and successful reconnect;
+- zero JavaScript console errors.
+
+Targeted local Workflow smoke also passed:
+
+- input-required continuation;
+- auth-required approve and reject;
+- short durable delay/timer.
+
+Both local profiles shut down cleanly with no remaining A2A-MQ/Dapr/NATS processes
+or bound runtime ports.
+
+Detailed evidence: [validation/queue-lab-rc2-20260927.md](validation/queue-lab-rc2-20260927.md).
+
+## Changes made during RC2 validation
+
+Starting SHA was `5406a9f95892a9832597e4924afe50a09add3831`. Two test-only commits were
+created before the final tag:
+
+1. `d299c97991d444628e8d0dd6a7c9ddddd5a9732a` — increase one pause/retry test
+   callback timeout from 50 ms to 500 ms;
+2. `4b1fc34065e37b68258f1944fbcb1e9a15f5fe6d` — use 1.5 s in both Queue Lab
+   pause regression tests to leave reliable headroom for synchronous SQLite commits.
+
+Across those two commits only `tests/test_queue_lab.py` changed: two timeout values
+were adjusted. No production code, assertion, skip/xfail policy, security boundary or
+runtime default was changed.
 
 ## Product shape
 
-Default local-lite:
+### Default Local-lite
 
-- Python A2A-MQ;
-- native Dapr sidecar;
-- native NATS JetStream;
-- SQLite.
+- one Python A2A-MQ process;
+- one native `daprd` sidecar;
+- one native `nats-server` with JetStream;
+- SQLite application state;
+- real A2A JSON-RPC/HTTP bindings, task ledger/outbox, cancel, DLQ/replay and Queue Lab.
 
-Optional local Workflow adds Placement + Scheduler. The distributed profile adds
-role separation, PostgreSQL, Dapr Workflow, JetStream/RabbitMQ, MCP, optional Vault
-transport protection and Kubernetes deployment support.
+Local-lite intentionally supports immediate deterministic work only. Workflow waits,
+input/auth continuation, timers and fan-out/fan-in are rejected with
+`WORKFLOW_FEATURE_UNAVAILABLE`.
 
-## Current formal acceptance
+### Optional local Workflow
 
-Exact source `45c459c` achieved **FULL_PASS** across all 11 required sub-gates:
+Adds native Dapr Placement + Scheduler and Dapr Workflow state, for five steady-state
+processes. It remains single-host/container-free and reuses the same TaskLedger, A2A
+bridge, outbox and operational surfaces.
 
-- local: 1,150 passed, 0 failures/errors/skips;
+### Distributed / production profile
+
+Supports role-separated API/Workflow/DLQ processes, shared PostgreSQL, JetStream or
+RabbitMQ Dapr Pub/Sub profiles, MCP, optional Vault Transit payload protection,
+telemetry, backup/recovery tooling and Kubernetes manifest rendering.
+
+## Formal acceptance retained from earlier SHA
+
+Exact source `45c459c632977143b8681c055847775e88d7ad97` achieved the repository
+**FULL_PASS** across all required sub-gates:
+
+- local broker-independent: 1,150 passed;
 - official SDK/MCP: 26 passed;
 - verified-TLS PostgreSQL 16: 4 passed;
 - TLS Vault Transit: 1 passed;
-- repository/dependency/Ruff/Mypy/package: PASS;
-- JetStream live: 12/12;
-- RabbitMQ live: 12/12.
+- repository/dependency/Ruff/Mypy/package gates: PASS;
+- JetStream live probe: 12/12;
+- RabbitMQ live probe: 12/12.
 
-## Kubernetes deployment acceptance
+This evidence remains valid for that source. It is not silently relabeled as a full
+acceptance run of the later RC2 source.
 
-Image:
+## Kubernetes deployment acceptance retained from earlier image
 
-`a2amq-prod:6458195-ca@sha256:a54c969183a0c314c77df93c7761db53de19dea8da9e9b20ddebccec425958af`
-
-built from source `6458195b171020ece1911e68bc6d14998d216164` achieved
+A digest-pinned image built from source
+`6458195b171020ece1911e68bc6d14998d216164` achieved
 **PRODUCTION_DEPLOYMENT_PASS (19/19)** on live three-node Kubernetes v1.31.0 with
 Dapr 1.18.3 and three-node JetStream.
 
-No deployed application runtime module changed between `6458195` and `45c459c`;
-the later source changes affect warning policy, acceptance harness/tests and docs.
-A newly rebuilt image is still a new artifact and needs its own deployment evidence.
+That result is image-bound. A newly rebuilt image needs its own deployment gate.
+RabbitMQ Kubernetes parity has not been separately executed.
 
-RabbitMQ Kubernetes deployment was not separately executed; RabbitMQ live/full-stack
-acceptance is covered by the 12-check FULL_PASS probe.
+## Hosted CI
+
+GitHub Actions runs associated with the RC2 commit/tag currently fail before runner
+assignment: jobs report `runner_id=0`, an empty runner name and zero executed steps.
+This is an infrastructure/unexecuted-CI condition, not a failing source test and not
+a pass.
 
 ## Evidence boundaries
 
 - `productionCertified = false`
 - `upstreamBindingCertified = false`
-- Hosted GitHub Actions remain pre-runner/unexecuted: `runner_id=0`, zero steps.
-- Historical local resource/soak measurements remain bound to their recorded SHAs.
-- No generic exactly-once, HA SLA, RPO/RTO or unmeasured latency guarantee is implied.
-
-## First deployment
-
-There is no known repository gate blocker for a first JetStream deployment using the
-already Kubernetes-validated image and matching prerequisites. Rebuilds require a
-fresh image-bound deployment gate. Claiming RabbitMQ Kubernetes parity requires one
-separate execution of the same production-deployment gate.
+- no generic exactly-once guarantee for arbitrary external effects;
+- no HA SLA, RPO/RTO or unmeasured latency/throughput claim;
+- historical resource/soak results remain bound to their recorded SHA/environment;
+- Windows native-runtime bootstrap is not repository-certified; the pinned bootstrap
+  supports Linux amd64/arm64.
 
 Historical construction material is under [archive](archive/).

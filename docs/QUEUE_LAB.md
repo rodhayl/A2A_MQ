@@ -1,128 +1,105 @@
 # Queue Lab — graphical manual queue testing
 
-Queue Lab is a browser-based manual test console embedded in the existing local
-A2A-MQ process. It does **not** start a second queue, mock broker or alternate task
-API. Every task still flows through the real A2A bridge, Dapr Pub/Sub, JetStream,
-SQLite ledger/outbox and the selected local executor/Workflow profile.
+Queue Lab is the browser-based local test console included in **v0.1.0-rc2**. It is
+served by the existing A2A-MQ process and uses the real local A2A/Dapr/JetStream/
+SQLite path; it does not create a second queue or mock task backend.
 
-> **Status:** Queue Lab is post-`v0.1.0-rc1` work on the production-hardening branch.
-> Its focused tests and one real browser smoke should pass before tagging `v0.1.0-rc2`.
+RC2 includes a completed real-Chromium smoke covering the controls described below.
+See [validation/queue-lab-rc2-20260927.md](validation/queue-lab-rc2-20260927.md).
 
 ## Start it
 
-Queue Lab is automatically available whenever either local profile is running:
-
-- Local-lite: `http://127.0.0.1:18000/lab/`
-- Local Workflow: `http://127.0.0.1:18000/lab/`
-
-The launcher prints a `labUrl` field at startup.
-
-Linux/Ubuntu example:
+Follow [GETTING_STARTED.md](GETTING_STARTED.md) to prepare the exact pinned native
+tools and Local-lite profile, then run:
 
 ```bash
-python3 -m venv .venv
-. .venv/bin/activate
-python -m pip install -e '.[local]'
-
-python scripts/bootstrap_local_tools.py --output .local-validation/tools
-export PATH="$PWD/.local-validation/tools/bin:$PATH"
-
-a2amq-local prepare .local-validation/local-lite
 a2amq-local run .local-validation/local-lite
 ```
 
-Then open the printed `labUrl`.
+Open:
+
+```text
+http://127.0.0.1:18000/lab/
+```
+
+The same path is available when the optional local Workflow profile is running.
 
 ## Authentication
 
-Queue Lab never receives a server-side bypass credential.
+Queue Lab has no server-side authentication bypass.
 
-Load the generated local owner token from the profile directory:
+Load the generated local owner token:
 
 ```text
 .local-validation/local-lite/client.jwt
 ```
 
-Use **Load file** in the browser, or paste the token manually.
+Use **Load file** or paste the token. The browser keeps the JWT in
+`sessionStorage`; the private signing key and Dapr/NATS credentials are never
+exposed through Queue Lab.
 
-The JWT is kept only in browser `sessionStorage`. Task, operations, replay and the
-local pause/resume control continue through bearer-authenticated A2A-MQ HTTP
-surfaces; Queue Lab does not persist the token server-side. Local client JWTs are
-short-lived and refreshed on disk by the launcher, so a long-open tab may ask you
-to reload the current `client.jwt` and reconnect.
+Local client JWTs are short-lived and refreshed on disk by the launcher. If a long
+session becomes unauthorized, load the current `client.jwt` and reconnect.
 
-## What you can test
+## Producer controls
 
-### Producer
-
-Create tasks with:
+You can create tasks with:
 
 - custom text;
-- echo or uppercase transformation;
-- custom message ID;
+- Echo or Uppercase transformation;
+- a custom message ID;
 - optional context ID;
 - immediate return or wait-for-state behavior;
 - batches of up to 25 tasks;
-- `SendStreamingMessage` over the official A2A SSE binding.
+- official A2A `SendStreamingMessage` over SSE.
 
-The **Burst / queue view** preset is useful for creating several tasks quickly and
-watching task/backlog values change.
+**Burst / queue view** is useful for observing several queued tasks at once.
 
-### Pause the simulated local agent
+## Pause simulated agent — Local-lite only
 
-Under **local-lite**, Queue Lab exposes **Pause simulated agent**.
+**Pause simulated agent** holds command delivery before `ledger.accept`.
 
-This does not stop A2A-MQ, Dapr, JetStream or durable admission. New tasks still
-enter through the real A2A API, are durably admitted in SQLite and are published to
-JetStream. While paused, the local command delivery is held before `ledger.accept`,
-so the task remains `SUBMITTED` and no `start` action is created until delivery is
-accepted.
+It does not stop the application, Dapr, JetStream or durable task admission. New
+tasks can still be admitted and published while execution is held. Their visible
+state remains `SUBMITTED` until a delivery is accepted.
 
-A useful manual scenario is:
+Recommended scenario:
 
 1. click **Pause simulated agent**;
-2. enqueue one task or choose **Burst / queue view**;
-3. watch **Queued / submitted**, Active tasks and task states;
-4. inspect or cancel queued tasks;
+2. enqueue a task or **Burst / queue view**;
+3. confirm queued/submitted and active-task values change;
+4. inspect or cancel one queued task;
 5. click **Resume simulated agent**;
-6. watch the same durable tasks drain and complete.
+6. confirm remaining tasks drain and complete;
+7. confirm the canceled task remains canceled.
 
-Cancellation remains available while execution is paused.
+Pause is bounded. An in-flight delivery is held for at most five seconds and always
+for less than the configured callback timeout. If pause remains active, the callback
+returns the normal retry result so broker/Dapr redelivery and DLQ policy remain
+authoritative.
 
-The pause is intended for short manual experiments. Each in-flight delivery is held
-for at most 5 seconds (and always for less than the configured callback timeout).
-If the agent is still paused after that bounded hold, A2A-MQ returns the normal
-retry result and Dapr/JetStream redelivery policy applies. This keeps pause/resume
-observable without making graceful shutdown wait on a full 30-second callback.
-An indefinitely paused consumer can therefore eventually exercise the configured
-DLQ path rather than creating an artificial infinite hold.
+The Workflow profile does not expose a fake worker-pause switch.
 
-This control exists only in local-lite. The Workflow profile already has a real Dapr
-Workflow runtime, so Queue Lab does not fake a Workflow-worker pause switch.
+## Routing
 
-### Routing target
+A local profile subscribes to one configured command route:
 
-The running local profile has one real subscribed command route:
+```text
+a2a.v1.<tenant>.command.agent.<source>
+```
 
-`a2a.v1.<tenant>.command.agent.<source>`
+Queue Lab displays the configured route and does not invent arbitrary agent/skill
+routes.
 
-Queue Lab shows that configured agent in the header/route label. It deliberately
-does not invent arbitrary agent/skill routes that the Dapr component is not scoped
-to consume.
-
-Choose a different simulated agent identity when preparing a fresh profile:
+To test a different local agent identity, prepare another profile:
 
 ```bash
 a2amq-local prepare .local-validation/reviewer --source reviewer
 ```
 
-That produces a real `...command.agent.reviewer` route. Skill-target routing and
-multiple independent consumers belong to a multi-service composition rather than
-this single local-lite process.
+## Task table
 
-### Queue / consumer view
-
-The task table uses the real A2A `ListTasks` API and can filter by state:
+The table uses the real A2A `ListTasks` API. It can display/filter states including:
 
 - SUBMITTED
 - WORKING
@@ -133,161 +110,139 @@ The task table uses the real A2A `ListTasks` API and can filter by state:
 - FAILED
 - REJECTED
 
-Selecting a task uses the real `GetTask` API and shows the complete current task
-document, artifacts and history.
+Selecting a row uses the real `GetTask` API and shows the task document, artifacts
+and history.
 
-### Streaming, follow and subscribe
+## Streaming and subscription
 
-**Enqueue + A2A stream** sends the task using the official
-`SendStreamingMessage` JSON-RPC method and consumes its SSE responses.
+**Enqueue + A2A stream** calls official `SendStreamingMessage` and displays its SSE
+events.
 
-**Follow** polls the normal `GetTask` surface and records each state change.
+**Subscribe (SSE)** calls official `SubscribeToTask` for an existing non-terminal
+task. Terminal tasks are not subscribable. The UI disables that action and a direct
+raw call is expected to return a protocol error rather than a fake stream.
 
-**Subscribe (SSE)** uses the official A2A `SubscribeToTask` stream for an existing
-non-terminal task. Terminal tasks are not subscribable and the UI disables that
-action. If an ordinary UI subscription cannot keep the event stream open, Queue Lab
-falls back to Follow rather than inventing a private streaming protocol. The raw
-JSON-RPC console does **not** hide streaming errors behind that fallback.
+**Follow** polls `GetTask` and is a UI convenience for recoverable subscription
+failures; the raw JSON-RPC console does not hide stream/protocol errors.
 
-### Cancellation
+## Cancellation
 
-Cancel sends the official A2A `CancelTask` request and then refreshes the real task
-state.
+Cancel uses the official `CancelTask` surface and refreshes the real task state.
+RC2 explicitly validated cancellation while Local-lite delivery was paused.
 
-### Workflow controls
+## Workflow-only controls
 
-When Queue Lab runs under `a2amq-local-workflow`, the composer enables the real
-Workflow options:
+When the page is served by `a2amq-local-workflow`, the composer enables:
 
-- input required;
-- approval required;
-- delay/timer;
+- input-required;
 - continuation input;
-- approve/reject.
+- auth-required;
+- approve/reject;
+- delay/timer.
 
-Under local-lite these controls are visibly disabled because local-lite intentionally
-does not implement Workflow-only semantics.
+These controls are disabled under Local-lite because Local-lite intentionally rejects
+Workflow-only semantics.
 
-### Operations and backlog
+## Operations and backlog
 
-The dashboard reads `/operations/status` and displays:
+The dashboard reads the authenticated `/operations/status` endpoint and exposes
+operational values including:
 
 - active tasks;
-- queued/submitted tasks visible in the current task page;
-- total task records;
+- queued/submitted tasks on the current task page;
+- task records;
 - pending actions;
 - pending publications;
 - oldest pending publication age.
 
-### Dead letters
+## Dead letters and replay
 
-The DLQ panel lists real archived dead letters through
-`/operations/deadletters`. Each record can be inspected through the authenticated
-record endpoint or replayed with a fresh replay request ID.
+The DLQ panel uses the normal authenticated operations endpoints.
 
-For a deterministic manual DLQ test, select any real task and click **Demo DLQ**.
-The control requires `a2a:replay`; the generated local owner token already has that
-scope and the normal read/owner check. Queue Lab does not insert a row directly.
-The server loads that task's persisted command envelope, reconstructs its canonical
-CloudEvent, and publishes that CloudEvent through the real
-`DaprPublisher.quarantine()` path to the configured DLQ topic. The normal Dapr
-subscription then archives it, after which **Inspect** and **Replay** exercise the
-ordinary operations/replay path. Replaying the duplicate command remains subject to
-the normal task/message idempotency rules.
+**Demo DLQ** is a local deterministic test helper. It does not insert a database row
+directly. For the selected task, the server:
 
+1. checks ordinary task read/owner authorization;
+2. loads the persisted command envelope;
+3. reconstructs the canonical CloudEvent;
+4. publishes it through the real `DaprPublisher.quarantine()` path;
+5. lets the normal Dapr DLQ subscription archive it.
 
-### Raw JSON-RPC
+After it appears in **Dead letters**, use **Inspect** and **Replay**. Replayed
+commands remain subject to the normal immutable identity/idempotency rules. RC2
+validated that replay did not duplicate or corrupt an already committed terminal
+result.
 
-The advanced panel lets you edit and send JSON-RPC manually. It defaults to the
-non-mutating `ListTasks` preset and also provides `SendMessage`,
-`SendStreamingMessage`, `GetTask`, `CancelTask` and `SubscribeToTask`.
+## Raw JSON-RPC
 
-For streaming methods the exact JSON written in the editor is sent unchanged and
-the SSE events are shown in Activity; the raw console never reconstructs the request
-or hides a protocol error behind the UI's polling fallback. This is useful for
-deliberately changing parameters and observing protocol errors without writing a
-separate client.
+The advanced panel lets you edit and send a JSON-RPC document directly.
+
+Presets include:
+
+- ListTasks;
+- SendMessage;
+- SendStreamingMessage;
+- GetTask;
+- CancelTask;
+- SubscribeToTask.
+
+For streaming methods, Queue Lab sends the edited JSON unchanged and displays SSE
+events. Deliberately invalid methods should return a clean JSON-RPC protocol error
+without breaking the page.
+
+## Session controls
+
+**Clear** removes the browser's current authenticated/task/raw/activity state.
+
+RC2 also validated an invalid bearer token returning 401 and a subsequent successful
+reconnect using the current generated `client.jwt`.
 
 ## Local-lite versus Workflow
 
-Local-lite is the recommended first test because it is only three steady-state
-processes:
+Use Local-lite first unless the scenario specifically requires Workflow semantics.
+
+Local-lite steady state:
 
 1. Python A2A-MQ;
 2. `daprd`;
 3. `nats-server`.
 
-It executes immediate model-free echo/uppercase work, so no external agent or LLM is
-required.
+Workflow steady state adds:
 
-For timers/input/approval, prepare the Workflow profile instead:
+4. Dapr Placement;
+5. Dapr Scheduler.
 
-```bash
-python scripts/bootstrap_local_tools.py \
-  --output .local-validation/workflow-tools \
-  --workflow
-export PATH="$PWD/.local-validation/workflow-tools/bin:$PATH"
+Both remain loopback-only single-host profiles.
 
-python -m pip install -e '.[local,local-workflow]'
-a2amq-local-workflow prepare .local-validation/local-workflow
-a2amq-local-workflow run .local-validation/local-workflow
-```
+## Linux / Windows boundary
 
-## Windows status
-
-The **Queue Lab web application itself is platform-neutral** and contains no Linux
-frontend dependency.
-
-However, the repository's pinned native-tool bootstrap currently supports Linux
-amd64/arm64 only. Native Windows local-runtime provisioning has not yet been
-certified by this repository. Do not interpret the web UI as Windows runtime
-certification.
-
-If the A2A-MQ local service is running successfully on a Windows host with compatible
-native Dapr/NATS binaries, Queue Lab is served by the same Python ASGI application at
-`/lab/`. The documented, repository-verified bootstrap path remains Linux/Ubuntu.
+The Queue Lab frontend itself has no Linux-specific browser dependency. The
+repository-pinned native bootstrap is currently certified only on Linux amd64/arm64.
+A manually assembled Windows runtime is therefore outside the current repository
+validation boundary.
 
 ## Security boundary
 
-Queue Lab is intended for the loopback local profiles.
+Queue Lab is intended for the built-in loopback local profiles.
 
-It ships no CDN assets and uses a restrictive Content-Security-Policy. HTML, CSS and
-JavaScript are served from the A2A-MQ package itself. It does not expose private JWT
-keys, app tokens, Dapr tokens, NATS credentials or raw SQLite access.
+It ships local static assets, uses a restrictive Content-Security-Policy and exposes
+no raw SQLite or private-key endpoint. Distributed/production deployments should use
+their normal authenticated API/operations surfaces rather than expose this local
+manual console.
 
-For distributed/production environments, use the normal authenticated APIs and
-operational tooling instead of exposing this local manual console.
+## RC2 smoke summary
 
-## Focused Linux smoke before v0.1.0-rc2
+The real Linux/Chromium RC2 run passed:
 
-Do not replace this with a full certification run. For the Queue Lab handoff, verify
-these user-visible paths on a fresh Linux local profile:
+1. connect + health/readiness + metrics;
+2. Echo and Uppercase;
+3. pause -> burst -> cancel -> resume -> drain;
+4. SendStreamingMessage SSE;
+5. SubscribeToTask SSE + terminal rejection;
+6. Demo DLQ -> Inspect -> Replay;
+7. raw List/Get + invalid method + raw streaming;
+8. Clear + invalid JWT 401 + valid reconnect;
+9. Workflow input continuation, approve/reject and short timer;
+10. clean runtime shutdown.
 
-1. **Connect** — load the generated `client.jwt`; health/readiness and queue metrics
-   populate.
-2. **Ordinary task** — Echo and Uppercase each admit and complete; Inspect shows the
-   real A2A Task.
-3. **Pause / queue / resume** — pause the simulated agent, enqueue a Burst, confirm
-   the tasks remain `SUBMITTED`, cancel one while paused, resume, and confirm the
-   remaining tasks complete.
-4. **Streaming send** — `Enqueue + A2A stream` produces official
-   `SendStreamingMessage` SSE events and reaches a terminal task.
-5. **Subscribe** — subscribe to a non-terminal task and observe official
-   `SubscribeToTask` SSE. Confirm the UI refuses subscription on a terminal task.
-6. **DLQ / replay** — select a task, click **Demo DLQ**, wait for it to appear in
-   Dead letters, Inspect it, Replay it, and confirm replay does not corrupt or
-   duplicate the committed task result.
-7. **Raw console** — List/Get work; an intentionally invalid request returns the
-   protocol error without breaking the UI.
-8. **Session lifecycle** — Clear removes task/raw/activity data. If practical, replace
-   or invalidate the JWT and confirm a 401 clears authenticated data and allows
-   reconnect with the current token.
-9. **Workflow profile** — only targeted smoke: input-required continuation,
-   auth-required approve/reject, and a short delay. Do not rerun the historical
-   Workflow resource/soak certification.
-10. **Shutdown** — stop the profile and confirm no app/daprd/nats processes or local
-    ports from this run remain.
-
-The targeted automated checks for this handoff are documented in the agent prompt;
-full acceptance, Kubernetes, PostgreSQL, Vault, RabbitMQ and long soak runs are out
-of scope unless a focused failure proves they are directly affected.
+See [VALIDATION.md](VALIDATION.md) for the release evidence index.

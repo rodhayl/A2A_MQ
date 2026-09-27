@@ -1,11 +1,11 @@
-# Workflows and failure boundaries
+# Workflows and failure boundaries — v0.1.0-rc2
 
 ## Durable task path
 
-A command is durably admitted, consumed at least once, fenced by tenant/consumer
-state, and completed with transactional task/outbox updates. Publishing an event and
-locally recording its publish marker are separate steps; duplicate delivery remains
-possible and is handled by stable event identity.
+A command is durably admitted, delivered at least once, and completed through
+transactional task/outbox state. Publishing an event and recording its local publish
+marker are separate operations; duplicate publication remains possible and is
+handled with stable event identity/idempotency.
 
 ## Crash matrix
 
@@ -21,35 +21,64 @@ A stale fence cannot commit over a newer owner.
 
 ## Local-lite
 
-Local-lite supports immediate deterministic task execution and durable restart/
-redelivery while collapsing API + execution into one Python process. It deliberately
-does not emulate Workflow-only waits, approvals, timers or fan-out/fan-in.
+Local-lite supports immediate deterministic task execution and durable
+restart/redelivery while combining API + local executor in one Python process.
 
-## Workflow tier
+It deliberately rejects Workflow-only features:
 
-The optional local and distributed Workflow profiles implement:
+- input-required continuation;
+- auth-required approval;
+- non-zero delays/timers;
+- fan-out/fan-in.
 
-- input-required/auth-required pauses and continuation;
-- owner-coordinated cancellation;
-- delays/timers;
-- fan-out/fan-in;
-- worker restart/replacement recovery.
+Queue Lab's pause switch is only a local delivery-boundary test control. It does not
+implement a workflow scheduler.
 
-Workflow state is durable; completion already committed is never rewritten by a late
-cancellation or replay.
+## Local Workflow
 
-The current live/full acceptance exercises Workflow fan-out/fan-in, abrupt worker
-restart and cancellation. The Kubernetes JetStream deployment gate verifies task
+The optional local Workflow profile uses the official Dapr Workflow runtime and adds
+Placement + Scheduler.
+
+It supports:
+
+- input-required/auth-required pauses;
+- continuation;
+- approve/reject;
+- durable timers/delays;
+- cancellation;
+- fan-out/fan-in paths.
+
+RC2 focused Linux validation exercised input continuation, approve/reject and a
+two-second durable timer on the real five-process local Workflow topology.
+
+## Distributed Workflow
+
+The distributed profile separates API and Workflow workers and uses shared durable
+state. Worker replicas share the intended logical consumer/workflow identity.
+
+Earlier broader acceptance exercised fan-out/fan-in, cancellation and worker
+restart/replacement. The earlier JetStream Kubernetes deployment gate verified task
 completion across worker replacement.
 
-## Offline/fan-out semantics
+These are historical SHA/image-bound results; see [VALIDATION.md](VALIDATION.md).
 
-Distributed worker replicas share the intended competing consumer identity.
-Independent observers use distinct durable identities, so they fan out rather than
-load-balance one another. Retention determines how far a late observer can rebuild;
-SQL backups/projections cover history beyond broker retention.
+## Terminal state and replay
+
+A task outcome already committed as terminal is not reopened by a late cancellation
+or duplicate/replayed command. Idempotency and immutable identities protect the
+committed result.
+
+## Independent observers
+
+Distributed worker replicas compete within their logical consumer group.
+Independent observers use distinct durable identities so they receive their own copy
+rather than load-balance each other.
+
+Broker retention controls how far a late observer can rebuild directly from the
+message log; SQL backup/projection strategy covers longer history.
 
 ## Encryption
 
-Optional encryption changes payload confidentiality/authenticity but not delivery,
-fencing, idempotency or Workflow state semantics.
+Optional payload protection changes confidentiality/authenticity of transported
+content. It does not change delivery semantics, fencing, idempotency or Workflow state
+rules.
