@@ -13,16 +13,24 @@
   was created. Documentation-only follow-up commits may be newer than the tag; the tag
   itself is intentionally immutable.
 
-## Unreleased onboarding branch
+## Validated post-RC2 usability/onboarding on main
 
-Branch `implementation/usability-onboarding-20260927` starts from the merged
-post-RC2 `main` and adds usability/onboarding work: a non-mutating local `doctor`,
-actionable expected-error CLI messages, a small local smoke script, API examples and
-configuration/troubleshooting/deployment documentation.
+The usability/onboarding work was independently validated on Ubuntu 24.04.5 LTS /
+Python 3.12.3 at branch commit
+`401471b05da55ba8311b9bc6e5019a24a4250b9b` and merged into `main` via
+`84097baa57da4919c1672a0392397e05c0404882`.
 
-These changes are **not part of the immutable v0.1.0-rc2 tag** and must not inherit
-the RC2 focused validation merely because they are based on it. They remain separate
-from `main` until independently reviewed/tested.
+It includes the non-mutating local `doctor`, actionable expected-error CLI messages,
+the small Local-lite smoke script, A2A API examples and the
+configuration/troubleshooting/deployment documentation. During validation, one real
+doctor defect was found and fixed: generated RS256 `client.jwt` files could exceed
+the old 512-byte helper read limit.
+
+These changes are **not part of the immutable v0.1.0-rc2 tag**. Their Linux validation
+is recorded separately in
+[validation/usability-onboarding-20260927.md](validation/usability-onboarding-20260927.md),
+with the independent post-merge repository audit in
+[validation/usability-onboarding-post-merge-audit-20260927.md](validation/usability-onboarding-post-merge-audit-20260927.md).
 
 ## RC2 Linux validation
 
@@ -139,10 +147,14 @@ RabbitMQ Kubernetes parity has not been separately executed.
 
 ## Hosted CI
 
-GitHub Actions runs associated with the RC2 commit/tag currently fail before runner
-assignment: jobs report `runner_id=0`, an empty runner name and zero executed steps.
-This is an infrastructure/unexecuted-CI condition, not a failing source test and not
-a pass.
+As of 2026-09-27, hosted GitHub Actions for both RC2 and the validated post-RC2
+usability work still fail before runner assignment. The final usability branch run
+(`36305318006`), merge-commit run (`36306201233`) and validation-report run
+(`36308979807`) all show `runner_id=0`, an empty runner name and `steps=[]`.
+
+Those runs are infrastructure/unexecuted-CI states: they are neither failing source
+tests nor positive test evidence. The real-Linux validation record is therefore the
+primary evidence for the usability/onboarding change.
 
 ## Evidence boundaries
 

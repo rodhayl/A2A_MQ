@@ -12,8 +12,10 @@ profile for deployments that need shared infrastructure and independently scalab
   `4b1fc34065e37b68258f1944fbcb1e9a15f5fe6d`.
 - The tag was validated on Ubuntu 24.04.5 LTS / x86_64 with Python 3.12.3 using
   the exact repository-pinned Dapr 1.18.3 and NATS Server 2.15.0 release archives.
-- The RC2 tag is not moved. This usability branch contains unreleased onboarding
-  improvements after RC2 and is intentionally kept separate from `main` until reviewed.
+- The RC2 tag remains immutable. The post-RC2 usability/onboarding work was
+  independently validated on Linux at commit
+  `401471b05da55ba8311b9bc6e5019a24a4250b9b` and merged into `main` via
+  `84097baa57da4919c1672a0392397e05c0404882`. It is not part of the RC2 tag.
 
 See [Current Status](docs/STATUS.md) and [Validation](docs/VALIDATION.md) for the
 exact evidence boundaries.
