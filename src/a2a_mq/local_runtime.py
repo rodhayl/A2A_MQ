@@ -4,26 +4,32 @@ from __future__ import annotations
 import argparse
 import asyncio
 from datetime import datetime, timedelta, timezone
+import importlib.util
 import json
 import os
 from pathlib import Path
+import re
 import secrets
 import shutil
 import signal
 import socket
 import subprocess
 import sys
+import tempfile
 import time
 from urllib.parse import urlsplit
 
 from .configuration import read_file
-from .domain import MODEL_CREDENTIAL, require, token
+from .domain import MODEL_CREDENTIAL, PermanentError, require, token
 
 APP_ID = "a2amq-local"
 CLIENT_TOKEN_LIFETIME_SECONDS = 3600
 CLIENT_TOKEN_REFRESH_SECONDS = 1800
 SUPERVISOR_INTERVAL_SECONDS = 1.0
 DAPR_INTERNAL_GRPC_PORT = 50002
+LOCAL_DAPR_VERSION = "1.18.3"
+LOCAL_NATS_VERSION = "2.15.0"
+LOCAL_LITE_PORTS = (18000, 3500, 50001, DAPR_INTERNAL_GRPC_PORT, 4222)
 
 
 def _private_write(path: Path, value: str) -> None:
@@ -389,6 +395,20 @@ def prepare(root: Path, *, tenant: str = "demo", source: str = "local-worker",
         raise
 
 
+def _port_available(port: int) -> bool:
+    """Return whether the built-in launcher can bind one loopback TCP port."""
+    require(type(port) is int and 1 <= port <= 65535, "INVALID_LOCAL_PORTS")
+    probe = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    probe.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    try:
+        probe.bind(("127.0.0.1", port))
+        return True
+    except OSError:
+        return False
+    finally:
+        probe.close()
+
+
 def _require_ports_free(ports: tuple[int, ...]) -> None:
     """Fail before secrets or child processes are touched when a fixed loopback port is occupied."""
     require(isinstance(ports, tuple) and bool(ports), "INVALID_LOCAL_PORTS")
@@ -396,14 +416,8 @@ def _require_ports_free(ports: tuple[int, ...]) -> None:
     for port in ports:
         require(type(port) is int and 1 <= port <= 65535 and port not in seen, "INVALID_LOCAL_PORTS")
         seen.add(port)
-        probe = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        probe.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        try:
-            probe.bind(("127.0.0.1", port))
-        except OSError:
+        if not _port_available(port):
             raise RuntimeError(f"local loopback port unavailable: {port}") from None
-        finally:
-            probe.close()
 
 
 def _wait_port(host: str, port: int, process: subprocess.Popen, timeout: float = 15) -> None:
@@ -419,8 +433,8 @@ def _wait_port(host: str, port: int, process: subprocess.Popen, timeout: float =
     raise RuntimeError(f"timeout waiting for {host}:{port}")
 
 
-def _read(path: Path) -> str:
-    return read_file(str(path), secret=True, limit=512).strip()
+def _read(path: Path, limit: int = 512) -> str:
+    return read_file(str(path), secret=True, limit=limit).strip()
 
 
 def _runtime_environments(root: Path, profile: dict) -> tuple[dict[str, str], dict[str, str], dict[str, str]]:
@@ -486,6 +500,297 @@ def _native_binary(name: str) -> str | None:
     return None
 
 
+
+def _native_version(name: str, path: str) -> str | None:
+    """Probe only native binaries with a stable version CLI used by repository gates."""
+    arguments = {"daprd": ("--version",), "nats-server": ("-v",)}.get(name)
+    if arguments is None:
+        return None
+    try:
+        completed = subprocess.run(
+            [path, *arguments],
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=5,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    if completed.returncode != 0:
+        return None
+    match = re.search(r"(?<![0-9])v?(\d+\.\d+\.\d+)(?![0-9])", completed.stdout[:4096])
+    return match.group(1) if match else None
+
+
+def _doctor_item(name: str, ok: bool, detail: str, *, fix: str = "",
+                 warning: bool = False) -> dict:
+    return {"name": name, "ok": bool(ok), "detail": detail, "fix": fix, "warning": bool(warning)}
+
+
+def _bootstrap_provenance_check(binaries: dict[str, str], mode: str) -> dict | None:
+    """Reuse the repository's exact provenance checker when PATH points at one bootstrap root."""
+    parents = {Path(path).resolve().parent for path in binaries.values()}
+    if len(parents) != 1:
+        return None
+    bin_dir = next(iter(parents))
+    if bin_dir.name != "bin":
+        return None
+    tools_root = bin_dir.parent
+    manifest = tools_root / "manifest.json"
+    if not manifest.is_file():
+        return None
+    checker = Path(__file__).resolve().parents[2] / "scripts/check_local_native_versions.py"
+    if not checker.is_file():
+        return _doctor_item(
+            "native provenance",
+            True,
+            f"bootstrap manifest found at {manifest}; exact checker unavailable in this installation",
+            warning=True,
+        )
+    with tempfile.TemporaryDirectory(prefix="a2amq-doctor-") as tmp:
+        report = Path(tmp) / "native.json"
+        command = [
+            sys.executable,
+            str(checker),
+            "--daprd", binaries["daprd"],
+            "--nats-server", binaries["nats-server"],
+            "--bootstrap-manifest", str(manifest),
+            "--json", str(report),
+        ]
+        if mode == "local-workflow":
+            command += [
+                "--placement", binaries["placement"],
+                "--scheduler", binaries["scheduler"],
+            ]
+        try:
+            completed = subprocess.run(
+                command,
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                timeout=30,
+                check=False,
+            )
+            value = json.loads(completed.stdout.strip().splitlines()[-1])
+        except (OSError, subprocess.TimeoutExpired, ValueError, IndexError):
+            return _doctor_item(
+                "native provenance",
+                False,
+                "bootstrap provenance checker could not complete",
+                fix="rerun scripts/check_local_native_versions.py for the selected tools directory",
+            )
+    verdict = value.get("verdict")
+    return _doctor_item(
+        "native provenance",
+        completed.returncode == 0 and verdict == "PASS_NATIVE_VERSION",
+        str(verdict or "INCOMPLETE_NATIVE_VERSION"),
+        fix="re-bootstrap the pinned native tools; do not reuse a modified tools directory",
+    )
+
+
+def _client_token_check(root: Path, profile: dict) -> dict:
+    """Verify local token signature/identity; expiry is a warning because run refreshes it."""
+    try:
+        import jwt
+        keys = json.loads(read_file(str(root / "jwt-keys.json"), secret=True, limit=65536))
+        encoded = _read(root / "client.jwt", limit=65536)
+        header = jwt.get_unverified_header(encoded)
+        kid = header.get("kid")
+        require(isinstance(keys, dict) and isinstance(kid, str) and kid in keys, "UNAUTHENTICATED")
+        claims = jwt.decode(
+            encoded,
+            key=keys[kid],
+            algorithms=["RS256"],
+            issuer=profile["issuer"],
+            audience=profile["publicUrl"],
+            options={"require": ["exp", "iat", "nbf", "iss", "aud", "sub", "tenant", "scope"],
+                     "verify_exp": False},
+        )
+        exp = claims.get("exp")
+        require(type(exp) is int, "UNAUTHENTICATED")
+        if exp <= int(time.time()):
+            return _doctor_item(
+                "client JWT",
+                True,
+                "signature/identity valid; token expired and will be refreshed by run",
+                warning=True,
+            )
+        return _doctor_item("client JWT", True, "signature, issuer and audience valid")
+    except Exception:
+        return _doctor_item(
+            "client JWT",
+            False,
+            "generated client token or public key is invalid",
+            fix="recreate the local profile; do not hand-edit generated identity files",
+        )
+
+
+def doctor(root: Path | None = None, *, mode: str = "local-lite",
+           native_names: tuple[str, ...] = ("daprd", "nats-server"),
+           ports: tuple[int, ...] = LOCAL_LITE_PORTS) -> dict:
+    """Non-mutating local preflight. It never installs tools, changes profiles or kills processes."""
+    require(mode in {"local-lite", "local-workflow"}, "INVALID_LOCAL_PROFILE")
+    checks: list[dict] = []
+    checks.append(_doctor_item(
+        "Python",
+        sys.version_info >= (3, 12),
+        f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}",
+        fix="use Python 3.12 or newer",
+    ))
+
+    modules = ["a2a", "jwt", "cryptography", "nats"]
+    if mode == "local-workflow":
+        modules.append("dapr")
+    missing_modules = [name for name in modules if importlib.util.find_spec(name) is None]
+    checks.append(_doctor_item(
+        "Python extras",
+        not missing_modules,
+        "installed" if not missing_modules else "missing: " + ", ".join(missing_modules),
+        fix=("python -m pip install -e '.[local,local-workflow]'"
+             if mode == "local-workflow" else "python -m pip install -e '.[local]'"),
+    ))
+
+    profile = None
+    if root is not None:
+        root = root.absolute()
+        try:
+            profile = _load_profile(root, mode)
+            checks.append(_doctor_item(
+                "profile",
+                True,
+                f"{mode}; tenant={profile['tenant']}; source={profile['source']}",
+            ))
+        except Exception as exc:
+            code = getattr(exc, "code", type(exc).__name__)
+            checks.append(_doctor_item(
+                "profile",
+                False,
+                str(code),
+                fix="prepare a fresh profile with the matching local launcher",
+            ))
+
+    binaries: dict[str, str] = {}
+    for name in native_names:
+        path = _native_binary(name)
+        if path is None:
+            checks.append(_doctor_item(
+                name,
+                False,
+                "not found",
+                fix="bootstrap the repository-pinned native tools and prepend its bin directory to PATH",
+            ))
+            continue
+        binaries[name] = path
+        expected = {"daprd": LOCAL_DAPR_VERSION, "nats-server": LOCAL_NATS_VERSION}.get(name)
+        observed = _native_version(name, path)
+        if expected is not None:
+            checks.append(_doctor_item(
+                name,
+                observed == expected,
+                f"{observed or 'version unavailable'} at {path}",
+                fix=f"use repository-pinned {name} {expected}",
+            ))
+        else:
+            checks.append(_doctor_item(name, True, path))
+
+    if all(name in binaries for name in native_names):
+        provenance = _bootstrap_provenance_check(binaries, mode)
+        if provenance is not None:
+            checks.append(provenance)
+        else:
+            checks.append(_doctor_item(
+                "native provenance",
+                True,
+                "host binaries; exact bootstrap archive provenance not available",
+                warning=True,
+            ))
+
+    occupied = [str(port) for port in ports if not _port_available(port)]
+    checks.append(_doctor_item(
+        "startup ports",
+        not occupied,
+        "available" if not occupied else "occupied: " + ", ".join(occupied),
+        fix="stop the conflicting service or choose a different host before starting A2A-MQ",
+    ))
+
+    if root is not None and profile is not None:
+        state = root / "state"
+        writable = state.is_dir() and not state.is_symlink() and os.access(state, os.W_OK)
+        checks.append(_doctor_item(
+            "state directory",
+            writable,
+            str(state),
+            fix="restore the generated profile directory and owner write permissions",
+        ))
+        checks.append(_client_token_check(root, profile))
+
+    failed = [item for item in checks if not item["ok"]]
+    return {
+        "status": "ready" if not failed else "not-ready",
+        "mode": mode,
+        "profile": str(root) if root is not None else None,
+        "checks": checks,
+    }
+
+
+def _print_doctor(report: dict) -> None:
+    print(f"A2A-MQ doctor ({report['mode']})")
+    for item in report["checks"]:
+        label = "FAIL" if not item["ok"] else "WARN" if item.get("warning") else "PASS"
+        print(f"{item['name']:<22} {label:<4}  {item['detail']}")
+        if not item["ok"] and item.get("fix"):
+            print(f"{'':22}       Fix: {item['fix']}")
+    print("READY" if report["status"] == "ready" else "NOT_READY")
+
+
+_CLI_CODE_HINTS = {
+    "OUTPUT_ALREADY_EXISTS": "choose a different profile directory or remove the old profile after stopping it",
+    "PROFILE_NOT_FOUND": "prepare the profile first and pass its directory to the launcher",
+    "UNSAFE_LOCAL_PROFILE": "make the profile owner-private (chmod 700 on Linux) or prepare a fresh profile",
+    "LOCAL_PROFILE_MODE_MISMATCH": "use a2amq-local for Local-lite or a2amq-local-workflow for Workflow",
+    "INVALID_LOCAL_PROFILE": "prepare a fresh profile; generated profile files are not user-editable configuration",
+    "LOCAL_LOOPBACK_URL_REQUIRED": "use the built-in loopback URL http://127.0.0.1:18000",
+    "INVALID_ROUTE": "use lowercase token-safe tenant/source names",
+    "CONFIG_FILE_UNAVAILABLE": "restore the generated file as a regular owner-controlled file",
+    "INVALID_CONFIG_FILE": "recreate the profile instead of modifying generated files",
+}
+
+
+def _format_cli_error(exc: BaseException) -> str | None:
+    """Render expected operator mistakes without hiding unexpected programming errors."""
+    if isinstance(exc, PermanentError):
+        code = exc.code
+        hint = _CLI_CODE_HINTS.get(code, "see docs/TROUBLESHOOTING.md for this validation error")
+        return f"ERROR: {code}\nFix: {hint}"
+    if isinstance(exc, subprocess.TimeoutExpired):
+        return "ERROR: local dependency startup/provisioning timed out\nFix: run a2amq-local doctor and inspect the failing native process"
+    if isinstance(exc, RuntimeError):
+        message = str(exc)
+        if message.startswith("missing native prerequisite(s):"):
+            return (
+                f"ERROR: {message}\n"
+                "Fix: bootstrap the pinned native tools and prepend their bin directory to PATH"
+            )
+        if message.startswith("local loopback port unavailable:"):
+            port = message.rsplit(":", 1)[-1].strip()
+            return (
+                f"ERROR: local port {port} is already in use\n"
+                f"Fix: inspect the owner with: ss -tulpn | grep ':{port}'"
+            )
+        if message.startswith("local runtime extra is required:"):
+            return f"ERROR: {message}"
+        if message.startswith("process exited before ") or message.startswith("timeout waiting for "):
+            return f"ERROR: {message}\nFix: run a2amq-local doctor and inspect native process output"
+    return None
+
+
 def _terminate(process: subprocess.Popen | None) -> None:
     if process is None or process.poll() is not None:
         return
@@ -521,7 +826,7 @@ def run(root: Path) -> int:
     """Run exactly three product processes: this Python app, daprd and nats-server."""
     root = root.absolute()
     profile = _load_profile(root, "local-lite")
-    _require_ports_free((18000, 3500, 50001, DAPR_INTERNAL_GRPC_PORT, 4222))
+    _require_ports_free(LOCAL_LITE_PORTS)
     nats_server = _native_binary("nats-server")
     daprd = _native_binary("daprd")
     if not nats_server or not daprd:
@@ -605,12 +910,25 @@ def main() -> None:
     prep.add_argument("--mcp", action="store_true")
     launch = commands.add_parser("run")
     launch.add_argument("root", type=Path)
+    diagnose = commands.add_parser("doctor", help="non-mutating local prerequisite/profile preflight")
+    diagnose.add_argument("root", type=Path, nargs="?")
     args = parser.parse_args()
-    if args.command == "prepare":
-        print(json.dumps(prepare(args.root, tenant=args.tenant, source=args.source,
-                                 public_url=args.public_url, mcp=args.mcp), sort_keys=True))
-        return
-    raise SystemExit(run(args.root))
+    try:
+        if args.command == "prepare":
+            print(json.dumps(prepare(args.root, tenant=args.tenant, source=args.source,
+                                     public_url=args.public_url, mcp=args.mcp), sort_keys=True))
+            return
+        if args.command == "doctor":
+            report = doctor(args.root)
+            _print_doctor(report)
+            raise SystemExit(0 if report["status"] == "ready" else 2)
+        raise SystemExit(run(args.root))
+    except (PermanentError, RuntimeError, subprocess.SubprocessError) as exc:
+        message = _format_cli_error(exc)
+        if message is None:
+            raise
+        print(message, file=sys.stderr)
+        raise SystemExit(2) from None
 
 
 if __name__ == "__main__":

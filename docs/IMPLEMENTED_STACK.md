@@ -34,6 +34,8 @@ a2amq-local run .local-validation/local-lite
 ```
 
 The pinned bootstrap uses Dapr 1.18.3 all-components/default and NATS Server 2.15.0.
+Use `a2amq-local doctor <profile>` for a read-only startup preflight and
+`scripts/smoke_local.py` for a small running-service happy-path smoke.
 The provenance checker binds each installed binary to the exact retained release
 archive member.
 
@@ -95,6 +97,8 @@ The role-separated distributed implementation supports:
 - metrics/telemetry;
 - backup/restore/retention helpers.
 
+For the environment-variable reference see [CONFIGURATION.md](CONFIGURATION.md).
+
 ## Kubernetes rendering
 
 `deploy/production/generate.py` renders application/Dapr Kubernetes resources for
@@ -110,7 +114,7 @@ The renderer requires:
 - administrator-owned broker, TLS, Dapr control plane and network/security setup.
 
 It does not fabricate a production database, identity provider, CA, broker cluster or
-secret material.
+secret material. The operator flow is documented in [DEPLOYMENT.md](DEPLOYMENT.md).
 
 ## Disposable Compose fixture
 

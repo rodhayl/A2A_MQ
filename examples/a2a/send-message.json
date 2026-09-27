@@ -1,0 +1,19 @@
+{
+  "jsonrpc": "2.0",
+  "id": "example-send",
+  "method": "SendMessage",
+  "params": {
+    "message": {
+      "messageId": "replace-me-send-001",
+      "role": "ROLE_USER",
+      "parts": [
+        {
+          "text": "Hello from an A2A-MQ client"
+        }
+      ]
+    },
+    "configuration": {
+      "returnImmediately": true
+    }
+  }
+}

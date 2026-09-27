@@ -6,6 +6,8 @@ import pytest
 from a2a_mq.domain import PermanentError
 from a2a_mq.local_runtime import (
     APP_ID,
+    LOCAL_DAPR_VERSION,
+    LOCAL_NATS_VERSION,
     CLIENT_TOKEN_LIFETIME_SECONDS,
     CLIENT_TOKEN_REFRESH_SECONDS,
     DAPR_INTERNAL_GRPC_PORT,
@@ -13,6 +15,7 @@ from a2a_mq.local_runtime import (
     _apply_app_environment,
     _bus_component,
     _dlq_component,
+    _format_cli_error,
     _load_profile,
     _lite_sidecar_command,
     _loopback_public_url,
@@ -26,6 +29,7 @@ from a2a_mq.local_runtime import (
     _server_exit_code,
     _resiliency_resource,
     _workflow_state_component,
+    doctor,
 )
 
 
@@ -348,3 +352,61 @@ def test_generated_profile_records_internal_dapr_grpc_port(tmp_path):
     data = prepare(tmp_path / "profile")
     assert data["daprInternalGrpcPort"] == DAPR_INTERNAL_GRPC_PORT
     assert _load_profile(tmp_path / "profile", "local-lite")["daprInternalGrpcPort"] == DAPR_INTERNAL_GRPC_PORT
+
+
+def test_local_doctor_is_non_mutating_and_reports_ready_profile(tmp_path, monkeypatch):
+    import a2a_mq.local_runtime as local_runtime
+
+    root = tmp_path / "profile"
+    prepare(root)
+    token_before = (root / "client.jwt").read_bytes()
+
+    monkeypatch.setattr(local_runtime.importlib.util, "find_spec", lambda name: object())
+    monkeypatch.setattr(local_runtime, "_native_binary", lambda name: "/opt/a2amq/bin/" + name)
+    monkeypatch.setattr(
+        local_runtime,
+        "_native_version",
+        lambda name, path: {"daprd": LOCAL_DAPR_VERSION, "nats-server": LOCAL_NATS_VERSION}.get(name),
+    )
+    monkeypatch.setattr(local_runtime, "_bootstrap_provenance_check", lambda binaries, mode: None)
+    monkeypatch.setattr(local_runtime, "_port_available", lambda port: True)
+
+    report = doctor(root)
+
+    assert report["status"] == "ready"
+    assert report["mode"] == "local-lite"
+    assert all(item["ok"] for item in report["checks"])
+    assert any(item["name"] == "native provenance" and item["warning"] for item in report["checks"])
+    assert (root / "client.jwt").read_bytes() == token_before
+
+
+def test_local_doctor_rejects_wrong_pinned_native_version(monkeypatch):
+    import a2a_mq.local_runtime as local_runtime
+
+    monkeypatch.setattr(local_runtime.importlib.util, "find_spec", lambda name: object())
+    monkeypatch.setattr(local_runtime, "_native_binary", lambda name: "/opt/a2amq/bin/" + name)
+    monkeypatch.setattr(
+        local_runtime,
+        "_native_version",
+        lambda name, path: "0.0.1" if name == "daprd" else LOCAL_NATS_VERSION,
+    )
+    monkeypatch.setattr(local_runtime, "_bootstrap_provenance_check", lambda binaries, mode: None)
+    monkeypatch.setattr(local_runtime, "_port_available", lambda port: True)
+
+    report = doctor()
+
+    assert report["status"] == "not-ready"
+    dapr = next(item for item in report["checks"] if item["name"] == "daprd")
+    assert dapr["ok"] is False
+    assert LOCAL_DAPR_VERSION in dapr["fix"]
+
+
+def test_cli_error_formatting_handles_expected_failures_only():
+    rendered = _format_cli_error(PermanentError("OUTPUT_ALREADY_EXISTS"))
+    assert rendered is not None
+    assert "ERROR: OUTPUT_ALREADY_EXISTS" in rendered
+    assert "Fix:" in rendered
+
+    rendered = _format_cli_error(RuntimeError("local loopback port unavailable: 18000"))
+    assert rendered is not None and "port 18000 is already in use" in rendered
+    assert _format_cli_error(RuntimeError("unexpected implementation bug")) is None

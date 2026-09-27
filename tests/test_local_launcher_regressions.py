@@ -141,3 +141,36 @@ def test_missing_native_prerequisites_fail_before_token_refresh_or_children(prof
                         lambda *a, **k: pytest.fail("child started despite missing native prerequisites"))
     with pytest.raises(RuntimeError, match="missing native prerequisite"):
         module.run(root)
+
+
+def test_local_cli_expected_prepare_error_is_actionable(tmp_path, monkeypatch, capsys):
+    existing = tmp_path / "existing-profile"
+    existing.mkdir()
+    monkeypatch.setattr(__import__("sys"), "argv", ["a2amq-local", "prepare", str(existing)])
+
+    with pytest.raises(SystemExit) as exc:
+        lite.main()
+
+    assert exc.value.code == 2
+    stderr = capsys.readouterr().err
+    assert "ERROR: OUTPUT_ALREADY_EXISTS" in stderr
+    assert "Fix:" in stderr
+    assert "Traceback" not in stderr
+
+
+def test_doctor_subcommand_is_available_on_both_local_launchers(monkeypatch):
+    ready = {"status": "ready", "mode": "fixture", "profile": None, "checks": []}
+
+    monkeypatch.setattr(lite, "doctor", lambda root=None: ready)
+    monkeypatch.setattr(lite, "_print_doctor", lambda report: None)
+    monkeypatch.setattr(__import__("sys"), "argv", ["a2amq-local", "doctor"])
+    with pytest.raises(SystemExit) as exc:
+        lite.main()
+    assert exc.value.code == 0
+
+    monkeypatch.setattr(workflow, "doctor", lambda root=None: ready)
+    monkeypatch.setattr(workflow, "_print_doctor", lambda report: None)
+    monkeypatch.setattr(__import__("sys"), "argv", ["a2amq-local-workflow", "doctor"])
+    with pytest.raises(SystemExit) as exc:
+        workflow.main()
+    assert exc.value.code == 0

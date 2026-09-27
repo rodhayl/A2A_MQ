@@ -1,0 +1,9 @@
+{
+  "jsonrpc": "2.0",
+  "id": "example-get",
+  "method": "GetTask",
+  "params": {
+    "id": "replace-with-task-id",
+    "historyLength": 100
+  }
+}

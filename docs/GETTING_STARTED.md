@@ -118,6 +118,16 @@ The profile contains owner-private local credentials and state:
 
 Do not commit this profile directory. It contains secrets.
 
+Before starting processes, run the read-only preflight:
+
+```bash
+a2amq-local doctor .local-validation/local-lite
+```
+
+It checks Python/extras, profile safety, required native binaries and pinned versions,
+bootstrap provenance when detectable, startup ports, state writability and the
+generated client identity. It does not install, repair or modify anything.
+
 ## 6. Run Local-lite
 
 ```bash
@@ -156,6 +166,16 @@ Expected readiness:
 ```json
 {"status":"ready"}
 ```
+
+For one small automated happy-path check while Local-lite is running:
+
+```bash
+python scripts/smoke_local.py .local-validation/local-lite
+```
+
+The smoke intentionally checks only health/readiness, Agent Card, SendMessage,
+task completion/GetTask and operations status. Queue Lab and pytest remain the
+deeper diagnostic/validation surfaces.
 
 ## 8. Use Queue Lab
 
@@ -286,6 +306,7 @@ python scripts/check_local_native_versions.py \
 export PATH="$PWD/.local-validation/workflow-tools/bin:$PATH"
 
 a2amq-local-workflow prepare .local-validation/local-workflow
+a2amq-local-workflow doctor .local-validation/local-workflow
 a2amq-local-workflow run .local-validation/local-workflow
 ```
 
@@ -296,6 +317,10 @@ This runtime has five steady-state processes: the A2A-MQ app, `daprd`,
 
 ## 12. Where to go next
 
+- [Configuration](CONFIGURATION.md) — supported local options and production environment variables.
+- [Troubleshooting](TROUBLESHOOTING.md) — error-code and startup recovery.
+- [API Examples](API_EXAMPLES.md) — copyable JSON-RPC requests.
+- [Distributed Deployment](DEPLOYMENT.md) — operator prerequisites and manifest rendering.
 - [Queue Lab](QUEUE_LAB.md) — every browser/manual test control.
 - [Architecture](ARCHITECTURE.md) — durability and runtime boundaries.
 - [Local Runtime](LOCAL_RUNTIME.md) — detailed Local-lite/Workflow implementation.

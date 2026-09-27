@@ -13,6 +13,17 @@
   was created. Documentation-only follow-up commits may be newer than the tag; the tag
   itself is intentionally immutable.
 
+## Unreleased onboarding branch
+
+Branch `implementation/usability-onboarding-20260927` starts from the merged
+post-RC2 `main` and adds usability/onboarding work: a non-mutating local `doctor`,
+actionable expected-error CLI messages, a small local smoke script, API examples and
+configuration/troubleshooting/deployment documentation.
+
+These changes are **not part of the immutable v0.1.0-rc2 tag** and must not inherit
+the RC2 focused validation merely because they are based on it. They remain separate
+from `main` until independently reviewed/tested.
+
 ## RC2 Linux validation
 
 RC2 closed the post-RC1 Queue Lab/local-runtime gap on Ubuntu 24.04.5 LTS, x86_64,
