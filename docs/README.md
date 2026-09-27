@@ -14,6 +14,11 @@ and `VALIDATION.md` for the exact release/evidence boundary.
 - [LOCAL_RUNTIME.md](LOCAL_RUNTIME.md) — Local-lite and optional local Workflow.
 - [IMPLEMENTED_STACK.md](IMPLEMENTED_STACK.md) — integrated/distributed capabilities.
 - [IMPLEMENTATION_COVERAGE.md](IMPLEMENTATION_COVERAGE.md) — requirement-to-evidence summary.
+- [CONFIGURATION.md](CONFIGURATION.md) — supported local and distributed configuration.
+- [TROUBLESHOOTING.md](TROUBLESHOOTING.md) — recovery for startup/configuration failures.
+- [API_EXAMPLES.md](API_EXAMPLES.md) — copyable official A2A JSON-RPC requests.
+- [DEPLOYMENT.md](DEPLOYMENT.md) — distributed deployment responsibility and rendering guide.
+- [../CHANGELOG.md](../CHANGELOG.md) — user-visible release/unreleased changes.
 
 ## Product contracts
 

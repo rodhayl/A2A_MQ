@@ -1,0 +1,19 @@
+{
+  "jsonrpc": "2.0",
+  "id": "example-stream",
+  "method": "SendStreamingMessage",
+  "params": {
+    "message": {
+      "messageId": "replace-me-stream-001",
+      "role": "ROLE_USER",
+      "parts": [
+        {
+          "text": "Stream this A2A-MQ task"
+        }
+      ]
+    },
+    "configuration": {
+      "returnImmediately": false
+    }
+  }
+}

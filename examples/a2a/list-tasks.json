@@ -1,0 +1,9 @@
+{
+  "jsonrpc": "2.0",
+  "id": "example-list",
+  "method": "ListTasks",
+  "params": {
+    "pageSize": 20,
+    "includeArtifacts": true
+  }
+}

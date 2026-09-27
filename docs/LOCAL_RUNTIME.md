@@ -46,6 +46,11 @@ python -m pip install -e '.[local]'
 python -m pip check
 ```
 
+Before starting a prepared profile, `a2amq-local doctor <profile>` provides a
+non-mutating prerequisite/profile/port check. It does not replace the exact native
+provenance gate; when it detects a repository bootstrap directory it reuses that
+checker directly.
+
 The launcher never installs host software. Existing `daprd` and `nats-server`
 executables may be used directly. For a disposable validation run on Linux
 amd64/arm64, `scripts/bootstrap_local_tools.py` can instead download the

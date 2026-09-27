@@ -12,7 +12,8 @@ profile for deployments that need shared infrastructure and independently scalab
   `4b1fc34065e37b68258f1944fbcb1e9a15f5fe6d`.
 - The tag was validated on Ubuntu 24.04.5 LTS / x86_64 with Python 3.12.3 using
   the exact repository-pinned Dapr 1.18.3 and NATS Server 2.15.0 release archives.
-- Subsequent documentation-only commits may exist on `main`; the RC2 tag is not moved.
+- The RC2 tag is not moved. This usability branch contains unreleased onboarding
+  improvements after RC2 and is intentionally kept separate from `main` until reviewed.
 
 See [Current Status](docs/STATUS.md) and [Validation](docs/VALIDATION.md) for the
 exact evidence boundaries.
@@ -47,6 +48,7 @@ python scripts/check_local_native_versions.py \
 export PATH="$PWD/.local-validation/tools/bin:$PATH"
 
 a2amq-local prepare .local-validation/local-lite
+a2amq-local doctor .local-validation/local-lite
 a2amq-local run .local-validation/local-lite
 ```
 
@@ -60,6 +62,12 @@ Load `.local-validation/local-lite/client.jwt` in Queue Lab. From there you can 
 Echo/Uppercase tasks, inspect task state and backlog, pause/resume the simulated local
 agent, cancel queued work, use official A2A streaming/subscription flows, and exercise
 the real local DLQ archive/replay path.
+
+With the runtime running, a small non-browser happy-path check is also available:
+
+```bash
+python scripts/smoke_local.py .local-validation/local-lite
+```
 
 For the complete walkthrough, including raw JSON-RPC examples and shutdown checks, use
 [Getting Started](docs/GETTING_STARTED.md).
@@ -120,6 +128,11 @@ executed steps). That is an infrastructure state, not a source-test result.
 ## Documentation
 
 - [Getting Started](docs/GETTING_STARTED.md) — first run from a fresh checkout.
+- [Configuration](docs/CONFIGURATION.md) — local options and distributed environment variables.
+- [Troubleshooting](docs/TROUBLESHOOTING.md) — actionable recovery for real error codes.
+- [API Examples](docs/API_EXAMPLES.md) — copyable A2A JSON-RPC requests.
+- [Distributed Deployment](docs/DEPLOYMENT.md) — operator/application responsibility split.
+- [Changelog](CHANGELOG.md) — user-visible release and unreleased changes.
 - [Queue Lab](docs/QUEUE_LAB.md) — graphical/manual queue and protocol testing.
 - [Architecture](docs/ARCHITECTURE.md) — runtime tiers, boundaries and durability model.
 - [Local Runtime](docs/LOCAL_RUNTIME.md) — local-lite and optional Workflow details.
