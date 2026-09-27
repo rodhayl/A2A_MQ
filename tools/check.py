@@ -63,38 +63,10 @@ assert not missing_config, ("undocumented production configuration", missing_con
 
 runtime_text = (root / "src/a2a_mq/local_runtime.py").read_text()
 bootstrap_text = (root / "scripts/bootstrap_local_tools.py").read_text()
-runtime_dapr = re.search(r'^LOCAL_DAPR_VERSION = "([^"]+)"assert runtime_dapr and bootstrap_dapr and runtime_dapr.group(1) == bootstrap_dapr.group(1)
-assert runtime_nats and bootstrap_nats and runtime_nats.group(1) == bootstrap_nats.group(1)
-
-print(
-    "Repository syntax, JSON, schema/binding copies, docs links, user scripts "
-    "and configuration coverage checks passed"
-)
-, runtime_text, re.M)
-runtime_nats = re.search(r'^LOCAL_NATS_VERSION = "([^"]+)"assert runtime_dapr and bootstrap_dapr and runtime_dapr.group(1) == bootstrap_dapr.group(1)
-assert runtime_nats and bootstrap_nats and runtime_nats.group(1) == bootstrap_nats.group(1)
-
-print(
-    "Repository syntax, JSON, schema/binding copies, docs links, user scripts "
-    "and configuration coverage checks passed"
-)
-, runtime_text, re.M)
-bootstrap_dapr = re.search(r'^DAPR_VERSION = "([^"]+)"assert runtime_dapr and bootstrap_dapr and runtime_dapr.group(1) == bootstrap_dapr.group(1)
-assert runtime_nats and bootstrap_nats and runtime_nats.group(1) == bootstrap_nats.group(1)
-
-print(
-    "Repository syntax, JSON, schema/binding copies, docs links, user scripts "
-    "and configuration coverage checks passed"
-)
-, bootstrap_text, re.M)
-bootstrap_nats = re.search(r'^NATS_VERSION = "([^"]+)"assert runtime_dapr and bootstrap_dapr and runtime_dapr.group(1) == bootstrap_dapr.group(1)
-assert runtime_nats and bootstrap_nats and runtime_nats.group(1) == bootstrap_nats.group(1)
-
-print(
-    "Repository syntax, JSON, schema/binding copies, docs links, user scripts "
-    "and configuration coverage checks passed"
-)
-, bootstrap_text, re.M)
+runtime_dapr = re.search(r'^LOCAL_DAPR_VERSION = "([^"]+)"' + '$', runtime_text, re.M)
+runtime_nats = re.search(r'^LOCAL_NATS_VERSION = "([^"]+)"' + '$', runtime_text, re.M)
+bootstrap_dapr = re.search(r'^DAPR_VERSION = "([^"]+)"' + '$', bootstrap_text, re.M)
+bootstrap_nats = re.search(r'^NATS_VERSION = "([^"]+)"' + '$', bootstrap_text, re.M)
 assert runtime_dapr and bootstrap_dapr and runtime_dapr.group(1) == bootstrap_dapr.group(1)
 assert runtime_nats and bootstrap_nats and runtime_nats.group(1) == bootstrap_nats.group(1)
 
