@@ -433,8 +433,8 @@ def _wait_port(host: str, port: int, process: subprocess.Popen, timeout: float =
     raise RuntimeError(f"timeout waiting for {host}:{port}")
 
 
-def _read(path: Path) -> str:
-    return read_file(str(path), secret=True, limit=512).strip()
+def _read(path: Path, limit: int = 512) -> str:
+    return read_file(str(path), secret=True, limit=limit).strip()
 
 
 def _runtime_environments(root: Path, profile: dict) -> tuple[dict[str, str], dict[str, str], dict[str, str]]:
@@ -600,7 +600,7 @@ def _client_token_check(root: Path, profile: dict) -> dict:
     try:
         import jwt
         keys = json.loads(read_file(str(root / "jwt-keys.json"), secret=True, limit=65536))
-        encoded = _read(root / "client.jwt")
+        encoded = _read(root / "client.jwt", limit=65536)
         header = jwt.get_unverified_header(encoded)
         kid = header.get("kid")
         require(isinstance(keys, dict) and isinstance(kid, str) and kid in keys, "UNAUTHENTICATED")
