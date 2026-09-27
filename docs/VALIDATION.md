@@ -4,13 +4,13 @@ This file is the index for current release-candidate evidence. Historical phase,
 audit, resource and acceptance records remain SHA-bound under `archive/validation/`
 and `validation/`.
 
-## Unreleased usability work after RC2
+## Usability and onboarding validation (post-RC2)
 
-The branch `implementation/usability-onboarding-20260927` contains post-RC2
-onboarding/diagnostic changes. The RC2 evidence below remains bound to
-`4b1fc34065e37b68258f1944fbcb1e9a15f5fe6d` and does not certify later branch
-commits. Before merging the usability branch, rerun repository/local launcher tests
-and the small Local-lite smoke on real Linux.
+The usability onboarding implementation was validated on real Linux (Ubuntu 24.04.5 LTS /
+Python 3.12.3) and merged into `main`. The validation proved the non-mutating `doctor`
+preflight, actionable CLI error handling, Local-lite runtime, smoke script, official
+API examples, and local Workflow runtime. Detailed evidence is recorded in
+[validation/usability-onboarding-20260927.md](validation/usability-onboarding-20260927.md).
 
 ## RC2 focused Linux validation
 

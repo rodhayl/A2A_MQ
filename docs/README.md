@@ -31,6 +31,8 @@ and `VALIDATION.md` for the exact release/evidence boundary.
 
 ## Current validation records
 
+- [validation/usability-onboarding-20260927.md](validation/usability-onboarding-20260927.md) —
+  real Linux post-RC2 usability and onboarding implementation validation.
 - [validation/queue-lab-rc2-20260927.md](validation/queue-lab-rc2-20260927.md) —
   real Linux RC2 Local-lite/Queue Lab/Workflow validation.
 - [validation/production-certification-20260925.md](validation/production-certification-20260925.md) —
