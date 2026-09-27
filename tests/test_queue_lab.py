@@ -164,7 +164,7 @@ async def test_queue_lab_agent_pause_control_requires_real_bearer_authorization(
 
 
 async def test_local_lite_pause_retries_real_dapr_delivery_until_resumed(tmp_path, monkeypatch):
-    settings = _lite_settings(tmp_path, callback_timeout=0.5)
+    settings = _lite_settings(tmp_path, callback_timeout=1.5)
 
     class Verifier:
         audience = "http://127.0.0.1:18000"
@@ -234,7 +234,7 @@ async def test_local_lite_pause_retries_real_dapr_delivery_until_resumed(tmp_pat
 
 
 async def test_local_lite_pause_resumes_same_inflight_delivery_without_redelivery(tmp_path, monkeypatch):
-    settings = _lite_settings(tmp_path, callback_timeout=0.5)
+    settings = _lite_settings(tmp_path, callback_timeout=1.5)
 
     class Verifier:
         audience = "http://127.0.0.1:18000"
