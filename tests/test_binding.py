@@ -33,3 +33,12 @@ def test_manifest_is_plain_machine_readable_json():
     root = Path(__file__).resolve().parents[1]
     value = json.loads((root / "spec/binding.json").read_text())
     validate_binding(value)
+
+
+@pytest.mark.upstream
+def test_operation_inventory_matches_official_a2a_1_service_descriptor():
+    """Do not self-validate stale v0.3 labels against equally stale constants."""
+    from a2a.types import a2a_pb2
+
+    service = a2a_pb2.DESCRIPTOR.services_by_name["A2AService"]
+    assert set(load_binding()["operations"]) == {method.name for method in service.methods}

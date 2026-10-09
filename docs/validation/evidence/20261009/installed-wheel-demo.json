@@ -1,0 +1,59 @@
+{
+  "createdAt": "2026-10-09T13:49:28.256390+00:00",
+  "environment": {
+    "architecture": "x86_64",
+    "python": "3.12.14",
+    "sdk": "1.1.5",
+    "system": "Linux"
+  },
+  "externalExactlyOnce": false,
+  "measurement": {
+    "capacityBenchmark": false,
+    "concurrency": 1,
+    "initialPendingActions": "not isolated from earlier demo scenarios",
+    "milliseconds": {
+      "max": 250.78731199755566,
+      "median": 232.57289300090633,
+      "min": 188.32006900629494,
+      "p95NearestRank": 250.74275399674661
+    },
+    "payloadTextBytes": 33,
+    "samples": 20,
+    "scope": "HTTP admission to observed completion, 50 ms polling, warm sequential synthetic tasks",
+    "sla": false
+  },
+  "nativeBinarySha256": {
+    "daprd": "041c4c3ab9b0d3449faf9d0876377062f1cdcda64d3109989645a9f57a76f262",
+    "nats-server": "387ce54e7a0a249d877a579ed641d715bab047d7e061bfa42b4d07f6a0401341"
+  },
+  "scenarios": {
+    "crashDuplicateConflict": {
+      "conflictErrorCode": -32602,
+      "faultBoundary": "after admission before Dapr ACK",
+      "physicalDeliveries": 2,
+      "status": "PASS",
+      "terminalRecords": 1
+    },
+    "demoDlqReplay": {
+      "consumerReplayEvidence": "NOT_VERIFIED",
+      "injection": "Queue Lab explicit quarantine through real Dapr DLQ",
+      "replayPublished": true,
+      "status": "PASS",
+      "terminalSnapshotUnchangedAfterPublication": true
+    },
+    "officialSdkClient": {
+      "operations": [
+        "SendMessage",
+        "GetTask"
+      ],
+      "status": "PASS",
+      "transport": "JSONRPC"
+    },
+    "pauseCancel": {
+      "status": "PASS"
+    }
+  },
+  "scope": "Local-lite synthetic Uppercase over real Dapr/JetStream",
+  "sourceContentSha256": "95cb5a3d081ba143a921865f81181da3ae35fb866216e12d23206897fffb1fee",
+  "status": "PASS"
+}

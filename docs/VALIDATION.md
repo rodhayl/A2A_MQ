@@ -1,6 +1,9 @@
-# Validation record — current v0.1.0-rc2
+# Validation evidence index
 
-This file is the index for current release-candidate evidence. Historical phase,
+Current portfolio-candidate evidence: [2026-10-09 validation](validation/portfolio-20261009.md).
+
+The records below describe earlier release candidates, not current-candidate test runs.
+This file is the index for retained release-candidate evidence. Historical phase,
 audit, resource and acceptance records remain SHA-bound under `archive/validation/`
 and `validation/`.
 

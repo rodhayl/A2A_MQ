@@ -1,5 +1,7 @@
 # Distributed deployment guide
 
+Operations endpoints differ by runtime: consult the [profile-to-API mapping](OPERATIONS.md#choose-the-operations-surface-by-entry-point) before using the admin CLI or replay API.
+
 This guide describes the boundary between what A2A-MQ renders and what an operator
 must provide. It is intentionally not a Kubernetes/PostgreSQL/NATS/RabbitMQ
 administration tutorial.

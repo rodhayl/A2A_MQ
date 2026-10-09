@@ -1,156 +1,108 @@
 # A2A-MQ
 
-A2A-MQ is an experimental durable A2A task transport. It provides a small local
-runtime for development and manual testing, plus a separate distributed/Workflow
-profile for deployments that need shared infrastructure and independently scalable roles.
+**Durable task transport for A2A agents, with failures you can reproduce.**
 
-## Release status
+A2A-MQ connects the official A2A Python SDK to Dapr Pub/Sub and NATS JetStream.
+It explores a practical question: what happens to a task when a process dies after
+admission, a command is delivered twice, or an operator replays a dead letter?
 
-- Package version: **0.1.0**.
-- Latest tested release candidate: **`v0.1.0-rc2`**.
-- `v0.1.0-rc2` is an annotated tag on commit
-  `4b1fc34065e37b68258f1944fbcb1e9a15f5fe6d`.
-- The tag was validated on Ubuntu 24.04.5 LTS / x86_64 with Python 3.12.3 using
-  the exact repository-pinned Dapr 1.18.3 and NATS Server 2.15.0 release archives.
-- The RC2 tag remains immutable. The post-RC2 usability/onboarding work was
-  independently validated on Linux at commit
-  `401471b05da55ba8311b9bc6e5019a24a4250b9b` and merged into `main` via
-  `84097baa57da4919c1672a0392397e05c0404882`. It is not part of the RC2 tag.
+This is an experimental engineering portfolio project, version **0.1.0**. It is an
+A2A implementation with a custom queue envelope, not ACP or a new messaging standard.
+It does not claim customers, production certification or arbitrary exactly-once
+external effects. A licensing decision and publication review remain pending; see
+[Publication checklist](docs/PUBLICATION.md).
 
-See [Current Status](docs/STATUS.md) and [Validation](docs/VALIDATION.md) for the
-exact evidence boundaries.
+## Start with the failure demo
 
-## Quick start: Local-lite
+The default Local-lite runtime uses exactly three product processes on Linux:
 
-Local-lite is the recommended first experience. It runs on one Linux host with three
-steady-state processes: the Python A2A-MQ app, `daprd`, and `nats-server`. Application
-state is SQLite. Docker, Kubernetes, PostgreSQL, Redis, Vault, Placement and Scheduler
-are not required.
+```text
+Producer / official A2A client
+        │ JSON-RPC, REST or SSE
+        ▼
+Python A2A-MQ app ── SQLite task ledger, inbox/outbox, Queue Lab
+        │ Dapr Pub/Sub
+        ▼
+      daprd ── NATS JetStream ── delivery back to the app's reference worker
+```
+
+The deterministic worker supports Echo and Uppercase without a model, API key or
+paid call. It is a reference consumer, not a demonstrated customer workflow.
+The local app and worker share a process. Independently scalable workers belong to
+the separate distributed profile.
 
 ```bash
 git clone https://github.com/rodhayl/A2A_MQ.git
 cd A2A_MQ
-
 python3 -m venv .venv
 . .venv/bin/activate
-python -m pip install -U pip
-python -m pip install -e '.[local]'
+python -m pip install -c requirements/portfolio-constraints.txt -e '.[local]'
 python -m pip check
-
-# Download the exact repository-pinned native tools into a private local directory.
 python scripts/bootstrap_local_tools.py --output .local-validation/tools
-
-# Verify versions and archive/binary provenance.
 python scripts/check_local_native_versions.py \
   --daprd .local-validation/tools/bin/daprd \
   --nats-server .local-validation/tools/bin/nats-server \
   --bootstrap-manifest .local-validation/tools/manifest.json \
   --json .local-validation/native-versions.json
-
-export PATH="$PWD/.local-validation/tools/bin:$PATH"
-
-a2amq-local prepare .local-validation/local-lite
-a2amq-local doctor .local-validation/local-lite
-a2amq-local run .local-validation/local-lite
+python scripts/portfolio_demo.py \
+  --tools-bin .local-validation/tools/bin \
+  --work-dir .local-validation/portfolio-demo \
+  --output .local-validation/portfolio-demo.json
 ```
 
-The native check should print `PASS_NATIVE_VERSION`. When the runtime starts, open:
+The demo creates a fresh private profile, kills its own app at a named admission/ACK
+boundary, restarts it, checks actual broker redelivery, verifies duplicate and
+conflicting IDs, cancels paused work, and exercises real DLQ archival and authorized replay publication. It also
+runs a separate official SDK client and records a small, scoped latency sample.
+Existing profile/report paths are never overwritten. Read the
+[demo guide](docs/PORTFOLIO_DEMO.md) for requirements, safety and exact limits.
 
-```text
-http://127.0.0.1:18000/lab/
-```
+For the browser console, use the [Getting Started](docs/GETTING_STARTED.md) guide.
+Open `http://127.0.0.1:18000/lab/` only while your local runtime is running. Profile
+files include signing keys and tokens: keep them private and outside commits.
 
-Load `.local-validation/local-lite/client.jwt` in Queue Lab. From there you can run
-Echo/Uppercase tasks, inspect task state and backlog, pause/resume the simulated local
-agent, cancel queued work, use official A2A streaming/subscription flows, and exercise
-the real local DLQ archive/replay path.
+## Engineering decisions worth inspecting
 
-With the runtime running, a small non-browser happy-path check is also available:
+- Immutable message identity and content-conflict detection, scoped by tenant/consumer
+- SQL ledger, inbox/outbox, terminal guards and fenced distributed execution
+- Durable admission before asynchronous execution; explicit cancellation semantics
+- Verified-principal authorization; payload fields never authorize a caller
+- Archived dead letters and explicit, identity-preserving replay
+- Public A2A bindings implemented by the official SDK; internal envelope kept separate
+- Low-footprint local profile with Workflow-only features rejected explicitly
 
-```bash
-python scripts/smoke_local.py .local-validation/local-lite
-```
+A queue gives at-least-once delivery. SQL protections cover the declared local
+transactional boundary. Email, payment and other external effects still need a
+stable destination idempotency key or reconciliation.
 
-For the complete walkthrough, including raw JSON-RPC examples and shutdown checks, use
-[Getting Started](docs/GETTING_STARTED.md).
+## Pick the right profile
 
-## Runtime tiers
+| Profile | Purpose | Infrastructure |
+| --- | --- | --- |
+| Local-lite | Immediate reference tasks, failures and Queue Lab | Python, native Dapr/NATS, SQLite |
+| Local Workflow | Durable waits, continuation, approval and timers | Local-lite plus Dapr Placement/Scheduler |
+| Distributed | Separate API/worker/operations roles | PostgreSQL, Dapr Workflow, JetStream or RabbitMQ; optional Vault/telemetry |
 
-### 1. Local-lite — recommended default
+For a simple synchronous request, ordinary HTTP may be easier to operate. This
+project is useful when retained work, retries, recovery and audit boundaries matter.
 
-- 1 Python A2A-MQ process;
-- 1 native `daprd`;
-- 1 native `nats-server` with JetStream;
-- SQLite application state.
+## Evidence and limits
 
-It supports immediate deterministic tasks and the real A2A/Dapr/JetStream delivery
-path. Workflow-only waits, approvals, continuation and timers fail closed instead of
-being reimplemented by a second local scheduler.
+Start with [Current status](docs/STATUS.md), the
+[compatibility matrix](docs/COMPATIBILITY.md) and the
+[candidate validation record](docs/validation/portfolio-20261009.md).
+Each result identifies its source/profile. Older RC2, Kubernetes and resource
+records remain historical; they do not certify the current candidate.
 
-### 2. Local Workflow — optional
+`productionCertified=false` and `upstreamBindingCertified=false`. Repository
+verdict names are test labels, not external certifications. No SLA, general
+throughput claim, Windows-native support claim or exactly-once external guarantee
+is implied.
 
-When durable waits, timers, input continuation, approval/rejection, or Workflow
-fan-out/fan-in are needed locally, install `.[local,local-workflow]`. The runtime adds
-native Dapr Placement and Scheduler, for five steady-state processes, while remaining
-single-host and container-free. See [Local Runtime](docs/LOCAL_RUNTIME.md).
+## Documentation and development
 
-### 3. Distributed / production profile
-
-The role-separated implementation supports API, Workflow workers, DLQ/operations roles,
-shared PostgreSQL, JetStream or RabbitMQ Dapr Pub/Sub profiles, optional Vault Transit
-payload protection, MCP, telemetry, backup/recovery helpers and Kubernetes manifest
-generation. See [Implemented Stack](docs/IMPLEMENTED_STACK.md).
-
-## What RC2 validated
-
-The RC2 Linux validation exercised the user-facing local product end to end:
-
-- `python tools/check.py` — PASS;
-- Queue Lab tests — 11 passed;
-- focused A2A bridge selector — 13 passed;
-- focused local-lite pause selector — 1 passed;
-- exact native provenance — `PASS_NATIVE_VERSION` for local-lite and Workflow;
-- real Chromium Queue Lab smoke — health/readiness, Echo, Uppercase, pause/queue/
-  cancel/resume, `SendStreamingMessage`, `SubscribeToTask`, DLQ inspect/replay, raw
-  JSON-RPC, invalid auth/session recovery;
-- Workflow smoke — input continuation, approve/reject and a short durable timer;
-- clean shutdown — no remaining A2A-MQ/Dapr/NATS processes or bound local ports.
-
-Detailed RC2 evidence is recorded in
-[docs/validation/queue-lab-rc2-20260927.md](docs/validation/queue-lab-rc2-20260927.md).
-
-Separate historical acceptance remains SHA-bound: source `45c459c...` achieved the
-repository `FULL_PASS`, and a digest-pinned image from `6458195...` achieved the
-JetStream Kubernetes `PRODUCTION_DEPLOYMENT_PASS (19/19)`. Those results are not
-silently relabeled as tests of another image or source tree.
-
-Hosted GitHub Actions currently fail before runner assignment (`runner_id=0`, zero
-executed steps). That is an infrastructure state, not a source-test result.
-
-## Documentation
-
-- [Getting Started](docs/GETTING_STARTED.md) — first run from a fresh checkout.
-- [Configuration](docs/CONFIGURATION.md) — local options and distributed environment variables.
-- [Troubleshooting](docs/TROUBLESHOOTING.md) — actionable recovery for real error codes.
-- [API Examples](docs/API_EXAMPLES.md) — copyable A2A JSON-RPC requests.
-- [Distributed Deployment](docs/DEPLOYMENT.md) — operator/application responsibility split.
-- [Changelog](CHANGELOG.md) — user-visible release and unreleased changes.
-- [Queue Lab](docs/QUEUE_LAB.md) — graphical/manual queue and protocol testing.
-- [Architecture](docs/ARCHITECTURE.md) — runtime tiers, boundaries and durability model.
-- [Local Runtime](docs/LOCAL_RUNTIME.md) — local-lite and optional Workflow details.
-- [Implemented Stack](docs/IMPLEMENTED_STACK.md) — distributed capabilities and deployment.
-- [Operations](docs/OPERATIONS.md) — recovery, DLQ, retention and operational boundaries.
-- [Security](docs/SECURITY.md) — trust boundaries and controls.
-- [Protocol](docs/PROTOCOL.md) — envelope, routing and delivery semantics.
-- [Current Status](docs/STATUS.md) — release identity and known boundaries.
-- [Validation](docs/VALIDATION.md) — SHA-bound evidence index.
-- [Documentation Map](docs/README.md) — all maintained documentation.
-
-## Evidence and certification boundary
-
-A2A-MQ uses explicit repository acceptance verdicts. `FULL_PASS`,
-`PASS_NATIVE_VERSION` and `PRODUCTION_DEPLOYMENT_PASS` describe their recorded test
-gates; they are not third-party certification. The repository still reports
-`productionCertified=false` and `upstreamBindingCertified=false`. No generic
-exactly-once guarantee, HA SLA, RPO/RTO target or unmeasured performance promise is
-implied.
+- [Documentation map](docs/README.md)
+- [Architecture](docs/ARCHITECTURE.md) and [protocol](docs/PROTOCOL.md)
+- [API examples](docs/API_EXAMPLES.md) and [configuration](docs/CONFIGURATION.md)
+- [Operations](docs/OPERATIONS.md), [deployment](docs/DEPLOYMENT.md), [security model](docs/SECURITY.md)
+- [Contributing](CONTRIBUTING.md), [security reporting](SECURITY.md), [changelog](CHANGELOG.md)

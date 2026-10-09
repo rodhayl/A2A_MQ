@@ -230,6 +230,8 @@ def test_local_child_environments_keep_app_tokens_sidecar_only(tmp_path, monkeyp
     assert app["A2AMQ_NO_LLM_TOKENS"] == "1"
     assert sidecar["APP_API_TOKEN"] == "a" * 32
     assert sidecar["DAPR_API_TOKEN"] == "d" * 32
+    assert sidecar["DAPR_HOST_IP"] == "127.0.0.1"
+    assert "DAPR_HOST_IP" not in child
     assert app["APP_API_TOKEN_FILE"].endswith("app-api-token")
     assert app["DAPR_API_TOKEN_FILE"].endswith("dapr-api-token")
 

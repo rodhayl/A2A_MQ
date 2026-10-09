@@ -5,19 +5,25 @@ build-backend = "setuptools.build_meta"
 name = "a2a-mq"
 version = "0.1.0"
 description = "Experimental durable A2A task transport over Dapr Pub/Sub"
+readme = "README.md"
+keywords = ["a2a", "dapr", "jetstream", "agents", "task-queue"]
 requires-python = ">=3.12"
 dependencies = ["jsonschema[format-nongpl]==4.26.0", "httpx==0.28.1", "fastapi==0.128.2", "uvicorn==0.48.0"]
+[project.urls]
+Repository = "https://github.com/rodhayl/A2A_MQ"
+Documentation = "https://github.com/rodhayl/A2A_MQ/tree/main/docs"
+
 [project.optional-dependencies]
-dev = ["pytest==9.0.2", "pytest-asyncio==1.3.0", "pytest-cov==7.0.0", "ruff==0.11.13", "mypy==1.15.0", "PyYAML==6.0.3", "cryptography==46.0.4", "PyJWT==2.13.0", "opentelemetry-sdk==1.42.1"]
-upstream = ["a2a-sdk[http-server]==1.1.2", "dapr==1.18.3", "dapr-ext-workflow==1.18.3", "mcp==2.2.0"]
-bridge = ["a2a-sdk[http-server]==1.1.2"]
+dev = ["pytest==9.0.2", "pytest-asyncio==1.4.0", "pytest-cov==7.0.0", "ruff==0.11.13", "mypy==1.15.0", "PyYAML==6.0.3", "cryptography==46.0.4", "PyJWT==2.13.0", "opentelemetry-sdk==1.42.1"]
+upstream = ["a2a-sdk[http-server]==1.1.5", "dapr==1.18.3", "dapr-ext-workflow==1.18.3", "mcp==2.2.0"]
+bridge = ["a2a-sdk[http-server]==1.1.5"]
 workflow = ["dapr==1.18.3", "dapr-ext-workflow==1.18.3"]
 postgres = ["psycopg[binary]==3.2.9", "psycopg-pool==3.2.6"]
 security = ["cryptography==46.0.4", "PyJWT==2.13.0"]
 mcp = ["mcp==2.2.0"]
 observability = ["opentelemetry-sdk==1.42.1", "opentelemetry-exporter-otlp-proto-http==1.42.1"]
 deployment = ["nats-py==2.11.0"]
-local = ["a2a-sdk[http-server]==1.1.2", "cryptography==46.0.4", "PyJWT==2.13.0", "nats-py==2.11.0"]
+local = ["a2a-sdk[http-server]==1.1.5", "cryptography==46.0.4", "PyJWT==2.13.0", "nats-py==2.11.0"]
 local-workflow = ["dapr==1.18.3", "dapr-ext-workflow==1.18.3"]
 
 [project.scripts]
@@ -33,13 +39,8 @@ testpaths = ["tests"]
 pythonpath = ["src"]
 asyncio_mode = "auto"
 markers = ["live: requires a running Dapr/broker stack", "postgres: requires a PostgreSQL DSN", "upstream: requires pinned protocol SDKs", "mcp: requires the official MCP SDK", "vault: requires a real TLS Vault Transit service"]
-filterwarnings = [
-    "error",
-    "ignore:unclosed <socket.socket:ResourceWarning",
-    "ignore:unclosed event loop:ResourceWarning",
-    "ignore:<socket.socket:pytest.PytestUnraisableExceptionWarning",
-    "ignore:<function BaseEventLoop.__del__:pytest.PytestUnraisableExceptionWarning",
-]
+filterwarnings = ["error"]
+
 [tool.ruff]
 line-length = 110
 target-version = "py312"

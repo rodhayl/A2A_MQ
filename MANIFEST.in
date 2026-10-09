@@ -1,0 +1,13 @@
+include .github/workflows/ci.yml
+include AGENTS.md CHANGELOG.md CONTRIBUTING.md SECURITY.md Makefile
+recursive-include scripts *.py
+recursive-include tools *.py
+recursive-include requirements *.txt
+recursive-include docs *.md *.json *.xml
+recursive-include spec *.json
+recursive-include examples *.json
+recursive-include deploy *.py *.md *.yaml *.yml Dockerfile*
+recursive-include tests *.py
+prune .local-validation
+prune .venv
+global-exclude __pycache__ *.py[cod]

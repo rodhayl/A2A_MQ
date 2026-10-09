@@ -475,6 +475,9 @@ def _runtime_environments(root: Path, profile: dict) -> tuple[dict[str, str], di
 
     sidecar = child.copy()
     sidecar.update({
+        # Local profiles are strictly single-host/loopback. Avoid network-interface
+        # discovery and advertise only the address used by every local component.
+        "DAPR_HOST_IP": "127.0.0.1",
         "APP_API_TOKEN": _read(root / "app-api-token"),
         "DAPR_API_TOKEN": _read(root / "dapr-api-token"),
     })
@@ -614,7 +617,8 @@ def _client_token_check(root: Path, profile: dict) -> dict:
                      "verify_exp": False},
         )
         exp = claims.get("exp")
-        require(type(exp) is int, "UNAUTHENTICATED")
+        if type(exp) is not int:
+            raise PermanentError("UNAUTHENTICATED")
         if exp <= int(time.time()):
             return _doctor_item(
                 "client JWT",

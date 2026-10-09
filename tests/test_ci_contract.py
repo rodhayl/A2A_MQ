@@ -84,9 +84,9 @@ def test_warning_suppression_policy_does_not_mask_broad_resource_or_unraisable_w
     assert "ignore::pytest.PytestUnraisableExceptionWarning" not in pyproject
     assert "ignore::ResourceWarning" not in acceptance
     assert "ignore::pytest.PytestUnraisableExceptionWarning" not in acceptance
-    assert "ignore:<socket.socket:pytest.PytestUnraisableExceptionWarning" in pyproject
-    assert "ignore:<function BaseEventLoop.__del__:pytest.PytestUnraisableExceptionWarning" in pyproject
-    assert "ignore:<socket.socket:pytest.PytestUnraisableExceptionWarning" in acceptance
-    assert "ignore:<function BaseEventLoop.__del__:pytest.PytestUnraisableExceptionWarning" in acceptance
+    # pytest-asyncio 1.4.0 closes the temporary policy loop; no exceptions remain.
+    import tomllib
+    assert tomllib.loads(pyproject)["tool"]["pytest"]["ini_options"]["filterwarnings"] == ["error"]
+    assert "ignore:" not in acceptance
 
 

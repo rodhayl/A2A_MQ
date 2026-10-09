@@ -1,0 +1,14 @@
+{
+  "observedAt": "2026-10-09T13:39:08.129620+00:00",
+  "platform": "Linux-6.18.44-x86_64-with-glibc2.41",
+  "python": "3.12.14",
+  "cpuModel": "AMD EPYC 9V74 80-Core Processor",
+  "effectiveCgroupLimits": "unavailable: /sys/fs/cgroup not mounted",
+  "baselineCommit": "2f57ad386c8dfba94c1910cbcc639c809af28f34",
+  "nativeVersionReport": "native-versions.json",
+  "postgresVersion": "17.11",
+  "postgresProfile": "disposable UTF8 database, loopback TCP 55472, TLS sslmode=verify-full with disposable certificate",
+  "vault": "no existing binary or provisioned TLS Transit fixture found",
+  "docker": "not present",
+  "gitHistory": "source snapshot only; not inspected"
+}

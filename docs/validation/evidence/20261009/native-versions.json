@@ -1,0 +1,22 @@
+{
+  "binarySha256": {
+    "daprd": "041c4c3ab9b0d3449faf9d0876377062f1cdcda64d3109989645a9f57a76f262",
+    "nats-server": "387ce54e7a0a249d877a579ed641d715bab047d7e061bfa42b4d07f6a0401341"
+  },
+  "bootstrapManifestSha256": "021870d7f315da97c66b792eae7636777a42a9f5e517c18ddc4889bccbc41ed3",
+  "expected": {
+    "daprFlavor": "allcomponents",
+    "daprd": "1.18.3",
+    "nats-server": "2.15.0"
+  },
+  "observed": {
+    "daprFlavor": "allcomponents",
+    "daprd": "1.18.3",
+    "nats-server": "2.15.0"
+  },
+  "verdict": "PASS_NATIVE_VERSION",
+  "versionOutput": {
+    "daprd": "1.18.3",
+    "nats-server": "nats-server: v2.15.0"
+  }
+}

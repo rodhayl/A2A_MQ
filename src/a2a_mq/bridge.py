@@ -6,7 +6,6 @@ pinned a2a-sdk. This module deliberately implements no competing A2A binding.
 from __future__ import annotations
 
 from contextlib import contextmanager
-import warnings
 from urllib.parse import urlsplit
 
 from .binding import assert_agent_card
@@ -100,19 +99,7 @@ def create_bridge(api, verifier, *, public_url: str, profile: str = "workflow",
             raise errors.InvalidParamsError(message=error.code) from None
 
     def principal(params):
-        # a2a-sdk 1.1.2 still reads protobuf FieldDescriptor.label while
-        # validating required fields. protobuf 6.x emits a deprecation warning
-        # for that SDK-internal access; this repository treats warnings as
-        # errors, which otherwise turns a valid request into a protobuf
-        # SystemError. Keep the suppression scoped to that exact upstream
-        # warning and validation call so all other warnings remain fatal.
-        with warnings.catch_warnings():
-            warnings.filterwarnings(
-                "ignore",
-                message=r"label\(\) is deprecated\. Use is_required\(\) or is_repeated\(\) instead\.",
-                category=DeprecationWarning,
-            )
-            validate_proto_required_fields(params)
+        validate_proto_required_fields(params)
         caller = current_principal()
         requested_tenant = getattr(params, "tenant", "")
         require(not requested_tenant or requested_tenant == caller.tenant == tenant, "FORBIDDEN")

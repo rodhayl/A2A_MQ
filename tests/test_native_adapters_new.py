@@ -68,8 +68,11 @@ async def test_official_a2a_client_routes_and_owner_isolation(tmp_path, binding)
             ledger.step(task.id, "done", "COMPLETED", artifacts=[{"artifactId":"result","parts":[{"text":"ok"}]}])
             client._config.streaming = True
             stream = client.subscribe(pb.SubscribeToTaskRequest(id=task.id))
-            items = [item async for item in stream]
-            assert items and items[0].task.status.state == pb.TASK_STATE_COMPLETED
+            # A2A 1.0 rejects subscription to an already terminal task.
+            # Live snapshot/reconnect success is covered in test_bridge_sdk.py.
+            from a2a.utils.errors import UnsupportedOperationError
+            with pytest.raises(UnsupportedOperationError):
+                await anext(stream)
             client._config.streaming = False
 
             cancel_request = ParseDict({"message": {"messageId": "native-cancel",

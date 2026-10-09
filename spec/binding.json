@@ -4,7 +4,7 @@
   "protocolVersion": "1.0",
   "sdk": {
     "package": "a2a-sdk",
-    "version": "1.1.2"
+    "version": "1.1.5"
   },
   "discovery": {
     "agentCardPath": "/.well-known/agent-card.json",
@@ -25,7 +25,9 @@
   "authentication": {
     "scheme": "Bearer",
     "format": "JWT",
-    "algorithms": ["RS256"],
+    "algorithms": [
+      "RS256"
+    ],
     "tenantAuthority": "verified-principal"
   },
   "capabilities": {
@@ -34,17 +36,17 @@
     "extendedAgentCard": true
   },
   "operations": {
-    "message/send": "implemented",
-    "message/stream": "implemented",
-    "tasks/get": "implemented",
-    "tasks/list": "implemented",
-    "tasks/cancel": "implemented",
-    "tasks/subscribe": "implemented",
-    "agent/getAuthenticatedExtendedCard": "implemented",
-    "tasks/pushNotification/create": "unsupported",
-    "tasks/pushNotification/get": "unsupported",
-    "tasks/pushNotification/list": "unsupported",
-    "tasks/pushNotification/delete": "unsupported"
+    "SendMessage": "implemented",
+    "SendStreamingMessage": "implemented",
+    "GetTask": "implemented",
+    "ListTasks": "implemented",
+    "CancelTask": "implemented",
+    "SubscribeToTask": "implemented",
+    "GetExtendedAgentCard": "implemented",
+    "CreateTaskPushNotificationConfig": "unsupported",
+    "GetTaskPushNotificationConfig": "unsupported",
+    "ListTaskPushNotificationConfigs": "unsupported",
+    "DeleteTaskPushNotificationConfig": "unsupported"
   },
   "extensions": {
     "approvalPath": "/operations/tasks/{task_id}/approve",

@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased — portfolio preparation
+
+- Add bounded real-transport failure demo and public onboarding/compatibility guidance.
+- Align machine-readable operations with official A2A 1.0 method names.
+- Pin local Dapr advertisement to loopback, consistent with the single-host profile.
+- Record current test evidence separately from historical release acceptance.
+
+
 This changelog records user-visible/release-relevant changes, not every commit.
 
 ## Unreleased

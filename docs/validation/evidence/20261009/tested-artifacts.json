@@ -1,0 +1,54 @@
+{
+  "schemaVersion": 1,
+  "baselineCommit": "2f57ad386c8dfba94c1910cbcc639c809af28f34",
+  "packageVersion": "0.1.0",
+  "runtimeContentIdentity": {
+    "algorithm": "SHA-256",
+    "sha256": "95cb5a3d081ba143a921865f81181da3ae35fb866216e12d23206897fffb1fee",
+    "scope": [
+      "src/**/*.py",
+      "src/**/*.json",
+      "pyproject.toml",
+      "scripts/portfolio_demo.py"
+    ],
+    "framing": "Sort paths lexicographically; concatenate UTF-8 repo-relative POSIX path, NUL byte, file bytes, NUL byte for each file; hash concatenation.",
+    "implementation": "scripts/portfolio_demo.py:source_digest",
+    "excludes": "Documentation, tests, generated/private files and complete Git history."
+  },
+  "artifacts": [
+    {
+      "role": "tested wheel; unchanged by final documentation refresh",
+      "name": "a2a_mq-0.1.0-py3-none-any.whl",
+      "bytes": 186625,
+      "sha256": "db8574312619f9f72b053e0638f94e36eaf497f7e7717dadb44d39230f0025b3",
+      "runtimeSourceByteMatchFiles": 57
+    },
+    {
+      "role": "independently reviewed sdist before final documentation-only refresh",
+      "name": "a2a_mq-0.1.0.tar.gz",
+      "bytes": 560020,
+      "sha256": "57b248f46a119c33031145d0c6171cb5e86e755df4469abc6a0906f144420a6e",
+      "extractedTestsPassed": 18,
+      "includesCiWorkflowFixture": true
+    }
+  ],
+  "evidenceChecksums": "checksums.json",
+  "report": "../../portfolio-20261009.md",
+  "documentationRefresh": "Runtime unchanged. Rebuilt documentation-inclusive archive identity is in the external delivery manifest, not a self-referential hash inside the archive.",
+  "independentReview": {
+    "focusedExistingTestsPassed": 132,
+    "additionalContractProbesPassed": 6,
+    "reviewedSdistTestsPassed": 18,
+    "scopesOverlap": true,
+    "fullAuthorCampaignIndependentlyRerun": false,
+    "verdict": "bounded local candidate handoff; incomplete acceptance/publication gates remain"
+  },
+  "remainingGates": {
+    "vault": "BLOCKED: preprovisioned TLS Transit fixture, trusted CA, key versions 1+2 and scoped test token/config absent",
+    "docker": "BLOCKED: independent offline-worker/observer Docker/Compose fixture unavailable",
+    "consumerReplay": "NOT_VERIFIED: publication and unchanged terminal snapshot only",
+    "fullHistoryAndRemoteArtifacts": "NOT_RUN in this preparation; separate publication audit required",
+    "licenseAndRights": "OWNER_DECISION_PENDING; no license grant added",
+    "publicVisibility": "OWNER_APPROVAL_PENDING; private at preparation time"
+  }
+}

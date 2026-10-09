@@ -1,5 +1,23 @@
 # Operations and recovery — v0.1.0-rc2
 
+## Choose the operations surface by entry point
+
+| Runtime / factory | API prefix | Replay behavior |
+| --- | --- | --- |
+| Local-lite, Local Workflow | `/operations` | Authorized durable replay queue, HTTP 202 |
+| Integrated `application:from_env` API/operator roles | `/operations` | Same durable queue; operator role runs the relay |
+| Role-separated `production_env` / production renderer | `/ops` | Admin-only synchronous publish then mark, HTTP 200 |
+
+The `python -m a2a_mq.admin` remote CLI targets `/operations`; it is not a
+route-compatible client of `/ops`. The latter also exposes its own stats, retention
+and optional backup contracts. `/operations` retention is dry-run by default with
+a minimum age; `/ops/retention/run` executes its explicit retention request.
+Do not interchange endpoints, permissions or DLQ database schemas.
+
+The similarly named `operations.py`, `ops_http.py` and `operations_http.py` serve
+these active entry points. They are not redundant files. The durability statements
+below apply to the named runtime/API, not automatically to every operations path.
+
 ## Deployment boundary
 
 The built-in Local-lite and local Workflow profiles are loopback single-host

@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from starlette.applications import Starlette
 from starlette.responses import HTMLResponse, JSONResponse, Response
-from starlette.routing import Mount, Route
+from starlette.routing import BaseRoute, Mount, Route
 
 from .domain import PermanentError, RetryableError, require
 from .http_boundary import BoundedJSON
@@ -1652,7 +1652,7 @@ def create_queue_lab(settings, *, profile: str, verifier=None, agent_pause=None,
     async def lab_config(request):
         return JSONResponse(config, headers=SECURITY_HEADERS)
 
-    routes = [
+    routes: list[BaseRoute] = [
         Route("/", index, methods=["GET"]),
         Route("/app.css", css, methods=["GET"]),
         Route("/app.js", js, methods=["GET"]),

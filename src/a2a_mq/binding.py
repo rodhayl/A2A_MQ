@@ -8,12 +8,12 @@ from typing import Any
 from .domain import PermanentError, canonical, require
 
 IMPLEMENTED = frozenset({
-    "message/send", "message/stream", "tasks/get", "tasks/list", "tasks/cancel",
-    "tasks/subscribe", "agent/getAuthenticatedExtendedCard",
+    "SendMessage", "SendStreamingMessage", "GetTask", "ListTasks", "CancelTask",
+    "SubscribeToTask", "GetExtendedAgentCard",
 })
 UNSUPPORTED = frozenset({
-    "tasks/pushNotification/create", "tasks/pushNotification/get",
-    "tasks/pushNotification/list", "tasks/pushNotification/delete",
+    "CreateTaskPushNotificationConfig", "GetTaskPushNotificationConfig",
+    "ListTaskPushNotificationConfigs", "DeleteTaskPushNotificationConfig",
 })
 INTERFACES = frozenset({("JSONRPC", "/rpc", "1.0"), ("HTTP+JSON", "/", "1.0")})
 
@@ -34,7 +34,7 @@ def validate_binding(document: Any) -> None:
     }, "INVALID_BINDING_MANIFEST")
     require(document["schemaVersion"] == 1 and document["binding"] == "A2A"
             and document["protocolVersion"] == "1.0", "INVALID_BINDING_MANIFEST")
-    require(document["sdk"] == {"package": "a2a-sdk", "version": "1.1.2"},
+    require(document["sdk"] == {"package": "a2a-sdk", "version": "1.1.5"},
             "INVALID_BINDING_MANIFEST")
     require(document["discovery"] == {"agentCardPath": "/.well-known/agent-card.json",
                                        "authenticatedExtendedCard": True},

@@ -1,5 +1,7 @@
 # Configuration reference
 
+Operations endpoints differ by runtime: consult the [profile-to-API mapping](OPERATIONS.md#choose-the-operations-surface-by-entry-point) before using the admin CLI or replay API.
+
 This document is the maintained configuration reference for A2A-MQ. It covers the
 supported local launchers and the deployable production role factories.
 
@@ -194,3 +196,7 @@ a2amq-local-workflow doctor [profile]
 
 For error-specific recovery steps see
 [TROUBLESHOOTING.md](TROUBLESHOOTING.md).
+
+PostgreSQL databases used by this driver must use UTF-8 encoding. A SQL_ASCII database
+may return text metadata as bytes and is not a supported fixture for the text-based
+storage contract. The current live gate used PostgreSQL 17.11 with verified TLS.
