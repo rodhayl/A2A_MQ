@@ -1,9 +1,14 @@
 # Portfolio candidate validation — 2026-10-09
 
-Status: prepared candidate, with remaining infrastructure/publication gates explicitly open.
-The exact baseline is
+Status: privately checkpointed candidate, with remaining infrastructure/publication
+gates explicitly open. Candidate commit:
+`dfebe8d0f6ef7cbb96b7489440e67a5c5c64ff40`; tree:
+`b01618a612366763278d3cad82334aee2b35adb5`.
+The preparation baseline was
 `2f57ad386c8dfba94c1910cbcc639c809af28f34`, all 230 files verified against Git blob
-identities. This is a source snapshot, not a clone with complete Git history.
+identities. That materialization was a source snapshot. A separate, subsequently
+completed ordinary reachable-history audit is recorded below; its historical scope
+must not be confused with candidate runtime tests or complete-history certification.
 
 The package remains 0.1.0. The [tested-artifact manifest](evidence/20261009/tested-artifacts.json)
 records the exact baseline, runtime content identity and verified package hashes;
@@ -64,17 +69,21 @@ uses real pinned native Dapr/JetStream and a separate official SDK producer proc
 The small sequential latency sample is labeled with polling, payload, concurrency
 and profile limitations; it is not a load/capacity claim.
 
-No whole-history secret audit, public visibility change, license choice, remote CI,
-release/tag/merge, new cloud infrastructure, GUI/video campaign or external business
-integration is implied. Historical source/image-specific acceptance remains indexed
-in [VALIDATION](../VALIDATION.md).
+The [publication exposure audit](../publication-exposure-20261009.md) separately
+completed ordinary reachable-history inspection for the historical baseline and
+matched its separately screened 248-file candidate inventory to the checkpointed
+candidate above. A corrupt embedded-bundle gap and uninspected separate surfaces
+remain open. No complete-history certification, public visibility change, license
+choice, successful hosted CI, release/tag/merge, new cloud infrastructure, GUI/video
+campaign or external business integration is implied. Historical source/image-specific
+acceptance remains indexed in [VALIDATION](../VALIDATION.md).
 
 
 ## Candidate results
 
 | Check | Observed result | Evidence / limit |
 | --- | --- | --- |
-| Baseline materialization | PASS, 230/230 Git blobs | Commit identified above; history unavailable |
+| Baseline materialization | PASS, 230/230 Git blobs | Source-snapshot check; later ordinary-history review is a separate scope |
 | Strict broker-independent suite | PASS, 1,205 tests, zero failures/errors/skips; 6 infrastructure cases deselected; process exit 0 | [JUnit](evidence/20261009/core.junit.xml); Python 3.12.14, SDK 1.1.5, pytest-asyncio 1.4.0 |
 | Real PostgreSQL | PASS, 4/4, process exit 0 | [JUnit](evidence/20261009/postgres.junit.xml); PostgreSQL 17.11, UTF-8, verify-full TLS |
 | Native provenance | PASS_NATIVE_VERSION | [Dapr/NATS version + hashes](evidence/20261009/native-versions.json) |
@@ -83,7 +92,8 @@ in [VALIDATION](../VALIDATION.md).
 | Build | PASS | sdist + wheel; package 0.1.0, [tested-artifact identities](evidence/20261009/tested-artifacts.json); final documentation-only archive identity is delivered separately |
 | Optional Vault TLS test | BLOCKED | No preprovisioned TLS Transit fixture, versions 1+2 and scoped test token/config |
 | Distributed offline-worker Docker test | BLOCKED | Docker/Compose fixture unavailable; Local-lite demo does not replace independent workers/observers |
-| Full Git history and remote artifacts | NOT_RUN | Current source tree reviewed only; publication remains blocked |
+| Ordinary reachable-history and enumerated remote exposure | COMPLETE_SCOPED | Historical baseline: 22 refs, 461 commits, 458 trees, 1,100 hash-verified blobs; releases, PR/comments and 450 Actions artifact collections inspected; [dated audit](../publication-exposure-20261009.md) |
+| Complete publication exposure clearance | OPEN | Corrupt embedded bundle: 19/304 declared objects recovered; wiki/projects/caches and external surfaces remain uninspected; no full-history certification |
 | Hosted CI / deployment / GUI | NOT_RUN | No new Actions run, image deployment, browser recording or native-platform claim |
 
 The unfiltered run was also executed: 1,205 tests passed, four PostgreSQL tests and
@@ -115,8 +125,28 @@ No failed measurement has been relabeled as successful.
 - Generated profiles, native archives, environments, raw logs and build intermediates
   are outside the publication candidate. Only reviewed result/JUnit metadata is retained
   here with [checksums](evidence/20261009/checksums.json).
-- Publication still requires owner licensing/rights decisions, full-history/remote
-  artifact review, remaining agreed test gates and explicit visibility approval.
+- Ordinary reachable-history and enumerated remote-metadata inspection is complete
+  for its dated historical scope. Publication still requires the embedded-bundle
+  coverage decision, remaining separate-surface checks, owner licensing/rights
+  decisions, remaining agreed test gates and explicit visibility approval.
+
+## Publication exposure follow-on
+
+The historical exposure audit reviewed 16 branches, 2 annotated tags and 4 PR refs,
+with complete ordinary ancestry for those heads and exact content verification of
+all 1,100 unique blobs. All 450 listed Actions runs and 1,234 jobs were inventoried;
+no artifacts, recorded steps or assigned runners were found. No releases or
+standalone issues were present; inspected PR/comment collections were empty apart
+from the three PR bodies. These results do not demonstrate a successful CI run.
+
+A separate 248-file candidate screen was matched exactly to tree
+`b01618a612366763278d3cad82334aee2b35adb5`. No confirmed live credential or personal-data
+leak was found in the screened scopes. An old encoded Git bundle remains corrupt:
+only 19 of 304 declared objects recovered. Wiki/projects/caches and external registry
+or service surfaces remain uninspected. The [dated audit](../publication-exposure-20261009.md)
+records precise boundaries and safe options. This documentation-only follow-on does
+not alter old branches/history, choose a license, change visibility, repeat runtime
+tests or extend the historical audit to all future content.
 
 ## Fresh wheel installation
 
@@ -159,10 +189,12 @@ public evidence checksums.
 Two findings were resolved: the replay claim was narrowed to publication and an
 unchanged snapshot; the sdist gained the CI workflow fixture read by its tests.
 The review verdict is readiness for the **bounded local candidate handoff**, with
-Vault, Docker, consumer-observed replay, full-history/remote-artifact review,
-licensing/rights and explicit visibility approval still open. It is not full
-acceptance, production certification, publication authorization or user acceptance.
-The repository remains private at preparation time. No license grant was added.
+Vault, Docker, consumer-observed replay, licensing/rights and explicit visibility
+approval still open. The later exposure audit completes the ordinary-history and
+enumerated-metadata scope while retaining the corrupt embedded-bundle gap and
+separate-surface limits. It is not full acceptance, production certification,
+complete-history certification, publication authorization or user acceptance.
+The candidate is privately checkpointed. No license grant was added.
 
 Reproduction entry points are [CONTRIBUTING](../../CONTRIBUTING.md) for strict
 core/static checks and [the demo guide](../PORTFOLIO_DEMO.md) for real native

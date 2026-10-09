@@ -2,16 +2,21 @@
 
 ## Portfolio candidate, 2026-10-09
 
-Package version remains **0.1.0**. Preparation is based on
-`2f57ad386c8dfba94c1910cbcc639c809af28f34`; candidate modifications must be identified
-by their changed-file/content manifest until a remote commit is created.
+Package version remains **0.1.0**. Preparation was based on
+`2f57ad386c8dfba94c1910cbcc639c809af28f34`. The candidate is privately checkpointed at
+`dfebe8d0f6ef7cbb96b7489440e67a5c5c64ff40`, tree
+`b01618a612366763278d3cad82334aee2b35adb5`; later documentation/packaging refreshes
+retain separate identities.
 
 The candidate improves first-run documentation, aligns the binding inventory with
 A2A 1.0 method names, and adds a small real-transport failure demonstration. Its
 actual checks and open limitations are in
-[portfolio validation](validation/portfolio-20261009.md). A licensing decision,
-whole-history/artifact review and explicit publication approval are still required;
-see [publication checklist](PUBLICATION.md).
+[portfolio validation](validation/portfolio-20261009.md). The dated
+[exposure audit](publication-exposure-20261009.md) completed ordinary reachable-history
+and enumerated remote-metadata inspection for the historical baseline, plus a
+separate exact candidate-tree screen. Corrupt embedded history and separate-surface
+checks remain open. Licensing/rights decisions and explicit publication approval are
+still required; see [publication checklist](PUBLICATION.md).
 
 ## Supported product shape
 
