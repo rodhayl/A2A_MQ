@@ -1,0 +1,89 @@
+{
+  "createdAt": "2026-10-10T21:37:10.318984+00:00",
+  "environment": {
+    "architecture": "x86_64",
+    "python": "3.12.14",
+    "sdk": "1.1.5",
+    "system": "Linux"
+  },
+  "externalExactlyOnce": false,
+  "measurement": {
+    "capacityBenchmark": false,
+    "concurrency": 1,
+    "initialPendingActions": "not isolated from earlier demo scenarios",
+    "milliseconds": {
+      "max": 233.5706370031403,
+      "median": 223.53963250134257,
+      "min": 169.96147600002587,
+      "p95NearestRank": 232.40091799743823
+    },
+    "payloadTextBytes": 33,
+    "samples": 20,
+    "scope": "HTTP admission to observed completion, 50 ms polling, warm sequential synthetic tasks",
+    "sla": false
+  },
+  "nativeBinarySha256": {
+    "daprd": "041c4c3ab9b0d3449faf9d0876377062f1cdcda64d3109989645a9f57a76f262",
+    "nats-server": "387ce54e7a0a249d877a579ed641d715bab047d7e061bfa42b4d07f6a0401341"
+  },
+  "scenarios": {
+    "crashDuplicateConflict": {
+      "conflictErrorCode": -32602,
+      "faultBoundary": "after admission before Dapr ACK",
+      "physicalDeliveries": 2,
+      "status": "PASS",
+      "terminalRecords": 1
+    },
+    "demoDlqReplay": {
+      "consumerReplayEvidence": "PHYSICAL_RECEIPT_VERIFIED",
+      "injection": "Queue Lab explicit quarantine through real Dapr DLQ",
+      "observationCheckpoint": 1791668358.1920059,
+      "originalBrokerAck": {
+        "ackFloorStreamSequence": 1,
+        "ackPending": 0,
+        "consumer": "a2a-demo-local-command-v1",
+        "dedupWindowSeconds": 120.0,
+        "messageId": "5f2eb00e-fae2-567d-8f44-f8878016372f",
+        "observedAt": 1791668237.179484,
+        "streamSequence": 1,
+        "taskId": "7baf176c-8f5f-5d61-a0ad-77d63ef29bfa"
+      },
+      "physicalDeliveriesBeforeReplay": 2,
+      "replayBrokerAck": {
+        "ackFloorStreamSequence": 9,
+        "ackPending": 0,
+        "consumer": "a2a-demo-local-command-v1",
+        "dedupWindowSeconds": 120.0,
+        "messageId": "5f2eb00e-fae2-567d-8f44-f8878016372f",
+        "observedAt": 1791668358.4038599,
+        "streamSequence": 9,
+        "taskId": "7baf176c-8f5f-5d61-a0ad-77d63ef29bfa"
+      },
+      "replayPublished": true,
+      "replayReceipt": {
+        "messageId": "5f2eb00e-fae2-567d-8f44-f8878016372f",
+        "taskId": "7baf176c-8f5f-5d61-a0ad-77d63ef29bfa",
+        "timestamp": 1791668358.3034096
+      },
+      "replayRequestedAfterDedupSeconds": 121.2281455150005,
+      "status": "PASS",
+      "terminalGuardBranch": "NOT_VERIFIED",
+      "terminalRecordsAfterReplay": 1,
+      "terminalSnapshotUnchangedAfterPublication": true
+    },
+    "officialSdkClient": {
+      "operations": [
+        "SendMessage",
+        "GetTask"
+      ],
+      "status": "PASS",
+      "transport": "JSONRPC"
+    },
+    "pauseCancel": {
+      "status": "PASS"
+    }
+  },
+  "scope": "Local-lite synthetic Uppercase over real Dapr/JetStream",
+  "sourceContentSha256": "411faa1750bee94016b275f343a72fadc1187b9c1c763c9a01f6ae5d73bec2a0",
+  "status": "PASS"
+}

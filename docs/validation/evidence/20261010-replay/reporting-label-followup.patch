@@ -1,0 +1,5 @@
+--- a/scripts/portfolio_demo.py
++++ b/scripts/portfolio_demo.py
+@@ -345,1 +345,1 @@
+-                "replayRequestedAfterDedupSeconds": time.monotonic() - ack_observed_monotonic,
++                "replayObservedAfterAckSeconds": time.monotonic() - ack_observed_monotonic,

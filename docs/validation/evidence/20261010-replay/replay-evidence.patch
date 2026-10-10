@@ -1,0 +1,271 @@
+--- a/scripts/portfolio_demo.py
++++ b/scripts/portfolio_demo.py
+@@ -4,6 +4,7 @@
+ 
+ import argparse
+ import asyncio
++import base64
+ from contextlib import closing
+ from datetime import datetime, timezone
+ import hashlib
+@@ -143,6 +144,67 @@
+     # Read-only connection: the demo never forges acceptance evidence in the ledger.
+     with closing(sqlite3.connect((profile / "state/a2amq.db").as_uri() + "?mode=ro", uri=True)) as db:
+         return db.execute(query, params).fetchall()
++
++
++def physical_deliveries(profile, task_id, message_id=None, after=0):
++    rows = [json.loads(line) for line in (profile / "fault-events.jsonl").read_text().splitlines()]
++    return [row for row in rows if row.get("event") == "broker_delivery"
++            and row.get("taskId") == task_id and row.get("timestamp", 0) > after
++            and (message_id is None or row.get("messageId") == message_id)]
++
++
++def acknowledged_consumer(consumers, route, sequence):
++    """A broker ACK floor, not an app log or publication marker, closes the original delivery."""
++    matches = [c for c in consumers if c.get("config", {}).get("filter_subject") == route]
++    check(len(matches) == 1, "COMMAND_CONSUMER_NOT_UNIQUE")
++    consumer = matches[0]
++    if (consumer.get("num_ack_pending") == 0
++            and consumer.get("ack_floor", {}).get("stream_seq", 0) >= sequence):
++        return consumer
++    return None
++
++
++async def original_ack_checkpoint(profile, task_id, message_id, expected_copies=1):
++    """Read only the fresh owned broker; never add a consumer or change its dedup window."""
++    import nats
++    nc = await nats.connect(servers=["nats://127.0.0.1:4222"],
++                            token=(profile / "nats-token").read_text().strip(),
++                            connect_timeout=5, max_reconnect_attempts=0, allow_reconnect=False)
++    try:
++        async def query(subject, data=None):
++            reply = await nc.request("$JS.API." + subject, json.dumps(data or {}).encode(), timeout=5)
++            value = json.loads(reply.data)
++            check("error" not in value, "BROKER_OBSERVATION_FAILED")
++            return value
++        info = await query("STREAM.INFO.A2A_MQ")
++        window = info["config"]["duplicate_window"] / 1_000_000_000
++        check(0 < window <= 300, "UNEXPECTED_DEDUP_WINDOW")
++        state = info["state"]
++        check(state["last_seq"] - state["first_seq"] < 200, "UNEXPECTED_FIXTURE_STREAM_SIZE")
++        originals = []
++        for sequence in range(state["first_seq"], state["last_seq"] + 1):
++            message = (await query("STREAM.MSG.GET.A2A_MQ", {"seq": sequence}))["message"]
++            event = json.loads(base64.b64decode(message["data"], validate=True))
++            envelope = event.get("data", {})
++            if event.get("id") == message_id and envelope.get("taskId") == task_id:
++                check(envelope.get("messageId") == message_id, "ORIGINAL_ID_MISMATCH")
++                originals.append((sequence, message["subject"]))
++        check(len(originals) == expected_copies, "ORIGINAL_BROKER_MESSAGE_NOT_UNIQUE")
++        sequence, route = originals[-1]
++        deadline = time.monotonic() + 15
++        while time.monotonic() < deadline:
++            listing = await query("CONSUMER.LIST.A2A_MQ")
++            check(listing["total"] == len(listing.get("consumers", [])), "CONSUMER_LIST_TRUNCATED")
++            consumer = acknowledged_consumer(listing["consumers"], route, sequence)
++            if consumer is not None:
++                return {"observedAt": time.time(), "messageId": message_id, "taskId": task_id,
++                        "streamSequence": sequence, "consumer": consumer["name"],
++                        "ackFloorStreamSequence": consumer["ack_floor"]["stream_seq"],
++                        "ackPending": consumer["num_ack_pending"], "dedupWindowSeconds": window}
++            await asyncio.sleep(.1)
++        raise RuntimeError("ORIGINAL_BROKER_ACK_TIMEOUT")
++    finally:
++        await nc.close()
+ 
+ 
+ async def official_client(token):
+@@ -207,6 +269,12 @@
+                                  for row in rows)
+                 time.sleep(0.1)
+             check(deliveries >= 2, "BROKER_REDELIVERY_NOT_OBSERVED")
++            original_deliveries = physical_deliveries(profile, task_id)
++            message_ids = {row["messageId"] for row in original_deliveries}
++            check(len(message_ids) == 1, "ORIGINAL_DELIVERY_ID_NOT_UNIQUE")
++            message_id = message_ids.pop()
++            ack = asyncio.run(original_ack_checkpoint(profile, task_id, message_id))
++            ack_observed_monotonic = time.monotonic()
+             check(sql(profile, "SELECT COUNT(*) FROM a2amq_runtime_end WHERE task_id=?", (task_id,))[0][0] == 1,
+                   "TERMINAL_RECORD_NOT_UNIQUE")
+             result["scenarios"]["crashDuplicateConflict"] = {
+@@ -228,7 +296,21 @@
+                 records = response.json()["records"]
+                 time.sleep(0.1)
+             check(bool(records), "DLQ_ARCHIVE_TIMEOUT")
+-            replay = client.post("/operations/deadletters/" + records[0]["id"] + "/replay",
++            # The real broker reports its effective window. Wait past it without
++            # changing stream config, replacing IDs, or forging ledger records.
++            remaining = ack["dedupWindowSeconds"] + 1 - (time.monotonic() - ack_observed_monotonic)
++            if remaining > 0:
++                print(f"Waiting {remaining:.1f}s past the broker's real deduplication window", flush=True)
++                time.sleep(remaining)
++            from a2a_mq.deadletters import original
++            archived = sql(profile, "SELECT record_id,wire FROM a2amq_delivery_dlq")
++            matching = [record_id for record_id, wire in archived
++                        if original(json.loads(wire)).get("id") == message_id
++                        and original(json.loads(wire)).get("data", {}).get("taskId") == task_id]
++            check(len(matching) == 1, "REPLAY_ARCHIVE_ID_NOT_UNIQUE")
++            checkpoint = time.time()
++            before_replay = len(physical_deliveries(profile, task_id, message_id))
++            replay = client.post("/operations/deadletters/" + matching[0] + "/replay",
+                                  json={"requestId": "portfolio-replay"})
+             check(replay.status_code == 202, "REPLAY_NOT_ACCEPTED")
+             replay_id = replay.json()["replayId"]
+@@ -239,11 +321,31 @@
+                     break
+                 time.sleep(0.1)
+             check(bool(rows) and rows[0][0] is not None, "REPLAY_PUBLISH_TIMEOUT")
++            deadline = time.monotonic() + 15
++            receipts = []
++            while time.monotonic() < deadline:
++                receipts = physical_deliveries(profile, task_id, message_id, after=checkpoint)
++                if receipts:
++                    break
++                time.sleep(.1)
++            check(bool(receipts), "REPLAY_PHYSICAL_RECEIPT_TIMEOUT")
++            check(len(physical_deliveries(profile, task_id, message_id)) > before_replay,
++                  "REPLAY_DELIVERY_COUNT_NOT_INCREASED")
++            replay_ack = asyncio.run(original_ack_checkpoint(profile, task_id, message_id, expected_copies=2))
++            check(replay_ack["streamSequence"] > ack["streamSequence"], "REPLAY_BROKER_SEQUENCE_NOT_NEW")
+             check(completed(client, task_id)["artifacts"] == task["artifacts"], "REPLAY_CHANGED_RESULT")
++            check(sql(profile, "SELECT COUNT(*) FROM a2amq_runtime_end WHERE task_id=?", (task_id,))[0][0] == 1,
++                  "REPLAY_DUPLICATED_TERMINAL_RECORD")
+             result["scenarios"]["demoDlqReplay"] = {
+                 "status": "PASS", "injection": "Queue Lab explicit quarantine through real Dapr DLQ",
+                 "replayPublished": True, "terminalSnapshotUnchangedAfterPublication": True,
+-                "consumerReplayEvidence": "NOT_VERIFIED"}
++                "consumerReplayEvidence": "PHYSICAL_RECEIPT_VERIFIED",
++                "originalBrokerAck": ack, "observationCheckpoint": checkpoint,
++                "replayBrokerAck": replay_ack,
++                "replayRequestedAfterDedupSeconds": time.monotonic() - ack_observed_monotonic,
++                "physicalDeliveriesBeforeReplay": before_replay,
++                "replayReceipt": {key: receipts[0][key] for key in ("timestamp", "messageId", "taskId")},
++                "terminalRecordsAfterReplay": 1, "terminalGuardBranch": "NOT_VERIFIED"}
+             result["scenarios"]["officialSdkClient"] = asyncio.run(official_client(token))
+             samples = []
+             for index in range(sample_count):
+@@ -260,7 +362,7 @@
+                 "capacityBenchmark": False, "sla": False,
+             }
+             result["status"] = "PASS"
+-            print("PASS: pause/cancel, DLQ archive/replay publication, official SDK send/get; measurements recorded", flush=True)
++            print("PASS: pause/cancel, identity-preserving DLQ replay receipt/ACK, official SDK send/get; measurements recorded", flush=True)
+     finally:
+         stack.stop()
+     return result
+@@ -316,3 +418,4 @@
+ 
+ if __name__ == "__main__":
+     raise SystemExit(main())
++
+--- a/tests/test_portfolio_demo.py
++++ b/tests/test_portfolio_demo.py
+@@ -1,6 +1,8 @@
+ """Harness contracts; the actual native demo is a separate, recorded live check."""
+ import importlib.util
+ from pathlib import Path
++import json
++import base64
+ import signal
+ from types import SimpleNamespace
+ 
+@@ -71,3 +73,67 @@
+ def test_sigterm_enters_normal_cleanup_path(demo):
+     with pytest.raises(KeyboardInterrupt):
+         demo.stop_signal(signal.SIGTERM, None)
++
++
++def test_receipt_checkpoint_rejects_prior_or_different_identity(demo, tmp_path):
++    rows = [
++        {"event": "broker_delivery", "taskId": "task", "messageId": "same", "timestamp": 10},
++        {"event": "broker_delivery", "taskId": "task", "messageId": "other", "timestamp": 12},
++        {"event": "broker_delivery", "taskId": "other", "messageId": "same", "timestamp": 12},
++        {"event": "publish_attempt", "taskId": "task", "messageId": "same", "timestamp": 12},
++        {"event": "broker_delivery", "taskId": "task", "messageId": "same", "timestamp": 13},
++    ]
++    (tmp_path / "fault-events.jsonl").write_text("\n".join(json.dumps(row) for row in rows))
++    assert demo.physical_deliveries(tmp_path, "task", "same", after=10) == [rows[-1]]
++
++
++@pytest.mark.parametrize("pending,floor,accepted", [(0, 7, True), (1, 7, False), (0, 6, False)])
++def test_broker_ack_requires_floor_and_no_pending(demo, pending, floor, accepted):
++    consumer = {"config": {"filter_subject": "command"}, "num_ack_pending": pending,
++                "ack_floor": {"stream_seq": floor}}
++    assert (demo.acknowledged_consumer([consumer], "command", 7) is consumer) is accepted
++
++
++@pytest.mark.parametrize("count", [0, 2])
++def test_broker_ack_rejects_ambiguous_consumer(demo, count):
++    consumer = {"config": {"filter_subject": "command"}, "num_ack_pending": 0,
++                "ack_floor": {"stream_seq": 7}}
++    with pytest.raises(RuntimeError, match="COMMAND_CONSUMER_NOT_UNIQUE"):
++        demo.acknowledged_consumer([consumer] * count, "command", 7)
++
++
++@pytest.mark.asyncio
++@pytest.mark.parametrize("expected_id", ["same", "missing"])
++async def test_original_checkpoint_reads_real_metadata_and_closes_connection(demo, tmp_path, monkeypatch,
++                                                                            expected_id):
++    import nats
++    calls, closed = [], []
++    (tmp_path / "nats-token").write_text("disposable-fixture")
++    event = {"id": "same", "data": {"messageId": "same", "taskId": "task"}}
++    values = {
++        "$JS.API.STREAM.INFO.A2A_MQ": {"config": {"duplicate_window": 120_000_000_000},
++                                       "state": {"first_seq": 7, "last_seq": 7}},
++        "$JS.API.STREAM.MSG.GET.A2A_MQ": {"message": {"subject": "command", "seq": 7,
++            "data": base64.b64encode(json.dumps(event).encode()).decode()}},
++        "$JS.API.CONSUMER.LIST.A2A_MQ": {"total": 1, "consumers": [
++            {"name": "worker", "config": {"filter_subject": "command"}, "num_ack_pending": 0,
++             "ack_floor": {"stream_seq": 7}}]},
++    }
++    async def query(subject, body, timeout):
++        calls.append(subject)
++        return SimpleNamespace(data=json.dumps(values[subject]).encode())
++    async def close():
++        closed.append(True)
++    async def connect(**kwargs):
++        return SimpleNamespace(request=query, close=close)
++    monkeypatch.setattr(nats, "connect", connect)
++    if expected_id == "same":
++        result = await demo.original_ack_checkpoint(tmp_path, "task", expected_id)
++        assert result["dedupWindowSeconds"] == 120
++        assert result["streamSequence"] == result["ackFloorStreamSequence"] == 7
++        assert result["messageId"] == "same"
++    else:
++        with pytest.raises(RuntimeError, match="ORIGINAL_BROKER_MESSAGE_NOT_UNIQUE"):
++            await demo.original_ack_checkpoint(tmp_path, "task", expected_id)
++    assert closed == [True]
++    assert all(".INFO." in subject or ".GET." in subject or ".LIST." in subject for subject in calls)
+--- a/docs/PORTFOLIO_DEMO.md
++++ b/docs/PORTFOLIO_DEMO.md
+@@ -29,10 +29,14 @@
+    with changed content: require an invalid-parameters error.
+ 6. Pause reference-worker delivery, submit and cancel a task, then resume.
+ 7. Use Queue Lab's explicit Demo DLQ control, inspect the archive and replay through
+-   the authorized operations API and real transport. Confirm publication and an unchanged terminal snapshot at that instant. Consumer
+-   receipt/execution of that replay is not verified: broker deduplication may retain
+-   the already-published message identity. This is intentional quarantine, not an
+-   exhausted-retry or end-to-end replay-consumption test.
++   the authorized operations API and real transport. Read the original command's
++   broker sequence and consumer ACK floor, wait past the broker's effective
++   deduplication window, then set an observation checkpoint before requesting
++   replay of that exact archived message ID. Require a new timestamped physical
++   delivery with the same message/task identity, the replay's broker ACK, unchanged
++   terminal artifacts and one terminal record. This is intentional quarantine,
++   not exhausted retries. It proves receipt and safe handling of a completed
++   command, not new execution or a particular terminal-guard code branch.
+ 8. Use the official SDK client factory in the producer process for send/get against
+    the running app. SDK route/isolation/stream tests are a separate suite.
+ 9. Measure 20 warm, sequential task round trips by default; stop only owned processes.
+@@ -40,6 +44,9 @@
+ The harness briefly shortens `ackWait` from 60s to 4s in its freshly generated demo
+ profile. It does not edit an existing deployment. Failure hooks are never enabled
+ in normal runtime launches. A fresh report records a failed run as failed.
++The replay check leaves the broker's deduplication window unchanged and waits
++slightly longer than its actual value (normally two minutes). Broker inspection
++is read-only; no replacement message IDs, stream edits or ledger writes are used.
+ 
+ ## Reading the result
+ 

@@ -29,10 +29,14 @@ Work/profile and output paths must not already exist. Use a new name for another
    with changed content: require an invalid-parameters error.
 6. Pause reference-worker delivery, submit and cancel a task, then resume.
 7. Use Queue Lab's explicit Demo DLQ control, inspect the archive and replay through
-   the authorized operations API and real transport. Confirm publication and an unchanged terminal snapshot at that instant. Consumer
-   receipt/execution of that replay is not verified: broker deduplication may retain
-   the already-published message identity. This is intentional quarantine, not an
-   exhausted-retry or end-to-end replay-consumption test.
+   the authorized operations API and real transport. Read the original command's
+   broker sequence and consumer ACK floor, wait past the broker's effective
+   deduplication window, then set an observation checkpoint before requesting
+   replay of that exact archived message ID. Require a new timestamped physical
+   delivery with the same message/task identity, the replay's broker ACK, unchanged
+   terminal artifacts and one terminal record. This is intentional quarantine,
+   not exhausted retries. It proves receipt and safe handling of a completed
+   command, not new execution or a particular terminal-guard code branch.
 8. Use the official SDK client factory in the producer process for send/get against
    the running app. SDK route/isolation/stream tests are a separate suite.
 9. Measure 20 warm, sequential task round trips by default; stop only owned processes.
@@ -40,6 +44,9 @@ Work/profile and output paths must not already exist. Use a new name for another
 The harness briefly shortens `ackWait` from 60s to 4s in its freshly generated demo
 profile. It does not edit an existing deployment. Failure hooks are never enabled
 in normal runtime launches. A fresh report records a failed run as failed.
+The replay check leaves the broker's deduplication window unchanged and waits
+slightly longer than its actual value (normally two minutes). Broker inspection
+is read-only; no replacement message IDs, stream edits or ledger writes are used.
 
 ## Reading the result
 

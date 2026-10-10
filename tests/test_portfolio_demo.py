@@ -1,6 +1,8 @@
 """Harness contracts; the actual native demo is a separate, recorded live check."""
 import importlib.util
 from pathlib import Path
+import json
+import base64
 import signal
 from types import SimpleNamespace
 
@@ -71,3 +73,67 @@ def test_source_digest_excludes_private_logs_and_changes_with_code(demo, tmp_pat
 def test_sigterm_enters_normal_cleanup_path(demo):
     with pytest.raises(KeyboardInterrupt):
         demo.stop_signal(signal.SIGTERM, None)
+
+
+def test_receipt_checkpoint_rejects_prior_or_different_identity(demo, tmp_path):
+    rows = [
+        {"event": "broker_delivery", "taskId": "task", "messageId": "same", "timestamp": 10},
+        {"event": "broker_delivery", "taskId": "task", "messageId": "other", "timestamp": 12},
+        {"event": "broker_delivery", "taskId": "other", "messageId": "same", "timestamp": 12},
+        {"event": "publish_attempt", "taskId": "task", "messageId": "same", "timestamp": 12},
+        {"event": "broker_delivery", "taskId": "task", "messageId": "same", "timestamp": 13},
+    ]
+    (tmp_path / "fault-events.jsonl").write_text("\n".join(json.dumps(row) for row in rows))
+    assert demo.physical_deliveries(tmp_path, "task", "same", after=10) == [rows[-1]]
+
+
+@pytest.mark.parametrize("pending,floor,accepted", [(0, 7, True), (1, 7, False), (0, 6, False)])
+def test_broker_ack_requires_floor_and_no_pending(demo, pending, floor, accepted):
+    consumer = {"config": {"filter_subject": "command"}, "num_ack_pending": pending,
+                "ack_floor": {"stream_seq": floor}}
+    assert (demo.acknowledged_consumer([consumer], "command", 7) is consumer) is accepted
+
+
+@pytest.mark.parametrize("count", [0, 2])
+def test_broker_ack_rejects_ambiguous_consumer(demo, count):
+    consumer = {"config": {"filter_subject": "command"}, "num_ack_pending": 0,
+                "ack_floor": {"stream_seq": 7}}
+    with pytest.raises(RuntimeError, match="COMMAND_CONSUMER_NOT_UNIQUE"):
+        demo.acknowledged_consumer([consumer] * count, "command", 7)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("expected_id", ["same", "missing"])
+async def test_original_checkpoint_reads_real_metadata_and_closes_connection(demo, tmp_path, monkeypatch,
+                                                                            expected_id):
+    import nats
+    calls, closed = [], []
+    (tmp_path / "nats-token").write_text("disposable-fixture")
+    event = {"id": "same", "data": {"messageId": "same", "taskId": "task"}}
+    values = {
+        "$JS.API.STREAM.INFO.A2A_MQ": {"config": {"duplicate_window": 120_000_000_000},
+                                       "state": {"first_seq": 7, "last_seq": 7}},
+        "$JS.API.STREAM.MSG.GET.A2A_MQ": {"message": {"subject": "command", "seq": 7,
+            "data": base64.b64encode(json.dumps(event).encode()).decode()}},
+        "$JS.API.CONSUMER.LIST.A2A_MQ": {"total": 1, "consumers": [
+            {"name": "worker", "config": {"filter_subject": "command"}, "num_ack_pending": 0,
+             "ack_floor": {"stream_seq": 7}}]},
+    }
+    async def query(subject, body, timeout):
+        calls.append(subject)
+        return SimpleNamespace(data=json.dumps(values[subject]).encode())
+    async def close():
+        closed.append(True)
+    async def connect(**kwargs):
+        return SimpleNamespace(request=query, close=close)
+    monkeypatch.setattr(nats, "connect", connect)
+    if expected_id == "same":
+        result = await demo.original_ack_checkpoint(tmp_path, "task", expected_id)
+        assert result["dedupWindowSeconds"] == 120
+        assert result["streamSequence"] == result["ackFloorStreamSequence"] == 7
+        assert result["messageId"] == "same"
+    else:
+        with pytest.raises(RuntimeError, match="ORIGINAL_BROKER_MESSAGE_NOT_UNIQUE"):
+            await demo.original_ack_checkpoint(tmp_path, "task", expected_id)
+    assert closed == [True]
+    assert all(".INFO." in subject or ".GET." in subject or ".LIST." in subject for subject in calls)
