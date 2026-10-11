@@ -63,22 +63,36 @@ was found within the recorded scopes; this is not exhaustive secret certificatio
 Fresh repository-surface checks found:
 
 - Wiki has no pages; linked Projects has zero open and zero closed projects.
-- Actions has zero caches. Its 450 run records have no update after the earlier
-  audit; that audit inspected every artifact collection and found zero artifacts.
-  The latest run artifact collection was checked again and is empty.
+- Actions now has zero run records. All 450 historical runs (452 attempts and
+  1,234 jobs) were confirmed to have no assigned runner or executed step, preserved
+  in a private audit inventory, then deleted with owner approval. The maintained
+  `contracts` workflow remains active; seven obsolete workflows are no longer
+  listed. This cleanup does not establish a successful hosted CI run. Caches were
+  empty and the earlier audit found no run artifacts.
 - No releases or GitHub packages are published. Pages and Discussions are disabled.
 
 Retained evidence includes generic execution/worktree paths, an internal issuer
 hostname and a disposable execution hostname. These are engineering metadata,
-not confirmed credentials. Git commit/author metadata and historical PR/run records
-remain part of the repository's history.
+not confirmed credentials. Git commit/author metadata and closed PR history
+remain; the deleted Actions inventory is preserved privately.
 
 Deleting branch refs is ordinary repository cleanup, not a history rewrite or
 secure erasure. The historical corrupt embedded bundle remains corrupt in the
 private recovery copy; its 285 unrecovered nested objects are not newly certified.
-Old commit URLs, PR refs, Actions records or unadvertised server objects may remain
-accessible according to GitHub retention. External registries/services and
-undisclosed attachments are outside this repository review.
+Closed PR #1 still retains head `76a08b00db23135dcbb24258029ca088e3a8dea4`.
+The historical `.bundle/part-00` and `.bundle/part-01` fragments and the PR's
+`apply-final-snapshot.yml` importer remain outside main. Of its 31 referenced
+snapshot fragments, 12 were readable and 19 returned
+404; the recovered prefix contained 130 complete files. No confirmed live credential
+or sensitive personal data was found in the readable material. Missing or corrupt
+content is not certified. Branch and run deletion did not purge these retained
+artifacts. External registries/services and undisclosed attachments remain outside
+this repository review.
+
+The earlier audit's proposed license/replacement-repository steps are historical
+recommendations, not requirements of this preparation. The current bounded review
+found no demonstrated blocker to public CV/demo presentation; it does not grant a
+license, claim exhaustive secret clearance or authorize the visibility change.
 
 ## Visibility and distribution boundary
 
