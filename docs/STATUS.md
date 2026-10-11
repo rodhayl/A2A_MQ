@@ -1,22 +1,28 @@
 # Current status
 
-## Private CV/portfolio experiment, 2026-10-11
+## Public CV/portfolio experiment, 2026-10-11
+
+The existing repository was made public with owner approval on 2026-10-11 at
+`cc761a14e792c273fc2599909100b3aea51c9e9c`; anonymous README access was verified.
+Publication did not change the runtime, retained tags or evidence. No license grant
+was added. See [publication preparation and exposure limits](PUBLICATION.md).
 
 The agreed Local-lite experiment is complete. Its reviewed checkpoint is
 `f24a2e8411a902e2669bd7c16ae193ce45e3effb`, with unchanged runtime `src/` and package
 metadata from `cbe1c4f09f1dd6dc56cc7b312be5f2ae187b82ee`. Package version remains 0.1.0.
 
 The [portfolio validation](validation/portfolio-20261009.md) retains the 1,205-test
-core, four real PostgreSQL tests, native failure demo and isolated-wheel evidence.
+core, four real PostgreSQL tests, native recovery demo and isolated-wheel evidence.
 The [bounded replay record](validation/evidence/20261010-replay/README.md) adds 14
 harness contracts and real same-identity receipt/ACK after the unchanged 120-second
 broker deduplication window, with one terminal record and unchanged artifacts.
 These are separate dated scopes, not a new aggregate run or certification.
 
 No further local-agent campaign is required for this bounded closure. Optional
-Vault/distributed-Docker gates, Windows native validation, public exposure and
-licensing are outside this private CV/portfolio closure; their recorded limits
-remain intact. No new infrastructure, credentials or feature work is required.
+Vault/distributed-Docker gates and Windows native validation remain outside this
+bounded CV/portfolio closure. Publication was reviewed separately; it does not
+extend those runtime guarantees. No new infrastructure, credentials or feature work
+is required.
 The guarantee boundary below remains unchanged.
 
 ## Retained portfolio preparation, 2026-10-09
@@ -36,7 +42,7 @@ and enumerated remote-metadata inspection for the historical baseline, plus a
 separate exact candidate-tree screen. The [publication preparation](PUBLICATION.md)
 records the later tracked-tree review, recoverable branch cleanup and separate-surface
 checks, together with their historical exposure limits. No license grant is supplied.
-The exact visibility action remains separate from the completed experiment.
+The later visibility change is recorded above, separately from the completed experiment.
 
 ## Supported product shape
 

@@ -1,6 +1,6 @@
 # A2A-MQ
 
-**Durable task transport for A2A agents, with failures you can reproduce.**
+**Durable task transport for A2A agents, with verifiable recovery.**
 
 A2A-MQ connects the official A2A Python SDK to Dapr Pub/Sub and NATS JetStream.
 It explores a practical question: what happens to a task when a process dies after
@@ -12,7 +12,7 @@ It does not claim customers, production certification or arbitrary exactly-once
 external effects. No license grant is supplied. Public-exposure review is tracked
 separately in the [Publication checklist](docs/PUBLICATION.md).
 
-## Start with the failure demo
+## Run the recovery demo
 
 The default Local-lite runtime uses exactly three product processes on Linux:
 
@@ -50,12 +50,16 @@ python scripts/portfolio_demo.py \
   --output .local-validation/portfolio-demo.json
 ```
 
-The demo creates a fresh private profile, kills its own app at a named admission/ACK
-boundary, restarts it, checks actual broker redelivery, verifies duplicate and
-conflicting IDs, cancels paused work, and exercises real DLQ archival and authorized replay publication. It also
+The demo verifies task recovery after a deliberate process interruption. It creates
+a fresh private profile, stops its own app at a named admission/ACK boundary,
+restarts it, and requires actual broker redelivery with one terminal record.
+It also verifies duplicate and conflicting IDs, cancels paused work, and exercises
+real DLQ archival and authorized replay with observed receipt and acknowledgement. It
 runs a separate official SDK client and records a small, scoped latency sample.
 Existing profile/report paths are never overwritten. Read the
 [demo guide](docs/PORTFOLIO_DEMO.md) for requirements, safety and exact limits.
+The injected crash is a test step; `status=PASS` requires the recovery checks to
+succeed. An unmet check produces `status=FAIL` and a nonzero exit code.
 
 For the browser console, use the [Getting Started](docs/GETTING_STARTED.md) guide.
 Open `http://127.0.0.1:18000/lab/` only while your local runtime is running. Profile
@@ -79,7 +83,7 @@ stable destination idempotency key or reconciliation.
 
 | Profile | Purpose | Infrastructure |
 | --- | --- | --- |
-| Local-lite | Immediate reference tasks, failures and Queue Lab | Python, native Dapr/NATS, SQLite |
+| Local-lite | Immediate reference tasks, recovery demo and Queue Lab | Python, native Dapr/NATS, SQLite |
 | Local Workflow | Durable waits, continuation, approval and timers | Local-lite plus Dapr Placement/Scheduler |
 | Distributed | Separate API/worker/operations roles | PostgreSQL, Dapr Workflow, JetStream or RabbitMQ; optional Vault/telemetry |
 

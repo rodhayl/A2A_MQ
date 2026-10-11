@@ -96,9 +96,11 @@ license, claim exhaustive secret clearance or authorize the visibility change.
 
 ## Visibility and distribution boundary
 
-The repository remained private through this preparation. The exact visibility
-change is a separate owner-approved action; these records do not claim it happened.
-Repository visibility does not add an open-source license grant.
+The repository remained private through preparation, then was made public with
+explicit owner approval on 2026-10-11. Verification at 12:13 UTC confirmed public
+visibility and anonymous README access (HTTP 200), with main still at
+`cc761a14e792c273fc2599909100b3aea51c9e9c`, both RC tags unchanged and zero Actions
+run records. Repository visibility does not add an open-source license grant.
 
 Publish maintained source, tests, documentation and reviewed sanitized evidence.
 Keep virtual environments, caches, native downloads, generated profiles, signing

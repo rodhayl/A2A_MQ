@@ -6,7 +6,7 @@ and `VALIDATION.md` for the exact release/evidence boundary.
 
 ## Start here
 
-- [PORTFOLIO_DEMO.md](PORTFOLIO_DEMO.md) — bounded real-transport failure demo.
+- [PORTFOLIO_DEMO.md](PORTFOLIO_DEMO.md) — bounded real-transport recovery demo.
 - [COMPATIBILITY.md](COMPATIBILITY.md) — exact A2A/SDK/runtime surface.
 - [PUBLICATION.md](PUBLICATION.md) — repository preparation and exposure limits.
 - [validation/portfolio-20261009.md](validation/portfolio-20261009.md) — dated runtime/core evidence.

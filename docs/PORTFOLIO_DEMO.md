@@ -1,8 +1,10 @@
-# Reproduce a task failure
+# Verify task recovery
 
-This demo uses the existing Echo/Uppercase consumer and real Dapr Pub/Sub + NATS
-JetStream. A synthetic invoice sentence is only sample text; there is no document
-extraction product, approval workflow, LLM call or customer adoption claim.
+Follow an admitted task through a deliberate process interruption, restart and
+broker redelivery, then verify that its terminal result is retained without
+duplication. The demo uses the existing Echo/Uppercase consumer and real Dapr
+Pub/Sub + NATS JetStream. A synthetic invoice sentence is only sample text; there
+is no document extraction product, approval workflow, LLM call or customer adoption claim.
 
 ## Before running
 
@@ -17,7 +19,7 @@ The demo refuses conflicts rather than stopping the process that owns a port.
 The harness rechecks exact retained archive/binary provenance and executable permissions.
 Work/profile and output paths must not already exist. Use a new name for another run.
 
-## What happens
+## Recovery checks
 
 1. Create an owner-private disposable Local-lite profile. Credentials stay there.
 2. Start the three-process runtime with its existing `unacked_delivery` fault hook.
@@ -50,9 +52,19 @@ is read-only; no replacement message IDs, stream edits or ledger writes are used
 
 ## Reading the result
 
+The expected outcome is `status=PASS` with exit code 0: the deliberate crash is an
+input to the recovery test, not its final result. All listed checks must pass,
+including broker redelivery, a single terminal record and same-identity replay
+receipt/ACK. An unmet check produces `status=FAIL` and a nonzero exit code; an
+interrupted run is recorded as `CANCELED`.
+
 `status=PASS` applies only to those steps on the source content hash and environment
 in that report. The source hash covers runtime Python/JSON, package metadata and
 this demo script; it is not a Git commit or a whole-repository history digest.
+
+This guide received a presentation-only refresh on 2026-10-11. The original
+[replay checkpoint](validation/evidence/20261010-replay/README.md) preserves its
+tested patch and guide hashes as dated evidence; the executable harness is unchanged.
 
 The small latency sample includes HTTP and 50ms completion polling. Concurrency is
 one, payloads are synthetic, caches are warm and earlier demo actions share the same
