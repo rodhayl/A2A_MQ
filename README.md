@@ -9,8 +9,8 @@ admission, a command is delivered twice, or an operator replays a dead letter?
 This is an experimental engineering portfolio project, version **0.1.0**. It is an
 A2A implementation with a custom queue envelope, not ACP or a new messaging standard.
 It does not claim customers, production certification or arbitrary exactly-once
-external effects. A licensing decision and publication review remain pending; see
-[Publication checklist](docs/PUBLICATION.md).
+external effects. No license grant is supplied. Public-exposure review is tracked
+separately in the [Publication checklist](docs/PUBLICATION.md).
 
 ## Start with the failure demo
 
@@ -90,7 +90,7 @@ project is useful when retained work, retries, recovery and audit boundaries mat
 
 Start with [Current status](docs/STATUS.md), the
 [compatibility matrix](docs/COMPATIBILITY.md) and the
-[candidate validation record](docs/validation/portfolio-20261009.md).
+[validation evidence index](docs/VALIDATION.md).
 Each result identifies its source/profile. Older RC2, Kubernetes and resource
 records remain historical; they do not certify the current candidate.
 

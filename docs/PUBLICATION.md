@@ -1,59 +1,94 @@
-# Publication checklist
+# Repository publication preparation
 
-Preparing a candidate does not change repository visibility or grant a license.
-The owner must approve the exact publication action after these gates are resolved.
-The candidate is privately checkpointed at
-`dfebe8d0f6ef7cbb96b7489440e67a5c5c64ff40`; no license grant has been added.
+This existing repository is an experimental CV/portfolio project. The bounded
+Local-lite experiment is complete; its guarantees and test limits remain in
+[STATUS](STATUS.md) and [VALIDATION](VALIDATION.md). No license grant is supplied.
+License selection, a replacement repository and additional production certification
+are not requirements of this preparation.
 
-## Completed scoped review
+## Current tracked-tree review, 2026-10-11
 
-- [x] Inspect ordinary reachable history and enumerated remote metadata for the
-  audited baseline `2f57ad386c8dfba94c1910cbcc639c809af28f34`: 22 refs, 461 commits,
-  458 trees and 1,100 unique blobs, all content hashes verified; releases, PR/comment
-  collections and all 450 Actions runs' artifact collections inspected.
-- [x] Separately screen the 248-file candidate and match every file blob to the
-  privately checkpointed candidate above.
+The reviewed main baseline is `15e3d04997a7b1f7f20b765f4d2f1971bf3042a2`:
+257 files, 2,730,028 bytes, with every Git blob hash verified. All are regular UTF-8
+files. No confirmed live credential, tracked runtime profile, database, raw log,
+binary archive, symlink, submodule, LFS pointer or file larger than 1 MB was found.
+Credential-pattern matches were synthetic fixtures or credential-generation code.
+All 148 relative Markdown file/directory links and both local heading anchors
+resolved. External URLs were not checked.
 
-No confirmed live credential or personal-data leak was found in those scopes.
-**Public clearance remains open:** a corrupt embedded bundle has 285 unrecovered
-objects out of 304 declared; separate surfaces remain uninspected. See the
-[dated exposure audit](publication-exposure-20261009.md) for findings, identities,
-coverage limits and safe options. These completed checks are not complete-history
-certification or authorization to publish.
+The largest file is the retained `core.junit.xml` (678,975 bytes). The three retained
+JUnit files contain no failure, error, system-out or system-err bodies. Historical
+evidence and its checksums are preserved; cleanup does not hide failing results or
+convert skipped infrastructure into PASS. No runtime code or package version changed
+in the documentation cleanup.
 
-## Blocking decisions and review
+## Repository hygiene, 2026-10-11
 
-- [ ] Owner chooses a license and confirms ownership/contribution rights. No license
-  file or metadata grant has been added by this preparation.
-- [ ] Resolve the corrupt embedded-bundle coverage gap and the intended exposure of
-  five staging-bearing branch tips. Keep old branches/history unchanged unless the
-  owner explicitly approves a different action.
-- [ ] Inspect or verify the exclusion of wiki/project content, Actions caches,
-  external registries/services and any undisclosed attachments or raw profiles.
-  Recheck refs, releases and artifacts for drift before publication.
-- [ ] Resolve any finding with the owner. Never print a secret in a report. Rotate
-  exposed credentials through an authorized process; do not silently rewrite history.
-- [ ] Review dependency/resource licenses and any notices required for distribution.
-- [ ] Review the exact candidate diff and sanitized evidence. Use the exact checkpointed
-  SHA and identify any later documentation/packaging refresh separately; keep source
-  and package hashes distinct.
-- [ ] Run the agreed test matrix, including separately provisioned infrastructure
-  gates if full-stack acceptance is required. Explain every skip and unexecuted gate.
-- [ ] Confirm README/repository description say A2A rather than ACP and do not claim
-  customer adoption, certification, external exactly-once effects or unmeasured speed.
-- [ ] Owner approves changing visibility or creating a separate clean public repository.
+- `main` is the sole remaining branch and unchanged default branch.
+- `v0.1.0-rc1` and `v0.1.0-rc2` retain their original annotated tags. Both tagged
+  commits are ancestors of the reviewed main baseline.
+- Retired 16 unnecessary branch names: five already integrated into main, three
+  duplicate/ancestor references, and eight obsolete staging/automation branches.
+- Closed [PR #1](https://github.com/rodhayl/A2A_MQ/pull/1) without merging its obsolete
+  snapshot-import workflow; preserved its original text and history. PRs #2 and #3
+  remain merged. No open PR remains.
+- Corrected the repository description from `ACP Message Queue` to `A2A Message Queue`.
 
-## Prepared content
+Unique historical commits were preserved before their final remote refs were
+removed. The private recovery archive `a2a-mq-obsolete-branches-recovery-20261011.zip`
+contains a standalone Git bundle, all 11 divergent original branch refs, exact SHA
+mapping, restore instructions and verification records. It contains 59 commits
+(39 divergent and 20 shared ancestors), 146 trees and 105 blobs. Bundle verification,
+restoration into empty bare repositories and full strict Git integrity checks passed.
+A download of the persisted private archive matched its exact hash:
 
-README, compatibility matrix, contributor/security guidance, bounded failure demo,
-measured-evidence format, dependency constraints and publication checklist are reviewable
-within this candidate. No repository settings, protection rules, CI availability,
-release, tag, merge, license choice or public visibility is changed by these files.
+- Recovery ZIP SHA-256: `0bb407b662d22a25654e70bfe99a2e8cbb329481b9d4fe7280dfea02aa25cba7`
+- Git bundle SHA-256: `5c8687f0d1214ff7d435682118e573399fa06f5b5a3454b8dec4addfaac9bc71`
 
-## Public package allowlist
+The archive stays outside this repository. Historical direct changes consist only
+of staging markers, encapsulated snapshots/bundles/patches, recovery/publication
+workflows and `FINAL_HANDOFF.md`; no direct product-source or test changes awaited
+integration. Preserving those payloads does not assert their semantic equivalence
+to current main. Never execute or republish historical workflows merely to restore
+an old branch.
 
-Publish source, tests, maintained docs and explicitly reviewed sanitized evidence.
-Exclude virtual environments, caches, downloads, native binary archives, generated
-local profiles, private logs, raw database/backup files and `.local-validation`.
-Historical engineering records should be visibly historical and reviewed for private
-paths/hosts before publication. A file being tracked is not proof it is safe to publish.
+## Exposure review and its limits
+
+The [2026-10-09 audit](publication-exposure-20261009.md) remains the dated record of
+ordinary reachable history: 22 refs, 461 commits, 458 trees and 1,100 unique blobs,
+all content hashes checked. The four later main commits and the current tracked
+tree retain distinct identities. No confirmed live credential or personal-data leak
+was found within the recorded scopes; this is not exhaustive secret certification.
+
+Fresh repository-surface checks found:
+
+- Wiki has no pages; linked Projects has zero open and zero closed projects.
+- Actions has zero caches. Its 450 run records have no update after the earlier
+  audit; that audit inspected every artifact collection and found zero artifacts.
+  The latest run artifact collection was checked again and is empty.
+- No releases or GitHub packages are published. Pages and Discussions are disabled.
+
+Retained evidence includes generic execution/worktree paths, an internal issuer
+hostname and a disposable execution hostname. These are engineering metadata,
+not confirmed credentials. Git commit/author metadata and historical PR/run records
+remain part of the repository's history.
+
+Deleting branch refs is ordinary repository cleanup, not a history rewrite or
+secure erasure. The historical corrupt embedded bundle remains corrupt in the
+private recovery copy; its 285 unrecovered nested objects are not newly certified.
+Old commit URLs, PR refs, Actions records or unadvertised server objects may remain
+accessible according to GitHub retention. External registries/services and
+undisclosed attachments are outside this repository review.
+
+## Visibility and distribution boundary
+
+The repository remained private through this preparation. The exact visibility
+change is a separate owner-approved action; these records do not claim it happened.
+Repository visibility does not add an open-source license grant.
+
+Publish maintained source, tests, documentation and reviewed sanitized evidence.
+Keep virtual environments, caches, native downloads, generated profiles, signing
+keys/tokens, raw logs/databases/backups and `.local-validation` outside commits.
+Bundled redistribution of third-party dependencies or native tools requires its
+own exact-artifact notices and review. Optional infrastructure certification remains
+outside the completed CV/portfolio scope.

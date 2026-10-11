@@ -8,8 +8,9 @@ and `VALIDATION.md` for the exact release/evidence boundary.
 
 - [PORTFOLIO_DEMO.md](PORTFOLIO_DEMO.md) — bounded real-transport failure demo.
 - [COMPATIBILITY.md](COMPATIBILITY.md) — exact A2A/SDK/runtime surface.
-- [PUBLICATION.md](PUBLICATION.md) — decisions and publication gates.
-- [validation/portfolio-20261009.md](validation/portfolio-20261009.md) — current candidate evidence.
+- [PUBLICATION.md](PUBLICATION.md) — repository preparation and exposure limits.
+- [validation/portfolio-20261009.md](validation/portfolio-20261009.md) — dated runtime/core evidence.
+- [validation/evidence/20261010-replay/README.md](validation/evidence/20261010-replay/README.md) — bounded replay evidence.
 
 - [GETTING_STARTED.md](GETTING_STARTED.md) — fresh-checkout quickstart for Local-lite.
 - [QUEUE_LAB.md](QUEUE_LAB.md) — graphical/manual queue and protocol test console.

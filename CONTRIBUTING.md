@@ -1,6 +1,6 @@
 # Contributing
 
-The project is experimental and its licensing decision is pending. Do not assume
+The project is experimental and supplies no license grant. Do not assume
 an open-source grant from repository visibility. Confirm contribution terms with
 the owner before submitting material owned by somebody else.
 

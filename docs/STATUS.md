@@ -33,9 +33,10 @@ actual checks and open limitations are in
 [portfolio validation](validation/portfolio-20261009.md). The dated
 [exposure audit](publication-exposure-20261009.md) completed ordinary reachable-history
 and enumerated remote-metadata inspection for the historical baseline, plus a
-separate exact candidate-tree screen. Corrupt embedded history and separate-surface
-checks remain open. Licensing/rights decisions and explicit publication approval are
-still required; see [publication checklist](PUBLICATION.md).
+separate exact candidate-tree screen. The [publication preparation](PUBLICATION.md)
+records the later tracked-tree review, recoverable branch cleanup and separate-surface
+checks, together with their historical exposure limits. No license grant is supplied.
+The exact visibility action remains separate from the completed experiment.
 
 ## Supported product shape
 
