@@ -1,6 +1,13 @@
 # Validation evidence index
 
-Current portfolio-candidate evidence: [2026-10-09 validation](validation/portfolio-20261009.md).
+Current private CV/portfolio evidence:
+
+- [2026-10-09 validation](validation/portfolio-20261009.md): runtime, package and core evidence.
+- [2026-10-10 replay](validation/evidence/20261010-replay/README.md): the bounded
+  replay-after-dedup checkpoint `f24a2e8411a902e2669bd7c16ae193ce45e3effb`.
+
+See [STATUS](STATUS.md) for the completed experiment scope and retained limitations.
+These records retain their exact tested identities; no new full-suite run is claimed.
 
 The records below describe earlier release candidates, not current-candidate test runs.
 This file is the index for retained release-candidate evidence. Historical phase,

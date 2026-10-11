@@ -1,6 +1,25 @@
 # Current status
 
-## Portfolio candidate, 2026-10-09
+## Private CV/portfolio experiment, 2026-10-11
+
+The agreed Local-lite experiment is complete. Its reviewed checkpoint is
+`f24a2e8411a902e2669bd7c16ae193ce45e3effb`, with unchanged runtime `src/` and package
+metadata from `cbe1c4f09f1dd6dc56cc7b312be5f2ae187b82ee`. Package version remains 0.1.0.
+
+The [portfolio validation](validation/portfolio-20261009.md) retains the 1,205-test
+core, four real PostgreSQL tests, native failure demo and isolated-wheel evidence.
+The [bounded replay record](validation/evidence/20261010-replay/README.md) adds 14
+harness contracts and real same-identity receipt/ACK after the unchanged 120-second
+broker deduplication window, with one terminal record and unchanged artifacts.
+These are separate dated scopes, not a new aggregate run or certification.
+
+No further local-agent campaign is required for this bounded closure. Optional
+Vault/distributed-Docker gates, Windows native validation, public exposure and
+licensing are outside this private CV/portfolio closure; their recorded limits
+remain intact. No new infrastructure, credentials or feature work is required.
+The guarantee boundary below remains unchanged.
+
+## Retained portfolio preparation, 2026-10-09
 
 Package version remains **0.1.0**. Preparation was based on
 `2f57ad386c8dfba94c1910cbcc639c809af28f34`. The candidate is privately checkpointed at
