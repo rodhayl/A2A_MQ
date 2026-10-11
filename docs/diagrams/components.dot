@@ -1,0 +1,31 @@
+digraph components {
+ graph [rankdir=LR,bgcolor="#f7f9fc",pad=0.4,nodesep=0.4,ranksep=0.65,labelloc=t,label="Integrated profile | Components and trust boundaries",fontname="DejaVu Sans",fontsize=24];
+ node [shape=component,style=filled,fillcolor=white,color="#b6c5d8",fontname="DejaVu Sans",fontsize=12,margin="0.14,0.1"];
+ edge [color="#42668f",fontname="DejaVu Sans",fontsize=10,arrowsize=0.7];
+ client [label="A2A / MCP client"];
+ subgraph cluster_api {label="Publishing application";color="#8eadd0";api [label="Official SDK bridge\nJWT → TaskAPI → TaskLedger"];relay [label="ActionRelay / OutboxRelay"];seal [label="Optional ProtectedPublisher\nEnvelopeProtector.seal"];} 
+ sql [shape=cylinder,label="SQL\nJobs, tasks, outbox: plaintext\nSealedCache: ciphertext",fillcolor="#fff3dc"];
+ dapr [label="Dapr Pub/Sub\nTokens + topic scopes",fillcolor="#e6f0ff"];
+ broker [shape=cylinder,label="JetStream / RabbitMQ\nProtected route: ciphertext\nRouting metadata remains visible",fillcolor="#e6f0ff"];
+ subgraph cluster_receiver {label="Authorized receiving applications";color="#89b9a3";callback [label="Dapr callback\nOptional EnvelopeProtector.open"];worker [label="Worker handler\nDaprActions → Dapr Workflow"];observer [label="Observer handler\nProjectionPolicy"];} 
+ vault [label="Vault Transit over HTTPS\nKeyProvider.wrap / unwrap\nRole-scoped key policies",fillcolor="#f0e7fa"];
+ wfstate [shape=cylinder,label="Workflow state/history\nOutside payload-encryption scope",fillcolor="#fff3dc"];
+ client -> api [label="HTTPS + bearer"];
+ api -> sql [label="admit transaction"];
+ sql -> relay [label="pending work"];
+ relay -> seal [label="if enabled"];
+ seal -> sql [label="cache before send"];
+ seal -> vault [label="wrap CEK"];
+ seal -> dapr [label="sealed CloudEvent"];
+ relay -> dapr [label="plaintext when disabled",style=dashed];
+ dapr -> broker [label="publish / subscribe"];
+ broker -> callback [label="via receiver daprd"];
+ callback -> vault [label="unwrap CEK if protected"];
+ callback -> worker [label="command topic"];
+ callback -> observer [label="result topic"];
+ worker -> sql [label="snapshots + outbox"];
+ observer -> sql [label="own scoped projection"];
+ worker -> wfstate;
+ note [shape=note,label="Encryption endpoints are the applications, not final clients.\nBroker does not call Vault. SQL and authorized endpoints see plaintext.\nLocal-lite and production_env factories do not wire this crypto profile.",fillcolor=white];
+ {rank=sink;note;wfstate;}
+}

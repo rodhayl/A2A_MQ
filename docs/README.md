@@ -6,6 +6,7 @@ and `VALIDATION.md` for the exact release/evidence boundary.
 
 ## Start here
 
+- [AGENT_BUS_DEMO.md](AGENT_BUS_DEMO.md) — dated real encrypted-topic component demo, independent observers and bounded evidence.
 - [PORTFOLIO_DEMO.md](PORTFOLIO_DEMO.md) — bounded real-transport recovery demo.
 - [COMPATIBILITY.md](COMPATIBILITY.md) — exact A2A/SDK/runtime surface.
 - [PUBLICATION.md](PUBLICATION.md) — repository preparation and exposure limits.

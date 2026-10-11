@@ -1,0 +1,42 @@
+{
+  "baseCommit": "e137903cb68906a1f83630803198ad7f5afa42e4",
+  "candidate": "base plus uncommitted purpose-repair edits; not pushed",
+  "report": "report.json",
+  "reportSha256": "c8a983706c00d379694166f7ed5276b6e48f834d0e5c675dfc7faf15bac4a078",
+  "reportCreatedAt": "2026-10-11T19:34:46.807155+00:00",
+  "sourceContentSha256": "7b249f711a72995eb5477a800c397dac76c72cdad1557bd3bff1c7daa535cf73",
+  "sourceDigestFraming": "sorted report.runtimeFilesSha256 paths plus scripts/agent_bus_demo.py, each path UTF8 + NUL + raw file bytes + NUL",
+  "files": {
+    "scripts/agent_bus_demo.py": "784ebe4535b0e9b3a45683f6378d323f063064c0c4e0497590923911fc9c495c",
+    "tests/test_agent_bus_demo.py": "4112899f226071fbf1e1bd0a77908acdc546b52450bdcdbd695e9a4914138282"
+  },
+  "tests": {
+    "command": "PYTHONPATH=src PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python -m pytest -p pytest_asyncio.plugin -p no:cacheprovider -q tests/test_agent_bus_demo.py tests/test_identity_protection.py tests/test_portfolio_demo.py tests/test_transport.py tests/test_transport_lifecycle.py tests/test_reference_replay.py tests/test_domain.py tests/test_storage.py",
+    "passed": 367,
+    "junit": "focused.junit.xml",
+    "junitSha256": "8221fe8ae3c504ce594f9e5e3853fd39e0aa943e7e304d74e8368dc3319585e0"
+  },
+  "lint": "Ruff PASS using an existing installed executable; no installation",
+  "cleanupVerification": {
+    "ownedProcessesStopped": true,
+    "all17FixturePortsBindable": true
+  },
+  "runtimeHashMismatches": [],
+  "environment": {
+    "python": "3.12.14",
+    "system": "Linux",
+    "machine": "x86_64",
+    "packages": {
+      "a2a-mq": "0.1.0",
+      "cryptography": "46.0.4",
+      "httpx": "0.28.1",
+      "nats-py": "2.11.0",
+      "uvicorn": "0.48.0",
+      "pytest": "9.0.2",
+      "pytest-asyncio": "1.4.0"
+    },
+    "dapr": "1.18.3",
+    "natsServer": "2.15.0",
+    "effectiveCgroupLimits": "not available; no capacity claim"
+  }
+}

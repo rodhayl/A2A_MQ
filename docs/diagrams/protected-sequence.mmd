@@ -1,0 +1,33 @@
+sequenceDiagram
+    participant C as Client
+    participant A as API + relay
+    participant S as SQL
+    participant V as Vault
+    participant B as Dapr / broker
+    participant W as Worker
+    participant O as Observer
+    C->>A: SendMessage + bearer
+    A->>S: Commit task + publish action
+    A-->>C: SUBMITTED (returnImmediately)
+    opt Crypto enabled; sealed cache miss
+        A->>V: Wrap fresh content key
+        V-->>A: wrappedKey
+        A->>A: AES-GCM seal with authenticated header
+        A->>S: Persist sealed bytes before publish
+    end
+    A->>B: Publish command (sealed if enabled)
+    B-->>A: Publication accepted
+    A->>S: Mark published; crash window can duplicate
+    B->>W: Deliver subscribed command
+    opt Crypto enabled
+        W->>V: Unwrap content key
+        V-->>W: Content key
+        W->>W: Authenticate, decrypt, validate route
+    end
+    W->>S: Durable admission / stable Workflow start
+    W-->>B: SUCCESS; business work may still be running
+    W->>S: Commit result + outbox
+    W->>B: Publish result (same optional protection)
+    B->>O: Independent result subscription
+    O->>O: Decrypt if protected; apply monotonic snapshot
+    Note over C,O: App-to-app protection across transport. SQL/Workflow remain outside scope.

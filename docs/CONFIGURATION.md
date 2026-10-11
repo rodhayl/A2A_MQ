@@ -200,3 +200,9 @@ For error-specific recovery steps see
 PostgreSQL databases used by this driver must use UTF-8 encoding. A SQL_ASCII database
 may return text metadata as bytes and is not a supported fixture for the text-based
 storage contract. The current live gate used PostgreSQL 17.11 with verified TLS.
+
+## Optional integrated payload protection
+
+For encrypted command/event routes use the separate, existing
+[application:from_env recipe](PAYLOAD_PROTECTION.md). The production_env factories
+listed above do not support `A2A_CRYPTO_CONFIG` and reject it when nonempty.

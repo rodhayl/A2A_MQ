@@ -1,0 +1,73 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1540" height="1200" viewBox="0 0 1540 1200">
+<defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#254c77"/></marker></defs>
+<rect width="100%" height="100%" fill="#f7f9fc"/>
+<g font-family="DejaVu Sans, sans-serif" fill="#152d47">
+<text x="770.0" y="36" font-size="26" text-anchor="middle">Optional protected delivery | UML sequence</text>
+<rect x="10" y="60" width="170" height="43" rx="5" fill="#e2ecf8" stroke="#53779e"/>
+<text x="95" y="87" font-size="16" text-anchor="middle">Client</text>
+<line x1="95" y1="103" x2="95" y2="1110" stroke="#9bacbf" stroke-dasharray="6 6"/>
+<rect x="225" y="60" width="170" height="43" rx="5" fill="#e2ecf8" stroke="#53779e"/>
+<text x="310" y="87" font-size="16" text-anchor="middle">API + relay</text>
+<line x1="310" y1="103" x2="310" y2="1110" stroke="#9bacbf" stroke-dasharray="6 6"/>
+<rect x="440" y="60" width="170" height="43" rx="5" fill="#e2ecf8" stroke="#53779e"/>
+<text x="525" y="87" font-size="16" text-anchor="middle">SQL</text>
+<line x1="525" y1="103" x2="525" y2="1110" stroke="#9bacbf" stroke-dasharray="6 6"/>
+<rect x="655" y="60" width="170" height="43" rx="5" fill="#e2ecf8" stroke="#53779e"/>
+<text x="740" y="87" font-size="16" text-anchor="middle">Vault</text>
+<line x1="740" y1="103" x2="740" y2="1110" stroke="#9bacbf" stroke-dasharray="6 6"/>
+<rect x="870" y="60" width="170" height="43" rx="5" fill="#e2ecf8" stroke="#53779e"/>
+<text x="955" y="87" font-size="16" text-anchor="middle">Dapr / broker</text>
+<line x1="955" y1="103" x2="955" y2="1110" stroke="#9bacbf" stroke-dasharray="6 6"/>
+<rect x="1085" y="60" width="170" height="43" rx="5" fill="#e2ecf8" stroke="#53779e"/>
+<text x="1170" y="87" font-size="16" text-anchor="middle">Worker</text>
+<line x1="1170" y1="103" x2="1170" y2="1110" stroke="#9bacbf" stroke-dasharray="6 6"/>
+<rect x="1300" y="60" width="170" height="43" rx="5" fill="#e2ecf8" stroke="#53779e"/>
+<text x="1385" y="87" font-size="16" text-anchor="middle">Observer</text>
+<line x1="1385" y1="103" x2="1385" y2="1110" stroke="#9bacbf" stroke-dasharray="6 6"/>
+<line x1="95" y1="140" x2="310" y2="140" stroke="#254c77"  marker-end="url(#arrow)"/>
+<text x="202.5" y="132" font-size="13" text-anchor="middle">SendMessage + bearer</text>
+<line x1="310" y1="182" x2="525" y2="182" stroke="#254c77"  marker-end="url(#arrow)"/>
+<text x="417.5" y="174" font-size="13" text-anchor="middle">Commit task + publish action</text>
+<line x1="310" y1="224" x2="95" y2="224" stroke="#254c77" stroke-dasharray="5 4" marker-end="url(#arrow)"/>
+<text x="202.5" y="216" font-size="13" text-anchor="middle">SUBMITTED if returnImmediately</text>
+<rect x="200" y="250" width="1280" height="198" fill="#eee8f7" fill-opacity="0.65" stroke="#765593" stroke-dasharray="5 3"/>
+<text x="212" y="269" font-size="13" text-anchor="start">opt  crypto enabled; cache miss</text>
+<line x1="310" y1="296" x2="740" y2="296" stroke="#254c77"  marker-end="url(#arrow)"/>
+<text x="525.0" y="288" font-size="13" text-anchor="middle">Wrap fresh content key</text>
+<line x1="740" y1="336" x2="310" y2="336" stroke="#254c77" stroke-dasharray="5 4" marker-end="url(#arrow)"/>
+<text x="525.0" y="328" font-size="13" text-anchor="middle">wrappedKey</text>
+<path d="M310 377h90v20h-90" fill="none" stroke="#254c77" marker-end="url(#arrow)"/>
+<text x="318" y="369" font-size="12" text-anchor="start">AES-GCM + authenticated header</text>
+<line x1="310" y1="425" x2="525" y2="425" stroke="#254c77"  marker-end="url(#arrow)"/>
+<text x="417.5" y="417" font-size="13" text-anchor="middle">Persist sealed bytes before publish</text>
+<line x1="310" y1="480" x2="955" y2="480" stroke="#254c77"  marker-end="url(#arrow)"/>
+<text x="632.5" y="472" font-size="13" text-anchor="middle">Publish command; sealed only when enabled</text>
+<line x1="955" y1="522" x2="310" y2="522" stroke="#254c77" stroke-dasharray="5 4" marker-end="url(#arrow)"/>
+<text x="632.5" y="514" font-size="13" text-anchor="middle">Publication accepted</text>
+<line x1="310" y1="564" x2="525" y2="564" stroke="#254c77"  marker-end="url(#arrow)"/>
+<text x="417.5" y="556" font-size="13" text-anchor="middle">Mark sent (crash window can duplicate)</text>
+<line x1="955" y1="606" x2="1170" y2="606" stroke="#254c77"  marker-end="url(#arrow)"/>
+<text x="1062.5" y="598" font-size="13" text-anchor="middle">Subscribed delivery</text>
+<rect x="200" y="627" width="1280" height="169" fill="#eee8f7" fill-opacity="0.65" stroke="#765593" stroke-dasharray="5 3"/>
+<text x="212" y="646" font-size="13" text-anchor="start">opt  crypto enabled</text>
+<line x1="1170" y1="674" x2="740" y2="674" stroke="#254c77"  marker-end="url(#arrow)"/>
+<text x="955.0" y="666" font-size="13" text-anchor="middle">Unwrap content key</text>
+<line x1="740" y1="714" x2="1170" y2="714" stroke="#254c77" stroke-dasharray="5 4" marker-end="url(#arrow)"/>
+<text x="955.0" y="706" font-size="13" text-anchor="middle">Content key</text>
+<path d="M1170 754h90v20h-90" fill="none" stroke="#254c77" marker-end="url(#arrow)"/>
+<text x="1178" y="746" font-size="12" text-anchor="start">Authenticate + decrypt + validate</text>
+<line x1="1170" y1="832" x2="525" y2="832" stroke="#254c77"  marker-end="url(#arrow)"/>
+<text x="847.5" y="824" font-size="13" text-anchor="middle">Durable admission / stable Workflow start</text>
+<line x1="1170" y1="878" x2="955" y2="878" stroke="#254c77" stroke-dasharray="5 4" marker-end="url(#arrow)"/>
+<text x="1062.5" y="870" font-size="13" text-anchor="middle">SUCCESS: admitted, not yet completed</text>
+<line x1="1170" y1="923" x2="525" y2="923" stroke="#254c77"  marker-end="url(#arrow)"/>
+<text x="847.5" y="915" font-size="13" text-anchor="middle">Commit task result + outbox</text>
+<line x1="1170" y1="966" x2="955" y2="966" stroke="#254c77"  marker-end="url(#arrow)"/>
+<text x="1062.5" y="958" font-size="13" text-anchor="middle">Publish result; same optional protection</text>
+<line x1="955" y1="1009" x2="1385" y2="1009" stroke="#254c77"  marker-end="url(#arrow)"/>
+<text x="1170.0" y="1001" font-size="13" text-anchor="middle">Independent result subscription</text>
+<path d="M1385 1054h90v20h-90" fill="none" stroke="#254c77" marker-end="url(#arrow)"/>
+<text x="1377" y="1046" font-size="12" text-anchor="end">Decrypt if protected; project</text>
+<text x="770.0" y="1140" font-size="17" text-anchor="middle">Protection ends at the applications. SQL and Workflow history remain outside scope.</text>
+<text x="770.0" y="1171" font-size="13" text-anchor="middle">Visible authenticated header: version, algorithm, keyId, wrappedKey, nonce, tenant, receiver, route, messageId.</text>
+</g></svg>

@@ -226,3 +226,9 @@ operator-managed rollback/DR plan.
 The earlier JetStream Kubernetes deployment acceptance is recorded in
 [VALIDATION.md](VALIDATION.md). It is evidence for its exact recorded image and
 environment, not a generic production certification.
+
+## Deploying the optional protected profile
+
+The three-role renderer in this guide uses production_env and does not enable
+payload encryption. For the integrated application profile, its existing renderer
+and required Vault/key configuration, follow [Payload protection](PAYLOAD_PROTECTION.md).

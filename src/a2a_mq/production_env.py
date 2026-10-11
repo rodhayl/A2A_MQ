@@ -173,8 +173,15 @@ def _close_stores(*stores) -> None:
             close()
 
 
+def _reject_unsupported_crypto(env: Mapping[str, str]) -> None:
+    """Never silently downgrade an explicitly requested payload-protection profile."""
+    require(not env.get("A2A_CRYPTO_CONFIG"),
+            "PAYLOAD_CRYPTO_REQUIRES_INTEGRATED_PROFILE")
+
+
 def create_api_from_env(env: Mapping[str, str] | None = None):
     env = os.environ if env is None else env
+    _reject_unsupported_crypto(env)
     tenant = token(_value(env, "A2A_TENANT", default="demo"))
     consumer = token(_value(env, "A2A_CONSUMER", default="workflow-worker"))
     dlq_consumer = token(_value(env, "A2A_DLQ_CONSUMER", default="operations"))
@@ -204,6 +211,7 @@ def create_api_from_env(env: Mapping[str, str] | None = None):
 
 def create_worker_from_env(env: Mapping[str, str] | None = None):
     env = os.environ if env is None else env
+    _reject_unsupported_crypto(env)
     tenant = token(_value(env, "A2A_TENANT", default="demo"))
     consumer = token(_value(env, "A2A_CONSUMER", default="workflow-worker"))
     source = token(_value(env, "A2A_SOURCE", default="workflow-worker"))
@@ -225,6 +233,7 @@ def create_worker_from_env(env: Mapping[str, str] | None = None):
 
 def create_dlq_from_env(env: Mapping[str, str] | None = None):
     env = os.environ if env is None else env
+    _reject_unsupported_crypto(env)
     tenant = token(_value(env, "A2A_TENANT", default="demo"))
     consumer = token(_value(env, "A2A_DLQ_CONSUMER", default="operations"))
     app_token = _secret(env, "APP_API_TOKEN", "APP_API_TOKEN_FILE", required=True)

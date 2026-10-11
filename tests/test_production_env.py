@@ -120,3 +120,24 @@ def test_boolean_configuration_rejects_loose_truthiness():
     for value in ("1", "TRUE", "yes", ""):
         with pytest.raises(PermanentError, match="INVALID_CONFIG"):
             _bool({"FLAG": value}, "FLAG")
+
+
+@pytest.mark.parametrize("factory_name", [
+    "create_api_from_env", "create_worker_from_env", "create_dlq_from_env",
+])
+def test_unsupported_payload_crypto_fails_before_allocating_resources(monkeypatch, factory_name):
+    def unexpected(*args, **kwargs):
+        pytest.fail("unsupported crypto must be rejected before resource or identity setup")
+
+    for name in ("_identity", "_storage_config", "_stores", "_bus", "_secret"):
+        monkeypatch.setattr(production_env, name, unexpected)
+    with pytest.raises(PermanentError, match="PAYLOAD_CRYPTO_REQUIRES_INTEGRATED_PROFILE"):
+        getattr(production_env, factory_name)({
+            "A2A_CRYPTO_CONFIG": "/credentials/crypto.json",
+            "A2A_PUBLIC_URL": "https://agent.example",
+        })
+
+
+@pytest.mark.parametrize("env", [{}, {"A2A_CRYPTO_CONFIG": ""}])
+def test_no_payload_crypto_request_preserves_profile(env):
+    production_env._reject_unsupported_crypto(env)
