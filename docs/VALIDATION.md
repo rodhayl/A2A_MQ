@@ -2,6 +2,13 @@
 
 Current CV/portfolio evidence:
 
+- [2026-10-11 native encrypted-topic demo](AGENT_BUS_DEMO.md): reviewed real
+  Dapr/NATS component integration plus 367 separately scoped passing checks.
+  [Manifest](validation/evidence/20261011-agent-bus/manifest.json) source-content SHA-256:
+  `7b249f711a72995eb5477a800c397dac76c72cdad1557bd3bff1c7daa535cf73`.
+  Development LocalKeyRing; no aggregate full-suite, public A2A API,
+  ServiceApplication, Vault or production acceptance claim.
+
 - [2026-10-09 validation](validation/portfolio-20261009.md): runtime, package and core evidence.
 - [2026-10-10 replay](validation/evidence/20261010-replay/README.md): the bounded
   replay-after-dedup checkpoint `f24a2e8411a902e2669bd7c16ae193ce45e3effb`.

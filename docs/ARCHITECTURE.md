@@ -218,3 +218,18 @@ Architecture describes the implemented contracts; validation remains SHA-bound.
 
 No architecture statement should be read as a claim of third-party certification,
 generic exactly-once behavior, HA SLA or unmeasured performance.
+
+## Architecture diagrams
+
+The first view explains the messaging purpose. The component and sequence views
+show the integrated profile and its optional encryption boundary. They do not
+represent Local-lite as multiple independent worker processes.
+
+![Messaging overview](diagrams/messaging-overview.svg)
+
+![Integrated components](diagrams/components.svg)
+
+![Optional protected message sequence](diagrams/protected-sequence.svg)
+
+[Editable sources and reproduction](diagrams/README.md) ·
+[Exact protection recipe](PAYLOAD_PROTECTION.md)

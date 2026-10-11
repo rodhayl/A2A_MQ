@@ -1,0 +1,23 @@
+digraph messaging {
+ graph [rankdir=TB, bgcolor="#f7f9fc", pad=0.4, nodesep=0.45, ranksep=0.5, labelloc=t, label="A2A-MQ | Durable messaging between agents", fontname="DejaVu Sans", fontsize=24];
+ node [shape=box, style="rounded,filled", fillcolor="white", color="#b6c5d8", fontname="DejaVu Sans", fontsize=13, margin="0.18,0.14"];
+ edge [color="#42668f", fontname="DejaVu Sans", fontsize=11, arrowsize=0.7];
+ producer [label="Producer agent / orchestrator\nSubmit work through A2A or an adapter",fillcolor="#e6f0ff"];
+ queue [label="Topics + durable broker\nDapr Pub/Sub → JetStream / RabbitMQ",fillcolor="#ddeaf8"];
+ worker [label="Subscribed worker group\nReplicas compete for commands",fillcolor="#e2f4ec"];
+ result [label="Task-result topic\nevent.task",fillcolor="#ddeaf8"];
+ observer1 [label="Observer A\nOwn durable subscription"];
+ observer2 [label="Observer B\nOwn durable subscription"];
+ sql [shape=cylinder,label="Durable task state\nSQL ledger + outbox",fillcolor="#fff3dc"];
+ dlq [label="Dead-letter archive\nAuthorized replay",fillcolor="#ffebdf"];
+ producer -> queue [label="agent / skill command"];
+ queue -> worker [label="retained delivery"];
+ worker -> sql [label="commit state"];
+ sql -> result [label="publish result via outbox"];
+ result -> observer1; result -> observer2;
+ queue -> dlq [label="delivery failures",style=dashed];
+ dlq -> queue [label="same-identity replay",style=dashed];
+ note [shape=note,fillcolor="#ffffff",label="Optional: authenticated envelope encryption across the bus.\nAt-least-once delivery; external effects need their own idempotency.\nRunnable reference: text tasks. Local-lite combines API + worker in one process."];
+ {rank=same;observer1;observer2;}
+ {rank=sink;note;}
+}

@@ -1,4 +1,12 @@
-# Verify task recovery
+# Follow a message through the queue
+
+A2A-MQ provides durable messaging between producers, subscribed workers and result
+observers. This small Local-lite demonstration makes one messaging path visible:
+A2A submission → durable command → Dapr/JetStream delivery → reference worker →
+retained task result. Recovery checks below test that path under interruption.
+See the [architecture diagrams](ARCHITECTURE.md#architecture-diagrams) for the broader
+topic/consumer model and [payload protection](PAYLOAD_PROTECTION.md) for the separate
+optional encrypted profile. This demo does not activate that profile.
 
 Follow an admitted task through a deliberate process interruption, restart and
 broker redelivery, then verify that its terminal result is retained without

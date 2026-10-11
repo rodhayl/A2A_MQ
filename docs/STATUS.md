@@ -1,5 +1,23 @@
 # Current status
 
+## Native encrypted-topic component demo, 2026-10-11
+
+The [new native demo](AGENT_BUS_DEMO.md) passed on real Dapr/NATS with a separate
+producer/worker, two independent observers, encrypted command/event payloads,
+offline-observer recovery and four rejected-message cases. Its final reviewed
+[report and manifest](validation/evidence/20261011-agent-bus/manifest.json) bind
+source-content SHA-256
+`7b249f711a72995eb5477a800c397dac76c72cdad1557bd3bff1c7daa535cf73`;
+367 focused checks passed separately. This is development-only LocalKeyRing
+component integration, not a new full-suite, A2A API, ServiceApplication, Vault or
+production acceptance result. Historical counts below are not aggregated with it.
+
+This repair also makes the separate `production_env` entrypoints reject unsupported
+`A2A_CRYPTO_CONFIG` explicitly instead of silently ignoring it; the supported crypto
+composition remains `application:from_env`. See [payload protection](PAYLOAD_PROTECTION.md).
+The original Local-lite runtime and recovery-demo script remain unchanged; their
+completed, dated scope below is preserved, not relabeled as encrypted acceptance.
+
 ## Public CV/portfolio experiment, 2026-10-11
 
 The existing repository was made public with owner approval on 2026-10-11 at

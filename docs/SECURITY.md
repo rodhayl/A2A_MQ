@@ -92,3 +92,9 @@ These are engineering acceptance results, not signed security certification.
 
 - `productionCertified=false`
 - `upstreamBindingCertified=false`
+
+## Activating payload protection
+
+See [Payload protection](PAYLOAD_PROTECTION.md) for the exact entry point, configuration,
+plaintext/ciphertext boundaries and rollout requirements. Installing crypto dependencies
+or using TLS does not itself activate encrypted envelopes.
